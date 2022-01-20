@@ -1,0 +1,19 @@
+{
+  "name": "ti2",
+  "version": "1.0.0",
+  "description": "Tourist Industry Exchange (TI2)",
+  "main": "index.js",
+  "scripts": {
+    "test": "npx jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TourConnect/ti2.git"
+  },
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/TourConnect/ti2/issues"
+  },
+  "homepage": "https://github.com/TourConnect/ti2#readme"
+}
