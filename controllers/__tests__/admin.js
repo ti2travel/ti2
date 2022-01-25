@@ -1,25 +1,26 @@
 /* globals describe it expect afterAll */
 
-const faker = require('faker');
+const chance = require('chance').Chance();
 const request = require('supertest');
-const app = require('../../../app');
-const sqldb = require('../../../models');
+const app = require('../../index');
+const sqldb = require('../../models/db');
+const { slugify } = require('../../test/utils');
 
 const { env: { adminKey } } = process;
 
 describe('admin', () => {
-  const appName = faker.helpers.slugify(
-    faker.company.companyName(),
+  const appName = slugify(
+    chance.company(),
   );
   const newApp = {
     name: appName,
     packageName: `ti2-${appName}`,
-    adminEmail: faker.internet.email(),
+    adminEmail: chance.email(),
   };
   let appKey;
   const userId = '536830b6ed19afa44a000002';
   afterAll(async () => {
-    await sqldb.sequelize.connectionManager.close();
+    await sqldb.connectionManager.close();
   });
   it('should be able to create an app', async () => {
     const resp = await request(app)

@@ -1,32 +1,34 @@
 /* globals describe it expect beforeAll, afterAll */
 
-const faker = require('faker');
+const chance = require('chance').Chance();
 const request = require('supertest');
 const jwt = require('jwt-promise');
-const app = require('../../../app');
-const sqldb = require('../../../models');
+
+const app = require('../../index');
+const sqldb = require('../../models/db');
+const { slugify } = require('../../test/utils');
 
 const { env: { adminKey, jwtSecret } } = process;
 
 describe('app', () => {
-  const appName = faker.helpers.slugify(
-    faker.company.companyName(),
+  const appName = slugify(
+    chance.company(),
   ).toLowerCase();
   const newApp = {
     name: appName,
     packageName: `ti2-${appName}`,
-    adminEmail: faker.internet.email(),
+    adminEmail: chance.email(),
   };
   let appKey;
-  const userId = faker.random.uuid();
-  const apiKey = faker.random.uuid();
+  const userId = chance.guid();
+  const apiKey = chance.guid();
   // this token can be as long needed
   const token = {
-    endpoint: faker.internet.url(),
+    endpoint: chance.url(),
     apiKey,
   };
   const encodePayload = {
-    payload: { lorem: faker.lorem.paragraph() },
+    payload: { lorem: chance.paragraph() },
   };
   let encodedKey;
   beforeAll(async () => {
@@ -39,7 +41,7 @@ describe('app', () => {
     appKey = resp.body.value;
   });
   afterAll(async () => {
-    await sqldb.sequelize.connectionManager.close();
+    await sqldb.connectionManager.close();
   });
   it('should encode an airbitrary object', async () => {
     const resp = await request(app)
