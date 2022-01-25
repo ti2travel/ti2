@@ -19,17 +19,12 @@ jobs:
           user: 'Github Action Job'
           email: 'engineering@tourconnect.com'
           branch: main
-  publish:
+  publisher:
     needs: tag
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-node@v1
+      - uses: actions/checkout@v1
+      - uses: tool3/publisher@v1
         with:
-          node-version: 12
-          registry-url: https://registry.npmjs.org
-      - run: npm ci
-      - run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
-
+          npm_token: ${{ secrets.NPM_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
