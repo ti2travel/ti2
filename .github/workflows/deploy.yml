@@ -18,6 +18,7 @@ jobs:
           unrelated: true
           user: 'Github Action Job'
           email: 'engineering@tourconnect.com'
+          branch: main
   publish:
     needs: tag
     runs-on: ubuntu-latest
