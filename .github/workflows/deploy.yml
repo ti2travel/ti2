@@ -11,8 +11,8 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@main
-      - uses: tool3/bump@main
+      - uses: actions/checkout@master
+      - uses: tool3/bump@master
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           unrelated: true
