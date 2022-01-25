@@ -14,14 +14,12 @@ Some environment variables are required for ti2 to start
 - frontendKey (an additional optional key to validate the origin of the requests)
 - PORT (an optional port to run the http server, in case a port is not specified as a parameter)
 
-
-
 ### Starting your server
 
 You can start your own instance by adding a requirement on your own nodejs project as follows:
 
 ```bash
-# npm i ti2
+$ npm i ti2
 ```
 
 To start the server with default values use the following: 
@@ -47,6 +45,13 @@ Plugin ENV variable name convention: ti2_pluginName_environmenVariableName, for 
 ```env
 ti2_tourconnect_apiUrl=http://backend:8080
 ```
+
+### Available Plugins
+
+| Repo | Features | Maintainer |
+| ---- | -------- | ---------- |
+| [ti2-ventrata](https://github.com/TourConnect/ti2-ventrata)     | Bookings: Search, Cancellation | TourConnect |
+| [ti2-travelgate](https://github.com/TourConnect/ti2-travelgate) | Bookings: Search, Cancellation | TourConnect |
 
 ## API logging
 
