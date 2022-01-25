@@ -1,0 +1,614 @@
+# swagger configuration file
+openapi: '3.0.0'
+info:
+  description: TourConnect's Ti2 sync service
+  version: 0.0.1 
+  title: Ti2
+  contact:
+    email: engineering@tourconnect.com
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ServerInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        version:
+          type: string
+        uptime:
+          type: string
+    Message:
+      type: object
+      properties:
+        value:
+          type: string
+    App:
+      type: object
+      properties:
+        name:
+          type: string
+          example: expedia
+        packageName:
+          type: string
+          example: ti2-expedia
+        adminEmail:
+          type: string
+          example: ti2+expedia@tourconnect.com
+    AnyValue:
+      description: Can be anything
+      type: object
+      properties:
+        payload:
+          type: object
+          example: random lorem
+    UserApp:
+      description: A user + App configuration
+      type: object
+      properties:
+        tokenHint:
+          type: string
+          description: An identifier for this token, it should NOT be the token itself but a short description of it
+          example: 'expediaTestLocation-23'
+        token:
+          type: object
+          description: this is the secret payload that is passed doen to the plugin
+          example: { endpoint: 'http://expedia.penguin.local', apiKey: 'this is a secret key' }
+    UserAppDelete:
+      description: A user + App configuration to delete
+      type: object
+      properties:
+        tokenHint:
+          type: string
+          description: An identifier for this token, it should NOT be the token itself but a short safe version of it
+          example: 'expediaTestLocation-23'
+    UserId:
+      description: userId to create the token for
+      type: object
+      properties:
+        userId:
+          type: string
+          description: the userId to create the token for
+          example: '536830b6ed19afa44a000002'
+    IntegrationList:
+      type: object
+      properties:
+        integrations:
+          type: array
+          items:
+            type: object
+            properties:
+              adminEmail:
+                type: string
+              createdAt:
+                type: string
+              lastSeen:
+                type: string
+              name:
+                type: string
+              packageName:
+                type: string
+              updatedAt:
+                type: string
+    AppTokenList:
+      type: object
+      properties:
+        userAppKeys:
+          type: array
+          items:
+            type: object
+            properties:
+              integrationId:
+                type: string
+              userId:
+                type: string
+              hint:
+                type: string
+              createdAt:
+                type: string
+              updatedAt:
+                type: string
+    appRequest:
+      type: object
+      properties:
+        tokenHint:
+          type: string
+          example: 'expediaTestLocation-23'
+          required: true
+        entity:
+          type: string
+          required: true
+        entityId:
+          type: string
+          required: false
+          default: null
+        entityParentId:
+          type: string
+          required: false
+          default: null
+    appMethods:
+      type: object
+      properties:
+        methods:
+          type: array
+          items:
+            type: string
+    bookingSearchQuery:
+      type: object
+      properties:
+        bookingId:
+          type: string
+          required: false
+          default: null
+        name:
+          type: string
+          required: false
+          default: null
+        purchaseDateStart:
+          type: string
+          required: false
+          default: null
+        purchaseDateEnd:
+          type: string
+          required: false
+          default: null
+        travelDateStart:
+          type: string
+          required: false
+          default: "01/04/2021"
+        travelDateEnd:
+          type: string
+          required: false
+          default: "10/04/2021"
+        dateFormat:
+          type: string
+          required: false
+          default: "DD/MM/YYYY"
+    bookingDetail:
+      type: object
+      properties:
+        id:
+          type: string
+          required: true
+          description: The booking Id
+        status:
+          type: string
+          required: true
+          description: The booking status
+
+    bookingDetailsForCancel:
+      allOf:     # Combines the BasicErrorModel and the inline model
+        - $ref: '#/components/schemas/bookingDetail'
+      type: object
+      properties:
+        clicked:
+          type: integer
+          required: true
+          description: The unix time the cancellation was sent
+paths:
+  /ping:
+    get:
+      tags:
+        - public
+      summary: Should return basic system status
+      operationId: ping
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerInfo'
+  /app:
+    post:
+      security:
+        - bearerAuth: ['admin']
+      tags:
+        - admin
+      summary: Should create a new App, the name of the app should be url safe (no spaces)
+      operationId: createApp
+      requestBody:
+        description: App name to create, should be urlsafe and have a correspondant npm package already in the required npm modules as ti2-appName
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/App'
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+  /apps:
+    get:
+      security:
+        - bearerAuth: ['admin']
+      tags:
+        - admin
+      summary: list all previously created apps
+      operationId: listApps
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationList'
+  /app/resetAppKey/{appKey}:
+    get:
+      security:
+        - bearerAuth: ['admin']
+      tags:
+        - admin
+      summary:
+        reset an auth token for an integration
+      operationId: resetIntegrationToken
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to reset the apiKey
+          required: true
+          example: 'expedia'
+          schema:
+            type: string
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+  /user:
+    post:
+      security:
+        - bearerAuth: ['admin']
+      tags:
+        - admin
+      summary: Create a new user authentication token
+      operationId: createUserToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserId'
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+  /app/encode/{app}:
+    security:
+      - bearerAuth: ['app']
+    put:
+      tags:
+        - app
+      summary: Should encode an arbitriary field body into a hash
+      security:
+        - bearerAuth: ['app']
+      operationId: jwtEncode
+      parameters:
+        - name: app
+          in: path
+          description: name of the requesting app
+          required: true
+          example: 'expedia'
+          schema:
+            type: string
+      requestBody:
+        description: Payload to encode
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnyValue'
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+  /app/tokens/{app}:
+    get:
+      security:
+        - bearerAuth: ['app']
+      tags:
+        - app
+      summary: List all users/tokens for this app
+      operationId: listAppTokens
+      parameters:
+        - name: app
+          in: path
+          description: app name to list the users for
+          example: 'expedia'
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema: '#/components/schemas/AppTokenList'
+  /{app}/{userId}:
+    security:
+      - bearerAuth: ['app']
+    post:
+      tags:
+        - app
+        - user
+        - admin
+      summary: Create a user app+Token configuration, the authorization can be either from the app or the user
+      security:
+        - bearerAuth: ['app', 'user', 'admin']
+      operationId: createAppToken
+      parameters:
+        - name: app
+          in: path
+          description: app name to create the userId for (must match app token)
+          example: 'expedia'
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: user to create the app for
+          example: '536830b6ed19afa44a000002'
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: A new User+App configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserApp'
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema: '#/components/schemas/Message'
+    delete:
+      tags:
+        - app
+        - user
+      summary: Should delete a user+appToken configuration, the auth token can be from an app or a user
+      security:
+        - bearerAuth: ['admin', 'app', 'user']
+      operationId: deleteAppToken
+      parameters:
+        - name: app
+          in: path
+          description: app name to create the userId for (must match app token)
+          example: 'expedia'
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: user to delete the app for
+          example: '536830b6ed19afa44a000002'
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: The User+App configuration to remove
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserAppDelete'
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema: '#/components/schemas/Message'
+  /user/{userId}/apps:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - user
+        - admin
+      summary: Should get a list of app keys tokens that belong to a user
+      operationId: userAppList
+      parameters:
+        - name: userId
+          in: path
+          description: id of the owner
+          example: '536830b6ed19afa44a000002'
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema: '#/components/schemas/AppTokenList'
+  /app/{appKey}/methods:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - user
+      summary: Should get the methods available for an app
+      operationId: getAppMethods
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to get the methods for
+          required: true
+          example: 'expedia'
+          schema:
+            type: string
+      responses:
+        200:
+          description: the methods available
+          content:
+            appication/json:
+              schema: '#/components/schemas/appMethods'
+  /bookings/{appKey}/{userId}/search:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Gets all Bookings related to the search
+      operationId: bookingsSearch
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to search the bookings for (defaults to first token found
+          required: true
+          example: 'travelgate'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: both app details
+        required:  true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/bookingSearchQuery'
+      responses:
+        description: search results
+        content:
+          application/json:
+            schema: '#/components/schemas/AnyValue'
+  /bookings/{appKey}/{userId}/{hint}/search:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Gets all Bookings related to the search for a specific hint
+      operationId: bookingsSearch
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to get the methods for
+          required: true
+          example: 'travelgate'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belogs to
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'travelgate-australia'
+          schema:
+            type: string
+      requestBody:
+        description: booking search parameters
+        required:  true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/bookingSearchQuery'
+      responses:
+        description: search results
+        content:
+          application/json:
+            schema: '#/components/schemas/AnyValue'
+  /bookings/{appKey}/{userId}/cancel:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Sends a Booking cancellation
+      operationId: bookingsCancel
+      parameters:
+        - name: appKey
+          in: path
+          description: app to cancel the booking for, defaults to first token
+          required: true
+          example: 'travelgate-hotelx'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: both app details
+        required:  true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/bookingDetailsForCancel'
+      responses:
+        description: search results
+        content:
+          application/json:
+            schema: '#/components/schemas/AnyValue'
+  /bookings/{appKey}/{userId}/{hint}/cancel:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Sends a Booking cancellation for an specific hint
+      operationId: bookingsCancel
+      parameters:
+        - name: appKey
+          in: path
+          description: app to cancel the booking for
+          required: true
+          example: 'travelgate'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'travelgate-australia'
+          schema:
+            type: string
+      requestBody:
+        description: both app details
+        required:  true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/bookingDetailsForCancel'
+      responses:
+        description: search results
+        content:
+          application/json:
+            schema: '#/components/schemas/AnyValue'
