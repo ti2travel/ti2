@@ -9,7 +9,6 @@ on:
 jobs:
   tag:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
-    needs: build_and_test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@main
