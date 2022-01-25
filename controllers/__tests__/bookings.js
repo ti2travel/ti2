@@ -1,9 +1,8 @@
-/* globals describe it expect beforeAll, afterAll, afterEach, jest */
+/* globals describe it expect */
 
-const { doApiGet, doApiPost } = require('../../../test/utils');
+const { doApiGet, doApiPost } = require('../../test/utils');
 
 const { env: { adminKey } } = process;
-
 
 const newApp = {
   name: 'travelgate',

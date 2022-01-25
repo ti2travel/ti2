@@ -2,7 +2,7 @@
 
 // const should = require('should');
 const request = require('supertest');
-const server = require('../../../app');
+const server = require('../../index');
 
 describe('ping', () => {
   it('should get a server pong', async () => {

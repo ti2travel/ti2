@@ -1,0 +1,33 @@
+name: Deploy Workflow
+
+on:
+  workflow_run:
+    workflows: Tests Workflow
+    branches: main
+    types: completed
+
+jobs:
+  tag:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    needs: build_and_test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+      - uses: tool3/bump@main
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          unrelated: true
+  publish:
+    needs: tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 12
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm ci
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
+

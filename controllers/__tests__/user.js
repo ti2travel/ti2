@@ -1,28 +1,28 @@
-/* globals describe it expect beforeAll, afterAll, jest */
+/* globals describe it expect beforeAll, afterAll, jest, afterEach */
 
-const faker = require('faker');
+const chance = require('chance').Chance();
 const request = require('supertest');
-const { getRequireMocks } = require('../../../test/utils');
-const app = require('../../../app');
-const sqldb = require('../../../models');
+const { getRequireMocks, slugify } = require('../../test/utils');
+const app = require('../../index');
+const sqldb = require('../../models/db');
 
 const { env: { adminKey } } = process;
 
 describe('user', () => {
-  const appName = faker.helpers.slugify(
-    faker.company.companyName(),
+  const appName = slugify(
+    chance.company(),
   ).toLowerCase();
   const newApp = {
     name: appName,
     packageName: `ti2-${appName}`,
-    adminEmail: faker.internet.email(),
+    adminEmail: chance.email(),
   };
   let appKey;
-  const userId = faker.random.uuid();
-  let apiKey = faker.random.uuid();
+  const userId = chance.guid();
+  let apiKey = chance.guid();
   // this token can be as rare as needed
   const token = {
-    endpoint: faker.internet.url(),
+    endpoint: chance.url(),
     apiKey,
   };
   beforeAll(async () => {
@@ -45,7 +45,7 @@ describe('user', () => {
   });
   let userKey;
   afterAll(async () => {
-    await sqldb.sequelize.connectionManager.close();
+    await sqldb.connectionManager.close();
   });
   afterEach(() => jest.clearAllMocks());
   it('a user should be able to get a user token via an admin key', async () => {
@@ -96,7 +96,7 @@ describe('user', () => {
   });
   it('should be able to create a user/app integration', async () => {
     // set up new token
-    apiKey = faker.random.uuid();
+    apiKey = chance.guid();
     token.apiKey = apiKey;
     const resp = await request(app)
       .post(`/${appName}/${userId}`)
