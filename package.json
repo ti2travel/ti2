@@ -9,14 +9,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TourConnect/ti2.git"
+    "url": "git+https://github.com/ti2travel/ti2.git"
   },
   "author": "",
   "license": "GPL-3",
   "bugs": {
-    "url": "https://github.com/TourConnect/ti2/issues"
+    "url": "https://github.com/ti2travel/ti2/issues"
   },
-  "homepage": "https://github.com/TourConnect/ti2#readme",
+  "homepage": "https://github.com/ti2travel/ti2#readme",
   "dependencies": {
     "bluebird": "^3.7.2",
     "express": "^4.17.2",
