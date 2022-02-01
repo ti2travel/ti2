@@ -12,14 +12,35 @@ const createApp = async (req, res, next) => {
     adminEmail,
   } = req.body;
   try {
-    const newApp = await sqldb.Integration.create({
-      name,
-      packageName,
-      adminEmail,
+    const existing = await sqldb.Integration.findByPk(name, { paranoid: false });
+    const apiKey = await (async () => {
+      if (existing) {
+        await existing.restore();
+        return existing.apiKey;
+      }
+      const newApp = await sqldb.Integration.create({
+        name,
+        packageName,
+        adminEmail,
+      });
+      return newApp.apiKey;
+    })();
+    return res.json({ value: apiKey });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+const deleteApp = async (req, res, next) => {
+  const { pathParams: { appKey: name } } = req;
+  try {
+    const newApp = await sqldb.Integration.destroy({
+      where: { name },
     });
     const { apiKey } = newApp;
     return res.json({ value: apiKey });
   } catch (err) {
+    console.log({ err });
     return next(err);
   }
 };
@@ -72,6 +93,7 @@ const resetIntegrationToken = async (req, res, next) => {
 
 module.exports = {
   createApp,
+  deleteApp,
   createUserToken,
   listApps,
   resetIntegrationToken,

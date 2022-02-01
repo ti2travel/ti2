@@ -33,27 +33,27 @@ describe('user: booking search', () => {
 
   let userToken;
   it('drop any existing travelgateapp integration', async () => {
-    await doApiDelete({
-      url: `/travelgate/${userId}`,
-      token: adminKey,
-      payload: { tokenHint: 'testingToken' },
-    });
+    try {
+      await doApiDelete({
+        url: `/travelgate/${userId}`,
+        token: adminKey,
+        payload: { tokenHint: 'testingToken' },
+      });
+    } catch {}
+    try {
+      await doApiDelete({
+        url: '/app/travelgate',
+        token: adminKey,
+      });
+    } catch {}
   });
   it('create the travelgate app', async () => {
-    // get the list of existing integrations
-    const { integrations } = await doApiGet({
-      url: '/apps',
+    const { value: apiKey } = await doApiPost({
+      url: '/app',
       token: adminKey,
+      payload: newApp,
     });
-    if (!integrations.map(e => e.name).includes(newApp.name)) {
-      // creating the app
-      ({ value: appKey } = await doApiPost({
-        url: '/app',
-        token: adminKey,
-        payload: newApp,
-      }));
-      expect(appKey).toBe(newApp.name);
-    }
+    expect(apiKey).toBeTruthy();
     // create the user token
     ({ value: userToken } = await doApiPost({
       url: '/user',
