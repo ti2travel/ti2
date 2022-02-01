@@ -1,4 +1,4 @@
-/* global jest */
+/* global afterAll */
 
 const chance = require('chance').Chance();
 const request = require('supertest');
@@ -6,25 +6,15 @@ const assert = require('assert');
 const appReq = require('../index');
 const Plugin = require('./plugin');
 const slugify = require('./slugify');
-
-// jest.mock('./plugin');
-
-const pluginMock = require('../controllers/__mocks__/plugin');
+const sqldb = require('../models/db');
 
 const { env: { adminKey } } = process;
 
 const timeout = ms => (new Promise(resolve => setTimeout(resolve, ms)));
 
-const getRequireMocks = ({ jest, app: { name } }) => {
-  // create the mock dependencies
-  const mock = jest.mock(`ti2-${name}`, () => ({
-    ...pluginMock(),
-  }), { virtual: true });
-  return require(`ti2-${name}`);
-};
-
-// source : https://gist.github.com/codeguy/6684588
-
+afterAll(async () => {
+  await sqldb.connectionManager.close();
+});
 module.exports = (appParams = {}) => {
   const plugins = (() => {
     if (Array.isArray(appParams.plugins)) {
@@ -113,9 +103,8 @@ module.exports = (appParams = {}) => {
     doApiGet,
     doApiPost,
     doApiPut,
-    getRequireMocks,
     slugify,
     timeout,
-    Plugin,
+    plugins: app.plugins,
   };
 };

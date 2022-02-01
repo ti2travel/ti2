@@ -11,7 +11,7 @@ class Plugin {
 
   getProduct = jest.fn();
 
-  searchHotelBooking = jest.fn();
+  searchHotelBooking = jest.fn(() => ({ bookings: [] }));
 }
 
 module.exports = Plugin;

@@ -1,4 +1,4 @@
-/* globals describe it expect afterAll */
+/* globals describe it expect */
 
 const chance = require('chance').Chance();
 const testUtils = require('../../test/utils');
