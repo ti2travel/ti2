@@ -19,7 +19,7 @@ jobs:
     env:
       CI: true
       DB_URL: 'mysql://root:root@mysql/ti2development'
-      dbCryptoKey: 'MUNldkFLWktoSk40ZkNEZ01nZWc='
+      dbCryptoKey: 'YmYzYzE5OWMyNDcwY2I0NzdkOTA3YjFlMDkxN2MxN2I='
       jwtSecret: '9rifawckwztuKehocJOtGM6deTqICGWzIyc5CqgNyi'
       frontendKey: 'lYjEJHzb7lbQ1hk3ypjX'
       adminKey: 'IxEAYjHbbUYhsPjQXwX1'
