@@ -5,8 +5,11 @@ on:
   push:
 
 jobs:
-  build_and_test:
+  test:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
+    container:
+      image: node:erbium
     services:
       mysql:
         image: mysql
@@ -24,15 +27,15 @@ jobs:
       frontendKey: 'lYjEJHzb7lbQ1hk3ypjX'
       adminKey: 'IxEAYjHbbUYhsPjQXwX1'
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-node@v1
-        with:
-          node-version: 12
-      - name: install dependencies
-        run: npm i
-      - name: create/migrate the database
-        run: npx sequelize db:create && npx sequelize db:migrate
-      - name: seed the database
-        run: npx sequelize db:seed:all
-      - name: run the tests
-        run: npx jest -i --coverage --forceExit
+    - uses: actions/checkout@v2
+    - uses: actions/setup-node@v1
+      with:
+        node-version: 12
+    - name: install dependencies
+      run: npm i
+    - name: create/migrate the database
+      run: npx sequelize db:create && npx sequelize db:migrate
+    - name: seed the database
+      run: npx sequelize db:seed:all
+    - name: run the tests
+      run: npx jest -i --coverage --forceExit
