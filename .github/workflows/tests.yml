@@ -28,6 +28,9 @@ jobs:
       - uses: actions/setup-node@v1
         with:
           node-version: 12
-      - run: npm ci
-      - run: npm run build --if-present
-      - run: npm test
+      - name: migrate the database
+        run: npm run dbmigrate
+      - name: seed the database
+        run: npx sequelize db:seed:all
+      - name: run the tests
+        run: npx jest -i --coverage --forceExit
