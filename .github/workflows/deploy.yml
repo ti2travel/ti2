@@ -8,7 +8,7 @@ on:
 
 jobs:
   tag:
-    if: github.event.workflow_run.conclusion == 'success' && github.repository == 'ti2travel/travel'
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.repository == 'ti2travel/travel' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
