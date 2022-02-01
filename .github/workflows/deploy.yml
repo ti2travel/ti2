@@ -20,7 +20,6 @@ jobs:
           email: 'engineering@tourconnect.com'
           branch: main
   publish:
-    if: github.repository == ‘ti2travel/travel’
     needs: tag
     runs-on: ubuntu-latest
     steps:
