@@ -227,6 +227,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Message'
+
+  /app/{appKey}:
+    delete:
+      security:
+        - bearerAuth: ['admin']
+      tags:
+        - admin
+      summary: Should delete an App, the name of the app should be url safe (no spaces)
+      operationId: deleteApp
+      parameters:
+        - name: appKey
+          in: path
+          description: App name to delete, should be urlsafe and have a correspondant npm package already in the required npm modules as ti2-appName
+          required: true
+          example: 'expedia'
+          schema:
+            type: string
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
   /apps:
     get:
       security:

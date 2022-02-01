@@ -4,7 +4,7 @@
   "description": "Tourist Industry Exchange (TI2)",
   "main": "index.js",
   "scripts": {
-    "test": "jest || echo \"always ok\"",
+    "test": "jest",
     "sequelize": "sequelize-cli"
   },
   "repository": {

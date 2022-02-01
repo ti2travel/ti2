@@ -8,7 +8,7 @@ Tourism Industry Interchange
 Some environment variables are required for ti2 to start
 
 - DB_URL (mysql connection in url format)
-- dbCryptoKey (integration details encription key)
+- dbCryptoKey (integration details encription key, should be a 32 chars random string base64 encoded)
 - adminKey (a key for admin related requests)
 - jwtKey (a key to encrypt user sessions request)
 - frontendKey (an additional optional key to validate the origin of the requests)

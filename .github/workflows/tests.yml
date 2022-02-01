@@ -5,13 +5,37 @@ on:
   push:
 
 jobs:
-  build_and_test:
+  test:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
+    container:
+      image: node:erbium
+    services:
+      mysql:
+        image: mysql
+        env:
+          MYSQL_DATABASE: ti2development
+          MYSQL_ALLOW_EMPTY_PASSWORD: true
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+    env:
+      CI: true
+      DB_URL: 'mysql://root:root@mysql/ti2development'
+      dbCryptoKey: 'YmYzYzE5OWMyNDcwY2I0NzdkOTA3YjFlMDkxN2MxN2I='
+      jwtSecret: '9rifawckwztuKehocJOtGM6deTqICGWzIyc5CqgNyi'
+      frontendKey: 'lYjEJHzb7lbQ1hk3ypjX'
+      adminKey: 'IxEAYjHbbUYhsPjQXwX1'
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-node@v1
-        with:
-          node-version: 12
-      - run: npm ci
-      - run: npm run build --if-present
-      - run: npm test
+    - uses: actions/checkout@v2
+    - uses: actions/setup-node@v1
+      with:
+        node-version: 12
+    - name: install dependencies
+      run: npm i
+    - name: create/migrate the database
+      run: npx sequelize db:create && npx sequelize db:migrate
+    - name: seed the database
+      run: npx sequelize db:seed:all
+    - name: run the tests
+      run: npx jest -i --coverage --forceExit
