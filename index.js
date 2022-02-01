@@ -39,6 +39,7 @@ module.exports = ({
     });
     return new Plugin({ name: pluginName, ...params });
   });
+  // console.log({ plugins });
   const api = {
     ...pingController,
     ...adminController,
@@ -46,6 +47,7 @@ module.exports = ({
     ...userController(plugins),
     ...bookingsController(plugins),
   }; // mehthods that should map to the yaml api spec
+  app.plugins = plugins;
   createMiddleware(schema, app, (_err, middleware) => {
     if (apiDocs) {
       app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(schema));
@@ -170,4 +172,4 @@ module.exports = ({
   });
 
   return app;
-}
+};

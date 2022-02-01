@@ -22,9 +22,9 @@ const getAppMethods = plugins => async (req, res, next) => {
   const { params: { appKey } } = req;
   try {
     const app = plugins.filter(({ name }) => name === appKey)[0];
-    // load(appKey);
+    const methods = Object.getOwnPropertyNames(app);
     return res.json({
-      methods: Object.getOwnPropertyNames(Object.getPrototypeOf(app)),
+      methods,
     });
   } catch (err) {
     return next(err);

@@ -1,10 +1,8 @@
-/* globals describe it expect afterAll */
+/* globals describe it expect */
 
 const chance = require('chance').Chance();
-const request = require('supertest');
-const app = require('../../index');
-const sqldb = require('../../models/db');
-const { slugify } = require('../../test/utils');
+const testUtils = require('../../test/utils');
+const slugify = require('../../test/slugify');
 
 const { env: { adminKey } } = process;
 
@@ -17,26 +15,24 @@ describe('admin', () => {
     packageName: `ti2-${appName}`,
     adminEmail: chance.email(),
   };
+  const { doApiPost, doApiGet } = testUtils({
+    plugins: [appName],
+  });
   let appKey;
   const userId = '536830b6ed19afa44a000002';
-  afterAll(async () => {
-    await sqldb.connectionManager.close();
-  });
   it('should be able to create an app', async () => {
-    const resp = await request(app)
-      .post('/app')
-      .set('Authorization', `Bearer ${adminKey}`)
-      .send(newApp);
-    expect(resp.statusCode).toBe(200);
-    expect(resp.body.value).toBeTruthy();
-    appKey = resp.body.value;
+    ({ value: appKey } = await doApiPost({
+      url: '/app',
+      token: adminKey,
+      payload: newApp,
+    }));
+    expect(appKey).toBeTruthy();
   });
   it('the created app should be on the list of apps', async () => {
-    const resp = await request(app)
-      .get('/apps')
-      .set('Authorization', `Bearer ${adminKey}`);
-    expect(resp.statusCode).toBe(200);
-    const { body: { integrations } } = resp;
+    const { integrations } = await doApiGet({
+      url: '/apps',
+      token: adminKey,
+    });
     expect(integrations).toEqual(
       expect.arrayContaining([
         expect.objectContaining(newApp),
@@ -45,18 +41,19 @@ describe('admin', () => {
   });
   it('should be able to reset an app\'s key', async () => {
     const url = `/app/resetAppKey/${newApp.name}`;
-    const resp = await request(app)
-      .get(url)
-      .set('Authorization', `Bearer ${adminKey}`);
-    expect(resp.statusCode).toBe(200);
-    const { body: { value } } = resp;
+    const { value } = await doApiGet({
+      url,
+      token: adminKey,
+    });
     expect(value).toBeTruthy();
     expect(value).not.toBe(appKey);
   });
-  it.skip('should be able to create a new user authentication token', async () => {
-    const resp = await request(app).post('/user')
-      .set('Authorization', `Bearer ${adminKey}`)
-      .send({ userId });
-    expect(resp.statusCode).toBe(200);
+  it('should be able to create a new user authentication token', async () => {
+    const { value } = await doApiPost({
+      url: '/user',
+      token: adminKey,
+      payload: { userId },
+    });
+    expect(value).toBeTruthy();
   });
 });
