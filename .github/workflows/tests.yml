@@ -7,6 +7,22 @@ on:
 jobs:
   build_and_test:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql
+        env:
+          MYSQL_DATABASE: ti2development
+          MYSQL_ALLOW_EMPTY_PASSWORD: true
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+    env:
+      CI: true
+      DB_URL: 'mysql://root:root@mysql/ti2development'
+      dbCryptoKey: 'KT8Mugkm25pb6wDogQAOyTSYtJeGxchKTe0EacMGq8u='
+      jwtSecret: '9rifawckwztuKehocJOtGM6deTqICGWzIyc5CqgNyi'
+      frontendKey: 'lYjEJHzb7lbQ1hk3ypjX'
+      adminKey: 'IxEAYjHbbUYhsPjQXwX1'
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-node@v1
