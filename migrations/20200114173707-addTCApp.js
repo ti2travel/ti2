@@ -1,6 +1,3 @@
-const assert = require('assert');
-const faker = require('faker');
-
 module.exports = {
   up: async queryInterface => {
     const payload = {
