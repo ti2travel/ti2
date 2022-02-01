@@ -1,5 +1,6 @@
 /* globals describe it expect */
 
+const chance = require('chance').Chance();
 const testUtils = require('../../test/utils');
 
 const { env: { adminKey } } = process;
@@ -14,20 +15,31 @@ describe('user: booking search', () => {
   const userId = '551394be5ac58e5c76000019';
   const token = {
     endpoint: 'https://api.travelgatex.com',
-    apiKey: '8ca687f8-7968-4331-7b1a-dfcb276e5e44',
+    apiKey: chance.guid(),
     client: 'tourconnect',
   };
   const newIntegration = {
     tokenHint: 'testingToken',
     token,
   };
-  const { doApiPost, doApiGet, plugins } = testUtils({
+  const {
+    doApiDelete,
+    doApiGet,
+    doApiPost,
+    plugins,
+  } = testUtils({
     plugins: [newApp.name],
   });
 
   let userToken;
+  it('drop any existing travelgateapp integration', async () => {
+    await doApiDelete({
+      url: `/travelgate/${userId}`,
+      token: adminKey,
+      payload: { tokenHint: 'testingToken' },
+    });
+  });
   it('create the travelgate app', async () => {
-    // create the travelgate app
     // get the list of existing integrations
     const { integrations } = await doApiGet({
       url: '/apps',
