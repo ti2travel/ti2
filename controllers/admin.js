@@ -26,7 +26,8 @@ const createApp = async (req, res, next) => {
 
 const listApps = async (req, res, next) => {
   try {
-    const integrations = await sqldb.Integration.findAll().map(int => omit(['apiKey'], int.dataValues));
+    const integrations = (await sqldb.Integration.findAll())
+      .map(int => omit(['apiKey'], int.dataValues));
     return res.json({ integrations });
   } catch (err) {
     return next(err);

@@ -39,6 +39,7 @@ module.exports = ({
     });
     return new Plugin({ name: pluginName, ...params });
   });
+  // console.log({ plugins });
   const api = {
     ...pingController,
     ...adminController,
