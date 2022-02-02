@@ -20,6 +20,8 @@ Ti2 can be deployed on your own servers, or you can connect to a Ti2 instance th
 
 Ti2 gives a free, open source solution to building integrations across our industry. In addition, tools can be built on top of Ti2, that add additional value to these integrations - whether for the good of our industry or for profit.
 
+**Become part of the community, start building on Ti2 today!**
+
 ## Getting Started
 
 ### Requirements
