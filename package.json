@@ -28,9 +28,9 @@
     "seque": "^1.2.1",
     "sequelize": "^6.13.0",
     "sequelize-cli": "^6.4.1",
-    "swagger-express-middleware": "^3.0.0-alpha.5",
-    "swagger-routes-express": "^3.3.1",
-    "swagger-ui-express": "^4.3.0",
+    "swagger-express-middleware": "3.0.0-alpha.5",
+    "swagger-routes-express": "3.3.1",
+    "swagger-ui-express": "4.3.0",
     "uninstall": "^0.0.0"
   },
   "devDependencies": {
