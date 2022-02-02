@@ -4,7 +4,7 @@ Ti2 (Tourism Information Interchange) is an open source integration framework, b
 
 Core functions of Ti2 are currently focused on content, rates, and bookings.
 
-### About this Project
+## About this Project
 
 ### How it Works
 
