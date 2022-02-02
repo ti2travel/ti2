@@ -4,7 +4,9 @@ Ti2 (Tourism Information Interchange) is an open source integration framework, b
 
 Core functions of Ti2 are currently focused on content, rates, and bookings.
 
-## How it Works
+### About this Project
+
+### How it Works
 
 Ti2 has a core codebase of standardized industry functions (new, update, cancel, etc.) for bookings, content, and rates - with more to come. Plugins are used to connect to the Ti2 to perform a task (like create a booking). There are two types of plugins: Integration and App.
 
@@ -14,7 +16,7 @@ App Plugins are value added tools that only speak to Ti2 and other plugins. For 
 
 Ti2 can be deployed on your own servers, or you can connect to a Ti2 instance that another company is hosting.
 
-## Why use Ti2 ?
+### Why use Ti2 ?
 
 Ti2 gives a free, open source solution to building integrations across our industry. In addition, tools can be built on top of Ti2, that add additional value to these integrations - whether for the good of our industry or for profit.
 
