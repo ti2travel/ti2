@@ -69,10 +69,15 @@ ti2_tourconnect_apiUrl=http://backend:8080
 
 ### Available Plugins
 
-| Repo | Features | Maintainer |
+| Available Methods | [Ventrata](https://github.com/TourConnect/ti2-ventrata) | [TravelGateX](https://github.com/TourConnect/ti2-travelgate) |
 | ---- | -------- | ---------- |
-| [ti2-ventrata](https://github.com/TourConnect/ti2-ventrata)     | Bookings: Search, Cancellation | TourConnect |
-| [ti2-travelgate](https://github.com/TourConnect/ti2-travelgate) | Bookings: Search, Cancellation | TourConnect |
+|searchProducts|:heavy_check_mark:|:heavy_check_mark:|
+|searchBooking|:heavy_check_mark:|:heavy_check_mark:|
+|searchProducts|:heavy_check_mark:|:heavy_check_mark:|
+|searchAvailability|:heavy_check_mark:|:heavy_check_mark:|
+|quoteAvailability|:heavy_check_mark:|:heavy_check_mark:|
+|createBooking|:heavy_check_mark:|:heavy_check_mark:|
+|cancelBooking|:heavy_check_mark:|:heavy_check_mark:|
 
 ## API logging
 
