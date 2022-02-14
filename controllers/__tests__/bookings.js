@@ -77,7 +77,7 @@ describe('user: booking search', () => {
       expect(value).toBeTruthy();
     }
   });
-  it('should be able to search a travel gate for a booking', async () => {
+  it('should be able to search a for a booking', async () => {
     const payload = {
       bookingId: '', supplierId: '', name: '',
     };
@@ -93,5 +93,63 @@ describe('user: booking search', () => {
 
     // expect(Array.isArray(retVal.bookings)).toBeTruthy();
     // expect(retVal.bookings.length > 0).toBeTruthy();
+  });
+
+  it('should be able to search a for a booking product', async () => {
+    const payload = {};
+    const { products } = await doApiPost({
+      url: `/products/${appKey}/${userId}/search`,
+      token: userToken,
+      payload,
+    });
+    expect(plugins[0].searchProducts).toHaveBeenCalled();
+    expect(Array.isArray(products)).toBeTruthy();
+    expect(plugins[0].searchProducts.mock.calls[0][0].payload).toEqual(payload);
+    expect(plugins[0].searchProducts.mock.calls[0][0].token).toEqual(token);
+
+    // expect(Array.isArray(retVal.bookings)).toBeTruthy();
+    // expect(retVal.bookings.length > 0).toBeTruthy();
+  });
+  it('should be able to search for availabiility', async () => {
+    const payload = {
+      travelDateStart: '12/30/2025',
+      travelDateEnd: '01/15/2026',
+      dateFormat: 'MM/DD/YYYY',
+      occupancies: [{ paxes: [{ age: 30 }, { age: 40 }] }],
+      currency: 'EUR',
+      market: 'ES',
+      language: 'es',
+      nationality: 'ES',
+    };
+    const { availability } = await doApiPost({
+      url: `/bookings/${appKey}/${userId}/availability`,
+      token: userToken,
+      payload,
+    });
+    expect(plugins[0].searchAvailability).toHaveBeenCalled();
+    expect(Array.isArray(availability)).toBeTruthy();
+    expect(plugins[0].searchAvailability.mock.calls[0][0].payload).toEqual(payload);
+    expect(plugins[0].searchAvailability.mock.calls[0][0].token).toEqual(token);
+  });
+  it('should be able to obtain a quote', async () => {
+    const payload = {
+      travelDateStart: '12/30/2025',
+      travelDateEnd: '01/15/2026',
+      dateFormat: 'MM/DD/YYYY',
+      occupancies: [{ paxes: [{ age: 30 }, { age: 40 }] }],
+      currency: 'EUR',
+      market: 'ES',
+      language: 'es',
+      nationality: 'ES',
+    };
+    const { availability } = await doApiPost({
+      url: `/bookings/${appKey}/${userId}/availability`,
+      token: userToken,
+      payload,
+    });
+    expect(plugins[0].searchAvailability).toHaveBeenCalled();
+    expect(Array.isArray(availability)).toBeTruthy();
+    expect(plugins[0].searchAvailability.mock.calls[0][0].payload).toEqual(payload);
+    expect(plugins[0].searchAvailability.mock.calls[0][0].token).toEqual(token);
   });
 });

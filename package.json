@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "jest",
-    "sequelize": "sequelize-cli"
+    "sequelize": "sequelize-cli",
+    "doc": "jsdoc -c jsdoc.conf.json"
   },
   "repository": {
     "type": "git",
@@ -39,6 +40,8 @@
     "eslint-config-airbnb-base": "^15.0.0",
     "eslint-plugin-import": "^2.25.4",
     "jest": "^27.4.7",
+    "jsdoc": "^3.6.10",
+    "minami": "git+https://github.com/MyNameReallySux/minami.git#sort-data",
     "supertest": "^6.2.2"
   }
 }
