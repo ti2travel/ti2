@@ -38,7 +38,7 @@ class Plugin {
     this.createLocation = jest.fn(() => ({ locationId: chance.guid() }));
     this.updateLocation = jest.fn(() => true);
     this.searchBooking = jest.fn(() => ({ bookings: [] }));
-    this.searchProducts = jest.fn(() => ({ bookings: [] }));
+    this.searchProducts = jest.fn(() => ({ bookings: [], products: [] }));
     this.searchAvailability = jest.fn(({
       token,
       payload: {
@@ -57,6 +57,7 @@ class Plugin {
     });
 
     this.quoteAvailability = jest.fn(() => ({ quote: { id: chance.guid() } }));
+    this.createBooking = jest.fn(() => {});
   }
 
   /**

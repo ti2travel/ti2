@@ -152,4 +152,17 @@ describe('user: booking search', () => {
     expect(plugins[0].searchAvailability.mock.calls[0][0].payload).toEqual(payload);
     expect(plugins[0].searchAvailability.mock.calls[0][0].token).toEqual(token);
   });
+  it('should be able create a booking', async () => {
+    const payload = {
+      id: chance.guid(),
+    };
+    await doApiPost({
+      url: `/bookings/${appKey}/${userId}/booking`,
+      token: userToken,
+      payload,
+    });
+    expect(plugins[0].createBooking).toHaveBeenCalled();
+    expect(plugins[0].createBooking.mock.calls[0][0].payload).toEqual(payload);
+    expect(plugins[0].createBooking.mock.calls[0][0].token).toEqual(token);
+  });
 });
