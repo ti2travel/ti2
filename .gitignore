@@ -105,3 +105,5 @@ dist
 
 # Editor's temporary files
 .session.vim
+
+docs
