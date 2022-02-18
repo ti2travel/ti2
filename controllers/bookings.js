@@ -25,7 +25,6 @@ const bookingsSearch = plugins => async (req, res, next) => {
     });
     return res.json(results);
   } catch (err) {
-    console.log({ err });
     return next(err);
   }
 };
@@ -80,7 +79,6 @@ const bookingsProductSearch = plugins => async (req, res, next) => {
     });
     return res.json(results);
   } catch (err) {
-    console.log({ err });
     return next(err);
   }
 };
@@ -108,7 +106,6 @@ const bookingsAvailabilitySearch = plugins => async (req, res, next) => {
     });
     return res.json(results);
   } catch (err) {
-    console.log({ err });
     return next(err);
   }
 };
@@ -137,7 +134,6 @@ const quoteAvailability = plugins => async (req, res, next) => {
     });
     return res.json(results);
   } catch (err) {
-    console.log({ err });
     return next(err);
   }
 };
@@ -166,7 +162,6 @@ const createBooking = plugins => async (req, res, next) => {
     });
     return res.json(results);
   } catch (err) {
-    console.log({ err });
     return next(err);
   }
 };

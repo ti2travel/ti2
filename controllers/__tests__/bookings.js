@@ -11,7 +11,7 @@ describe('user: booking search', () => {
     packageName: 'ti2-travelgate',
     adminEmail: 'engineering+travelgate@tourconnect.com',
   };
-  let appKey = newApp.name;
+  const appKey = newApp.name;
   const userId = '551394be5ac58e5c76000019';
   const token = {
     endpoint: 'https://api.travelgatex.com',
@@ -142,15 +142,15 @@ describe('user: booking search', () => {
       language: 'es',
       nationality: 'ES',
     };
-    const { availability } = await doApiPost({
-      url: `/bookings/${appKey}/${userId}/availability`,
+    const { quote } = await doApiPost({
+      url: `/bookings/${appKey}/${userId}/quote`,
       token: userToken,
       payload,
     });
-    expect(plugins[0].searchAvailability).toHaveBeenCalled();
-    expect(Array.isArray(availability)).toBeTruthy();
-    expect(plugins[0].searchAvailability.mock.calls[0][0].payload).toEqual(payload);
-    expect(plugins[0].searchAvailability.mock.calls[0][0].token).toEqual(token);
+    expect(plugins[0].searchQuote).toHaveBeenCalled();
+    expect(Array.isArray(quote)).toBeTruthy();
+    expect(plugins[0].searchQuote.mock.calls[0][0].payload).toEqual(payload);
+    expect(plugins[0].searchQuote.mock.calls[0][0].token).toEqual(token);
   });
   it('should be able create a booking', async () => {
     const payload = {

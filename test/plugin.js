@@ -394,7 +394,7 @@ class Plugin {
    * @returns {object} retVal - the return object.
    * @returns {Quote} retVal.quote - A Quote Object instance.
    */
-  quoteAvailability() {
+  searchQuote() {
     // return (args);
   }
 
