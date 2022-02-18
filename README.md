@@ -89,7 +89,7 @@ ti2_tourconnect_apiUrl=http://backend:8080
 |searchProducts|&check;|&check;|
 |searchBooking|&check;|&check;|
 |searchAvailability|&check;|&check;|
-|quoteAvailability|&check;|&check;|
+|searchQuote|&check;|&check;|
 |createBooking|&check;|&check;|
 |cancelBooking|&check;|&check;|
 
