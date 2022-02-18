@@ -19,7 +19,7 @@ class Plugin {
    * * [searchBooking](#searchBooking)
    * * [searchProducts](#searchProducts)
    * * [searchAvailability](#searchAvailability)
-   * * [quoteAvailability](#quoteAvailability)
+   * * [searchQuote](#searchQuote)
    * * [createBooking](#createBooking)
    * ---
    *
