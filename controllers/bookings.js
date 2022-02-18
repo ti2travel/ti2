@@ -110,7 +110,7 @@ const bookingsAvailabilitySearch = plugins => async (req, res, next) => {
   }
 };
 
-const quoteAvailability = plugins => async (req, res, next) => {
+const searchQuote = plugins => async (req, res, next) => {
   const {
     params: { appKey, userId, hint },
     body: payload,
@@ -128,7 +128,7 @@ const quoteAvailability = plugins => async (req, res, next) => {
     assert(userAppKeys, 'could not find the app key');
     const token = userAppKeys.appKey;
     assert(payload.id, 'the availability id is required');
-    const results = await app.quoteAvailability({
+    const results = await app.searchQuote({
       token,
       payload,
     });
@@ -171,6 +171,6 @@ module.exports = plugins => ({
   bookingsCancel: bookingsCancel(plugins),
   bookingsProductSearch: bookingsProductSearch(plugins),
   bookingsAvailabilitySearch: bookingsAvailabilitySearch(plugins),
-  quoteAvailability: quoteAvailability(plugins),
+  searchQuote: searchQuote(plugins),
   createBooking: createBooking(plugins),
 });

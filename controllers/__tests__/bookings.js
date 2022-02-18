@@ -133,6 +133,7 @@ describe('user: booking search', () => {
   });
   it('should be able to obtain a quote', async () => {
     const payload = {
+      id: chance.guid(), // availability result id
       travelDateStart: '12/30/2025',
       travelDateEnd: '01/15/2026',
       dateFormat: 'MM/DD/YYYY',

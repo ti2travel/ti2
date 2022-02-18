@@ -56,7 +56,7 @@ class Plugin {
       return { availability: [{ id: chance.guid() }] };
     });
 
-    this.quoteAvailability = jest.fn(() => ({ quote: { id: chance.guid() } }));
+    this.searchQuote = jest.fn(() => ({ quote: [{ id: chance.guid() }] }));
     this.createBooking = jest.fn(() => {});
   }
 
