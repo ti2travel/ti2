@@ -141,6 +141,7 @@ components:
             type: string
     bookingSearchQuery:
       type: object
+      additionalProperties: true
       properties:
         bookingId:
           type: string
@@ -172,6 +173,7 @@ components:
           default: "DD/MM/YYYY"
     bookingDetail:
       type: object
+      additionalProperties: true
       properties:
         id:
           type: string
@@ -181,7 +183,15 @@ components:
           type: string
           required: true
           description: The booking status
-
+    bookingSearchQueryResults:
+      type: object
+      additionalProperties: true
+      properties:
+        bookings:
+          type: object
+          required: true
+          items:
+            $ref: '#/components/schemas/bookingDetail'
     bookingDetailsForCancel:
       allOf:     # Combines the BasicErrorModel and the inline model
         - $ref: '#/components/schemas/bookingDetail'
@@ -191,6 +201,89 @@ components:
           type: integer
           required: true
           description: The unix time the cancellation was sent
+    cancellationReturn:
+      type: object
+      properties:
+        cancellation:
+          type: object
+          allOf:     # Combines the BasicErrorModel and the inline model
+            - $ref: '#/components/schemas/bookingDetail'
+    bookingsProductQuery:
+      type: object
+      additionalProperties: true
+      description: Additional properties may be included
+      properties:
+        productName:
+          type: string
+          required: false
+          description: Product Name wildcard match
+          example: '*bus*'
+    bookingsProductSearchReturn:
+      type: object
+      additionalProperties: true
+      description: Additional properties may be included
+      properties:
+        products:
+          type: array
+          required: false
+          description: Product Search Results
+          items: 
+            type: object
+        accommodation:
+          type: array
+          required: false,
+          decription: Accommodation search results
+          items:
+            type: object
+    pricingItem:
+      type: object
+      additionalProperties: true
+      properties:
+        original:
+          type: integer
+        retail:
+          type: integer
+        net:
+          type: integer
+        currency:
+          type: string
+          example: "USD"
+        currencyPrecision:
+          type: integer
+        includedTaxes:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              name:
+                type: string
+              retail:
+                type: integer
+              net:
+                type: integer
+    availabilityItem:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+          required: true
+          description: An availability Id that can be used for quoting
+        pricing:
+          $ref: '#/components/schemas/pricingItem'
+          required: false
+        cancelPolicy:
+          type: string
+          required: false
+    bookingRequest:
+      type: object
+      additionalProperties: true
+      required: true
+      properties:
+        id:
+          type: string
+          description: a quote Id to make a reservation for
 paths:
   /ping:
     get:
@@ -516,10 +609,12 @@ paths:
             schema:
               $ref: '#/components/schemas/bookingSearchQuery'
       responses:
-        description: search results
-        content:
-          application/json:
-            schema: '#/components/schemas/AnyValue'
+        '200':
+          description: search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/bookingSearchQueryResults'
   /bookings/{appKey}/{userId}/{hint}/search:
     post:
       security:
@@ -557,10 +652,12 @@ paths:
             schema:
               $ref: '#/components/schemas/bookingSearchQuery'
       responses:
-        description: search results
-        content:
-          application/json:
-            schema: '#/components/schemas/AnyValue'
+        '200':
+          description: search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/bookingSearchQueryResults'
   /bookings/{appKey}/{userId}/cancel:
     post:
       security:
@@ -591,10 +688,12 @@ paths:
             schema:
               $ref: '#/components/schemas/bookingDetailsForCancel'
       responses:
-        description: search results
-        content:
-          application/json:
-            schema: '#/components/schemas/AnyValue'
+        '200':
+          description: Cancellation confirmation details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/cancellationReturn'
   /bookings/{appKey}/{userId}/{hint}/cancel:
     post:
       security:
@@ -632,7 +731,373 @@ paths:
             schema:
               $ref: '#/components/schemas/bookingDetailsForCancel'
       responses:
-        description: search results
+        '200':
+          description: Cancellation confirmation details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/cancellationReturn'
+  /products/{appKey}/{userId}/search:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Product Search
+      operationId: bookingsProductSearch
+      parameters:
+        - name: appKey
+          in: path
+          description: app to search the booking products, defaults to first token
+          required: true
+          example: 'travelgate-hotelx'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Search query
+        required:  true
         content:
           application/json:
-            schema: '#/components/schemas/AnyValue'
+            schema:
+              $ref: '#/components/schemas/bookingsProductQuery'
+      responses:
+        '200':
+          description: search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/bookingsProductSearchReturn'
+  /products/{appKey}/{userId}/{hint}/search:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Product Search using for an specific hint
+      operationId: bookingsProductSearch
+      parameters:
+        - name: appKey
+          in: path
+          description: app to search the booking products, defaults to first token
+          required: true
+          example: 'travelgate-hotelx'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'travelgate-australia'
+          schema:
+            type: string
+      requestBody:
+        description: Search query
+        required:  true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/bookingsProductQuery'
+      responses:
+        '200':
+          description: search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/bookingsProductSearchReturn'
+  /bookings/{appKey}/{userId}/availability:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Availability Search
+      operationId: bookingsAvailabilitySearch
+      parameters:
+        - name: appKey
+          in: path
+          description: app to search availability for, defaults to first token
+          required: true
+          example: 'travelgate-hotelx'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: both app details
+        required:  true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnyValue'
+      responses:
+        '200':
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  availability:
+                    type: array
+                    required: true
+                    items:
+                      $ref: '#/components/schemas/availabilityItem'
+  /bookings/{appKey}/{userId}/{hint}/availability:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Availability Search for an specific hint
+      operationId: bookingsAvailabilitySearch
+      parameters:
+        - name: appKey
+          in: path
+          description: app to search availability for, defaults to first token
+          required: true
+          example: 'travelgate-hotelx'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'travelgate-australia'
+          schema:
+            type: string
+      requestBody:
+        description: both app details
+        required:  true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnyValue'
+      responses:
+        '200':
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  availability:
+                    type: array
+                    required: true
+                    items:
+                      $ref: '#/components/schemas/availabilityItem'
+  /bookings/{appKey}/{userId}/quote:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Quote an Availability
+      operationId: searchQuote
+      parameters:
+        - name: appKey
+          in: path
+          description: app to quote availability for, defaults to first token
+          required: true
+          example: 'travelgate-hotelx'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Availability spec to be quoted
+        required:  true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              properties:
+                id:
+                  type: string
+                  required: true
+                  description: An availability Id to quote
+      responses:
+        '200':
+          description: Quote Details
+          content:
+            application/json:
+              schema:
+                type: object
+                required: true
+                properties:
+                  quote:
+                    type: array
+                    required: true
+                    items:
+                      type: object
+                      additionalProperties: true
+                      properties:
+                        id:
+                          type: string
+                          description: a quote Id that can be use to book
+  /bookings/{appKey}/{userId}/{hint}/quote:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Quote an Availability for an specific hint
+      operationId: searchQuote
+      parameters:
+        - name: appKey
+          in: path
+          description: app to quote the availability for, defaults to first token
+          required: true
+          example: 'travelgate-hotelx'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'travelgate-australia'
+          schema:
+            type: string
+      requestBody:
+        description: Availability spec to be quoted
+        required:  true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              properties:
+                id:
+                  type: string
+                  required: true
+                  description: An availability Id to quote
+      responses:
+        '200':
+          description: Quote Details
+          content:
+            application/json:
+              schema:
+                type: object
+                required: true
+                properties:
+                  quote:
+                    type: array
+                    required: true
+                    items:
+                      type: object
+                      additionalProperties: true
+                      properties:
+                        id:
+                          type: string
+                          description: a quote Id that can be use to book
+  /bookings/{appKey}/{userId}/booking:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Create a Booking
+      operationId: createBooking
+      parameters:
+        - name: appKey
+          in: path
+          description: app to create the booking for, defaults to first token
+          required: true
+          example: 'travelgate-hotelx'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Booking creation payload
+        required:  true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/bookingRequest'
+      responses:
+        '200':
+          description: Booking Details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyValue'
+  /bookings/{appKey}/{userId}/{hint}/booking:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Create a Booking for an specific hint
+      operationId: createBooking
+      parameters:
+        - name: appKey
+          in: path
+          description: app to create the booking for, defaults to first token
+          required: true
+          example: 'travelgate-hotelx'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'travelgate-australia'
+          schema:
+            type: string
+      requestBody:
+        description: Booking creation payload
+        required:  true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/bookingRequest'
+      responses:
+        '200':
+          description: Booking Details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyValue'

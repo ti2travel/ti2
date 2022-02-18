@@ -37,10 +37,10 @@ Some environment variables are required for ti2 to start
 
 ### Starting your server
 
-You can start your own instance by adding a requirement on your own nodejs project as follows:
+You can start your own instance by instlling ti2 and any aplugin syou may want to use on your own nodejs project root folter:
 
 ```bash
-$ npm i ti2
+$ npm i ti2 ti2-travelgate ti2-ventrata ti2-tourconnect
 ```
 
 To start the server with default values use the following: 
@@ -67,12 +67,31 @@ Plugin ENV variable name convention: ti2_pluginName_environmenVariableName, for 
 ti2_tourconnect_apiUrl=http://backend:8080
 ```
 
-### Available Plugins
+### Plugin Library
 
-| Repo | Features | Maintainer |
-| ---- | -------- | ---------- |
-| [ti2-ventrata](https://github.com/TourConnect/ti2-ventrata)     | Bookings: Search, Cancellation | TourConnect |
-| [ti2-travelgate](https://github.com/TourConnect/ti2-travelgate) | Bookings: Search, Cancellation | TourConnect |
+| Methods | [Ventrata](https://github.com/TourConnect/ti2-ventrata) | [TravelGateX](https://github.com/TourConnect/ti2-travelgate) | [Didgigo](https://github.com/TourConnect/ti2-didgigo) | [TourConnect](https://github.com/TourConnect/ti2-tourconnect)
+| ---- | -------- | ---------- | ---- | ---- |
+|**Base**|
+|validateToken|||&check;|&check;|
+|copyMedia||||&check;|
+|**Content**|
+|getProfile|||&check;|&check;|
+|updateProfile||||&check;|
+|getLocations|||&check;|&check;|
+|getLocation|||&check;|&check;|
+|createLocation|||&check;|&check;|
+|updateLocation|||&check;|&check;|
+|getProducts|||&check;|&check;|
+|getProduct|||&check;|&check;|
+|createProduct|||&check;|&check;|
+|updateProduct|||&check;|&check;|
+|**Bookings**|
+|searchProducts|&check;|&check;|
+|searchBooking|&check;|&check;|
+|searchAvailability|&check;|&check;|
+|quoteAvailability|&check;|&check;|
+|createBooking|&check;|&check;|
+|cancelBooking|&check;|&check;|
 
 ## API logging
 
@@ -111,7 +130,7 @@ Feel free to check the [Issues Page](https://github.com/TourConnect/ti2/issues).
 
 ## License
 
-Distributed under the GPL-3 License. See LICENSE.txt for more information.
+Distributed under the GPL-3 License. See LICENSE file for more information.
 
 TL;DR Here's what the license entails:
 
