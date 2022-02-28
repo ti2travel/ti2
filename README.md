@@ -4,6 +4,12 @@ Ti2 (Tourism Information Interchange) is an open source integration framework, b
 
 Core functions of Ti2 are currently focused on content, rates, and bookings.
 
+### Why use it ?
+
+Ti2 gives a free, open source solution to building integrations across our industry. In addition, tools can be built on top of Ti2, that add additional value to these integrations - whether for the good of our industry or for profit.
+
+**Become part of the community, start building on Ti2 today!**
+
 ## About this Project
 
 ### How it Works
@@ -16,56 +22,26 @@ App Plugins are value added tools that only speak to Ti2 and other plugins. For 
 
 Ti2 can be deployed on your own servers, or you can connect to a Ti2 instance that another company is hosting.
 
-### Why use Ti2 ?
+### Security
 
-Ti2 gives a free, open source solution to building integrations across our industry. In addition, tools can be built on top of Ti2, that add additional value to these integrations - whether for the good of our industry or for profit.
+An admin api key is set trough an environment variable called adminKey; using this API key is possible to create Users and/or application authentications.
 
-**Become part of the community, start building on Ti2 today!**
+A new User / User Authentication can be created using the endpoint [createUserToken](https://ti2.tourconnect.dev/api-docs/#/admin/createUserToken); the return value consists of a JWT token for further user intraction with the App; the admin API key is required; no password is saved on the server side.
+
+Apps / Integrations can be created using the admin API Key; this after the plugin had been added to the codebase; the app can be created using the endpoint [createApp](https://ti2.tourconnect.dev/api-docs/#/admin/createApp); such endpoint returns a key that can be used by the app to interact with user Ids; such interactions allow the app to push for changes related to user integrations, the app can list the users currently configured for it using the endpoint [listAppTokens](https://ti2.tourconnect.dev/api-docs/#/app/listAppTokens); the passwords for Apps are encripted onde the database using aes-256-cbc, more details can be found on the [``models/integrations.js``](https://github.com/ti2travel/ti2/blob/main/models/integration.js) file.
+
+User + app integration credentials can be added after the app has been added to the system; these can be added by either the user, admin or the app itself using the endpoint [createAppToken](https://ti2.tourconnect.dev/api-docs/#/app/createAppToken). These keys are saved in JWT format on the database.
 
 ## Getting Started
 
-### Requirements
+You can start follow [this guide]{@tutorial setup-your-instance} to create an instance, if you want to add an integration (like for your own backend) or add a new internal funtionality you can [create a plugin]{@tutorial plugin-development} for your system.
 
-Some environment variables are required for ti2 to start
+By default a ti2 instance serves a documentation page on the url (http://[yourinstance]/api-docs/) that serves the available API restfull methods, you can review the [swagger documentation page online](https://ti2-staging.tourconnect.com/api-docs/) .
 
-- DB_URL (mysql connection in url format)
-- dbCryptoKey (integration details encription key, should be a 32 chars random string base64 encoded)
-- adminKey (a key for admin related requests)
-- jwtKey (a key to encrypt user sessions request)
-- frontendKey (an additional optional key to validate the origin of the requests)
-- PORT (an optional port to run the http server, in case a port is not specified as a parameter)
-
-### Starting your server
-
-You can start your own instance by instlling ti2 and any aplugin syou may want to use on your own nodejs project root folter:
-
-```bash
-$ npm i ti2 ti2-travelgate ti2-ventrata ti2-tourconnect
-```
-
-To start the server with default values use the following: 
-
-```javascript
-const ti2 = require('ti2')({
-  plugins: {
-    travelgate: require('ti2-travelgate'),
-    ventrata: require('ti2-ventrata'),
-    tourconnect: require('ti2-tourconnect'),
-  },
-});
-```
 
 ## Plugins
 
 Plugins are the connectores to other systems and/or features you intent to use; by default the server will start an API service on port 10010 and the swagger documentation on the path //api-docs, (you can disable wither by passing the startServer param as False or the apiDocs as False.
-
-Plugin environment keys are passed down to the instance while is being created, this is the preferred way of accesing environmen keys from the plugins, such values are not design to hold client / user's API keys or specific data, they are to be stored on the database itself via the AppKey collection.
-
-Plugin ENV variable name convention: ti2_pluginName_environmenVariableName, for example:
-
-```env
-ti2_tourconnect_apiUrl=http://backend:8080
-```
 
 ### Plugin Library
 
@@ -92,27 +68,6 @@ ti2_tourconnect_apiUrl=http://backend:8080
 |searchQuote|&check;|&check;|
 |createBooking|&check;|&check;|
 |cancelBooking|&check;|&check;|
-
-## API logging
-
-Currently logging is supported via elastic search, an elasticLogClient value can ben passed down, example:
-
-```javascript
-const { Client } = require('@elastic/elasticsearch');
-const elasticLogsClient = (() => {
-  if (!elasticLogs) return null;
-  return new Client({ node: elasticLogs });
-})();
-
-const ti2 = require('ti2')({
-  elasticLogsClient,
-  plugins: {
-    ventrata: require('ti2-ventrata'),
-    travelgate: require('ti2-travelgate'),
-    tourconnect: require('ti2-tourconnect'),
-  },
-});
-```
 
 ## Contributing
 
