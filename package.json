@@ -6,7 +6,7 @@
   "scripts": {
     "test": "jest",
     "sequelize": "sequelize-cli",
-    "doc": "jsdoc -c jsdoc.conf.json"
+    "doc": "jsdoc -c jsdoc.conf.json -u tutorials"
   },
   "repository": {
     "type": "git",

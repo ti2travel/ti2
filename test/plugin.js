@@ -3,24 +3,9 @@ const chance = require('chance').Chance();
 
 class Plugin {
   /**
-   * **General** Methods:
-   * * [validateToken](#validateToken).
+   * For a comprehensive list of mehtods visit the
+   * [Plugin Development]{@tutorial plugin-development} page.
    *
-   * **Content Methods**:
-   * * [getProfile](#getProfile)
-   * * [updateProfile](#updateProfile)
-   * * [createLocation](#createLocation)
-   * * [updateLocation](#updateLocation)
-   * * [getProducts](#getProducts)
-   * * [createProduct](#createProduct)
-   * * [updateProduct](#updateProduct)
-   *
-   * **Booking Methods**:
-   * * [searchBooking](#searchBooking)
-   * * [searchProducts](#searchProducts)
-   * * [searchAvailability](#searchAvailability)
-   * * [searchQuote](#searchQuote)
-   * * [createBooking](#createBooking)
    * ---
    *
    * @param {Object} args - New / Overwriting attributes for the Plugin.
@@ -61,7 +46,7 @@ class Plugin {
   }
 
   /**
-   *  Check the vailidity of an integration token. *part of **General** Methods*
+   *  Check the vailidity of an integration token.
    * @async
    * @param {Object} args - Availability search arguments.
    * @param {Object} args.token - A token definition, it's content varies between integrations.
