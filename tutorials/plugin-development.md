@@ -1,14 +1,8 @@
-## Environment values
+## Getting Started
 
-Plugin environment keys are passed down to the instance while is being created, this is the preferred way of accesing environmen keys from the plugins, such values are not design to hold client / user's API keys or specific data, they are to be stored on the database itself via the AppKey collection.
+Plugins can extend the functionality of Ti2 and/or provide access to other platforms; you should use one of the following methods to provide a stadandarized way to access other systems; if you want to implement new functionality that is not encompassed on the available methods you are more than welcome to add new methods and contribute to the Ti2 codebase.
 
-Plugin ENV variable name convention: ti2_pluginName_environmenVariableName, for example:
-
-```env
-ti2_tourconnect_apiUrl=http://backend:8080
-```
-
-## Methods
+## Available Methods
 
 In oorder for an integration or system apps, we must use a set of standirzed methods to matain a compatibility; there are following methods are available, more can be supported but should be a part of the API TI2 spec to maximize it's compatibility.
 
@@ -32,6 +26,16 @@ In oorder for an integration or system apps, we must use a set of standirzed met
 * [createBooking]{@link Plugin#createBooking}
 
 ---
+
+## Environment variables
+
+Plugin environment keys are passed down to the instance while is being created, this is the preferred way of accesing environmen keys from the plugins, such values are not design to hold client / user's API keys or specific data, they are to be stored on the database itself via the AppKey collection.
+
+Plugin ENV variable name convention: ti2_pluginName_environmenVariableName, for example:
+
+```env
+ti2_tourconnect_apiUrl=http://backend:8080
+```
 
 
 ## Codebase setup
@@ -141,7 +145,9 @@ describe('Base Tests', () => {
 $ npx jest
 ```
 
-## Adding the folder to a ti2 instance
+## Deploying
+
+### To your own Instance
 
 After setting up a [Ti2 instance]{@tutorial setup-your-instance} you can add your development folder as a package on your instance's npm repo (not on the plugin's instance), like so:
 
@@ -150,6 +156,10 @@ After setting up a [Ti2 instance]{@tutorial setup-your-instance} you can add you
     "ti2-myplugin": "file:../ti2-myplugin"
     }
 ```
+
+### To our hosted instance
+
+[Contact us](https://www.ti2.travel/contact-us) with the npm published package to begin the testing and deployment process.
 
 ## Extending the base API
 

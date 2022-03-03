@@ -22,21 +22,9 @@ App Plugins are value added tools that only speak to Ti2 and other plugins. For 
 
 Ti2 can be deployed on your own servers, or you can connect to a Ti2 instance that another company is hosting.
 
-### Security
-
-An admin api key is set trough an environment variable called adminKey; using this API key is possible to create Users and/or application authentications.
-
-A new User / User Authentication can be created using the endpoint [createUserToken](https://ti2.tourconnect.dev/api-docs/#/admin/createUserToken); the return value consists of a JWT token for further user intraction with the App; the admin API key is required; no password is saved on the server side.
-
-Apps / Integrations can be created using the admin API Key; this after the plugin had been added to the codebase; the app can be created using the endpoint [createApp](https://ti2.tourconnect.dev/api-docs/#/admin/createApp); such endpoint returns a key that can be used by the app to interact with user Ids; such interactions allow the app to push for changes related to user integrations, the app can list the users currently configured for it using the endpoint [listAppTokens](https://ti2.tourconnect.dev/api-docs/#/app/listAppTokens); the passwords for Apps are encripted onde the database using aes-256-cbc, more details can be found on the [``models/integrations.js``](https://github.com/ti2travel/ti2/blob/main/models/integration.js) file.
-
-User + app integration credentials can be added after the app has been added to the system; these can be added by either the user, admin or the app itself using the endpoint [createAppToken](https://ti2.tourconnect.dev/api-docs/#/app/createAppToken). These keys are saved in JWT format on the database.
-
 ## Getting Started
 
-You can start follow [this guide]{@tutorial setup-your-instance} to create an instance, if you want to add an integration (like for your own backend) or add a new internal funtionality you can [create a plugin]{@tutorial plugin-development} for your system.
-
-By default a ti2 instance serves a documentation page on the url (http://[yourinstance]/api-docs/) that serves the available API restfull methods, you can review the [swagger documentation page online](https://ti2-staging.tourconnect.com/api-docs/) .
+You can write your [own plugin]{@tutorial plugin-development} that hooks up to a Ti2 instance or you can run a server that that hosts your [own **Ti2** instance]{@tutorial setup-your-instance} with any plugins (your own or from the plugin library).
 
 
 ## Plugins
