@@ -1,18 +1,18 @@
-## Why ?
+## Why would I want to run my own instance?
 
-* You want to test your plugins before submitting it to our Ti2 instance, it is a good idea to spin up your own Ti2 test instance, you can test against all the Ti2 REST Apis (In the future, we will provide a Ti2 sandbox instance).
+* Scenario 1: You want to test your plugins before submitting it to our Ti2 instance, it is a good idea to spin up your own Ti2 test instance, you can test against all the Ti2 REST Apis (In the future, we will provide a Ti2 sandbox instance).
 
-* You want to host your own server under your premises for production or staging purposes or becuase you want to run it inside your network.
+* Scenario 2: You want to host your own Ti2 server so you can have everything under your own control.
 
-When you are runnning a Ti2 server you can access the documentation page on the url (http://[yourinstance]/api-docs/) that serves the available API methods, you can review the [swagger documentation page online](https://ti2-staging.tourconnect.com/api-docs/) .
+When you are runnning a Ti2 server you can access the documentation page on the url (http://[yourinstance]/api-docs/) that shows the available API methods, you can review the [swagger documentation page online](https://ti2-staging.tourconnect.com/api-docs/) .
 
 ## Security
 
 An admin api key is set trough an environment variable called adminKey; using this API key is possible to create Users and/or application authentications.
 
-A new User / User Authentication can be created using the endpoint [createUserToken](https://ti2.tourconnect.dev/api-docs/#/admin/createUserToken); the return value consists of a JWT token for further user intraction with the App; the admin API key is required; no password is saved on the server side.
+A new User/User Authentication can be created using the endpoint [createUserToken](https://ti2.tourconnect.dev/api-docs/#/admin/createUserToken); the return value consists of a JWT token for further user intraction with the App; the admin API key is required; no password is saved on the server side.
 
-Apps / Integrations can be created using the admin API Key; this after the plugin had been added to the codebase; the app can be created using the endpoint [createApp](https://ti2.tourconnect.dev/api-docs/#/admin/createApp); such endpoint returns a key that can be used by the app to interact with user Ids; such interactions allow the app to push for changes related to user integrations, the app can list the users currently configured for it using the endpoint [listAppTokens](https://ti2.tourconnect.dev/api-docs/#/app/listAppTokens); the passwords for Apps are encripted onde the database using aes-256-cbc, more details can be found on the [``models/integrations.js``](https://github.com/ti2travel/ti2/blob/main/models/integration.js) file.
+Apps/Integrations can be created using the admin API Key; this after the plugin had been added to the codebase; the app can be created using the endpoint [createApp](https://ti2.tourconnect.dev/api-docs/#/admin/createApp); such endpoint returns a key that can be used by the app to interact with user Ids; such interactions allow the app to push for changes related to user integrations, the app can list the users currently configured for it using the endpoint [listAppTokens](https://ti2.tourconnect.dev/api-docs/#/app/listAppTokens); the passwords for Apps are encripted onde the database using aes-256-cbc, more details can be found on the [``models/integrations.js``](https://github.com/ti2travel/ti2/blob/main/models/integration.js) file.
 
 User + app integration credentials can be added after the app has been added to the system; these can be added by either the user, admin or the app itself using the endpoint [createAppToken](https://ti2.tourconnect.dev/api-docs/#/app/createAppToken). These keys are saved in JWT format on the database.
 
@@ -49,7 +49,7 @@ $ npm i ti2 ti2-tourconnect
 ```
 
 
-After installing the ti2 package you need to run the datbase migrations for ti2:
+After installing the ti2 package you need to run the database migrations for ti2:
 
 ```
 $  npm explore ti2<pluginName> -- npx sequelize db:migrate"

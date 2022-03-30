@@ -3,7 +3,7 @@ const chance = require('chance').Chance();
 
 class Plugin {
   /**
-   * For a comprehensive list of mehtods visit the
+   * For a comprehensive list of methods visit the
    * [Plugin Development]{@tutorial plugin-development} page.
    *
    * ---
@@ -46,11 +46,11 @@ class Plugin {
   }
 
   /**
-   *  Check the vailidity of an integration token.
+   *  Check the validity of an integration token.
    * @async
    * @param {Object} args - Availability search arguments.
    * @param {Object} args.token - A token definition, it's content varies between integrations.
-   * @returns {Boolean} - The token vailidity True/False
+   * @returns {Boolean} - The token validity True/False
    */
   validateToken() {
     return Boolean(this);
@@ -306,7 +306,7 @@ class Plugin {
    * @param {string} args.payload.travelDateEnd - Date of travel end.
    * @param {Holder} args.payload.holder - Search for a particular holder.
    * @returns {object} retVal - the return object.
-   * @returns {Booking[]} retVal.bookings - Array of Bookings matchin the criteria.
+   * @returns {Booking[]} retVal.bookings - Array of Bookings matching the criteria.
    */
   searchBooking() {
   }
