@@ -133,7 +133,6 @@ const bookingsAvailabilityCalendar = plugins => async (req, res, next) => {
     });
     return res.json(results);
   } catch (err) {
-    console.log({ err });
     return next(err);
   }
 };
