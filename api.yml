@@ -816,6 +816,97 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/bookingsProductSearchReturn'
+  /bookings/{appKey}/{userId}/availabilitycalendar:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Availability Search
+      operationId: bookingsAvailabilityCalendar
+      parameters:
+        - name: appKey
+          in: path
+          description: app to search availability for, defaults to first token
+          required: true
+          example: 'travelgate-hotelx'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: both app details
+        required:  true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnyValue'
+      responses:
+        '200':
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  availability:
+                    type: array
+                    required: true
+                    items:
+                      $ref: '#/components/schemas/availabilityItem'
+  /bookings/{appKey}/{userId}/{hint}/availabilitycalendar:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Availability Search for an specific hint
+      operationId: bookingsAvailabilityCalendar
+      parameters:
+        - name: appKey
+          in: path
+          description: app to search availability for, defaults to first token
+          required: true
+          example: 'travelgate-hotelx'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'travelgate-australia'
+          schema:
+            type: string
+      requestBody:
+        description: both app details
+        required:  true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnyValue'
+      responses:
+        '200':
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  availability:
+                    type: array
+                    required: true
+                    items:
+                      $ref: '#/components/schemas/availabilityItem'
   /bookings/{appKey}/{userId}/availability:
     post:
       security:

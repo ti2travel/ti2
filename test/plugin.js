@@ -363,7 +363,22 @@ class Plugin {
   searchAvailability() {
     // return (args);
   }
-
+  /**
+   * Retrieve an availability calendar over a date range
+   * @async
+   * @param {Object} args - Availability search arguments.
+   * @param {Object} args.token - A token definition, it's content varies between integrations.
+   * @param {Object} args.payload - Search spect object.
+   * @param {string} args.payload.dateFormat - Date format sent, using [momentjs formatting](https://momentjs.com/docs/#/parsing/string-format/).
+   * @param {string} args.payload.travelDateStart - Date of travel start.
+   * @param {string} args.payload.travelDateEnd - Date of travel end.
+   * @param {Occupancy[]} args.payload.occupancies - Occupancy detail.
+   * @returns {object} retVal - the return object
+   * @returns {Availability[]} retVal.availability - Array of availability objects
+   */
+  availabilityCalndar() {
+    // return (args);
+  }
   /**
    * A quote return spec
    * @typedef {Object} Quote

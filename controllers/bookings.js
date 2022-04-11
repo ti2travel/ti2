@@ -110,6 +110,33 @@ const bookingsAvailabilitySearch = plugins => async (req, res, next) => {
   }
 };
 
+const bookingsAvailabilityCalendar = plugins => async (req, res, next) => {
+  const {
+    params: { appKey, userId, hint },
+    body: payload,
+  } = req;
+  try {
+    const app = plugins.find(({ name }) => name === appKey);
+    // const app = load(appKey);
+    const userAppKeys = (await UserAppKey.findOne({
+      where: {
+        userId,
+        integrationId: appKey,
+        ...(hint ? { hint } : {}),
+      },
+    }));
+    assert(userAppKeys, 'could not find the app key');
+    const token = userAppKeys.appKey;
+    const results = await app.availabilityCalendar({
+      token,
+      payload,
+    });
+    return res.json(results);
+  } catch (err) {
+    return next(err);
+  }
+};
+
 const searchQuote = plugins => async (req, res, next) => {
   const {
     params: { appKey, userId, hint },
@@ -171,6 +198,7 @@ module.exports = plugins => ({
   bookingsCancel: bookingsCancel(plugins),
   bookingsProductSearch: bookingsProductSearch(plugins),
   bookingsAvailabilitySearch: bookingsAvailabilitySearch(plugins),
+  bookingsAvailabilityCalendar: bookingsAvailabilityCalendar(plugins),
   searchQuote: searchQuote(plugins),
   createBooking: createBooking(plugins),
 });
