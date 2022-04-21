@@ -7,7 +7,6 @@ const {
 } = process;
 
 const options = {
-  operatorsAliases: false,
   logging: false,
 };
 

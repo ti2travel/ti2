@@ -1,5 +1,11 @@
 const jwt = require('jwt-promise');
 const { omit } = require('ramda');
+const assert = require('assert');
+const { Umzug, SequelizeStorage } = require('umzug');
+const path = require('path');
+const Sequelize = require('sequelize');
+const fs = require('fs').promises;
+
 const sqldb = require('../models');
 
 const { env: { jwtSecret } } = process;
@@ -83,9 +89,54 @@ const listAppTokens = async (req, res, next) => {
   }
 };
 
+const migrateApp = async ({ integrationId, action }) => {
+  const { sequelize } = sqldb;
+  assert(integrationId);
+  assert(action);
+  const migrationsPath = path.join(
+    process.cwd(),
+    `../ti2-${integrationId}`,
+    'migrations',
+  );
+  try {
+    await fs.access(migrationsPath);
+  } catch (err) {
+    throw Error(`Could not find any migrations for ${integrationId} on ${migrationsPath}`);
+  }
+  const umzug = new Umzug({
+    migrations: {
+      glob: `${migrationsPath}/*.js`,
+      // inject sequelize's QueryInterface in the migrations
+      resolve: ({ name, path: migPath, context }) => {
+        const migration = require(migPath);
+        return {
+          // adjust the parameters Umzug will
+          // pass to migration methods when called
+          name,
+          up: async () => migration.up(context, Sequelize),
+          down: async () => migration.down(context, Sequelize),
+        };
+      },
+    },
+    context: sequelize.getQueryInterface(),
+    storage: new SequelizeStorage({
+      sequelize,
+      tableName: `SequelizeMeta-${integrationId}`,
+    }),
+  });
+  if (action === 'migrate') {
+    return umzug.up();
+  }
+  if (action === 'revert') {
+    return umzug.down({ to: 0 });
+  }
+  throw Error('No recognized action');
+};
+
 module.exports = {
   jwtEncode,
   createAppToken,
   deleteAppToken,
   listAppTokens,
+  migrateApp,
 };
