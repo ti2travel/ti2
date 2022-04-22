@@ -111,12 +111,9 @@ const migrate = async ({ action }) => {
   const umzug = new Umzug({
     migrations: {
       glob: `${migrationsPath}/*.js`,
-      // inject sequelize's QueryInterface in the migrations
       resolve: ({ name, path: migPath, context }) => {
         const migration = require(migPath);
         return {
-          // adjust the parameters Umzug will
-          // pass to migration methods when called
           name,
           up: async () => migration.up(context, Sequelize),
           down: async () => migration.down(context, Sequelize),
@@ -140,9 +137,9 @@ const migrate = async ({ action }) => {
 
 module.exports = {
   createApp,
-  deleteApp,
   createUserToken,
+  deleteApp,
   listApps,
-  resetIntegrationToken,
   migrate,
+  resetIntegrationToken,
 };
