@@ -52,7 +52,7 @@ $ npm i ti2 ti2-tourconnect
 After installing the ti2 package you need to run the database migrations for ti2:
 
 ```
-$  npm explore ti2<pluginName> -- npx sequelize db:migrate"
+$  ti2 db migrate
 ```
 
 ### Entry File

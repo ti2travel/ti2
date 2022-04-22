@@ -1,6 +1,11 @@
 const jwt = require('jsonwebtoken');
 const assert = require('assert');
 const { omit } = require('ramda');
+const { Umzug, SequelizeStorage } = require('umzug');
+const Sequelize = require('sequelize');
+const fs = require('fs').promises;
+const path = require('path');
+
 const sqldb = require('../models');
 
 const { env: { jwtSecret } } = process;
@@ -91,10 +96,50 @@ const resetIntegrationToken = async (req, res, next) => {
   }
 };
 
+const migrate = async ({ action }) => {
+  const { sequelize } = sqldb;
+  const migrationsPath = path.join(
+    __dirname,
+    '../',
+    'migrations',
+  );
+  try {
+    await fs.access(migrationsPath);
+  } catch (err) {
+    throw Error(`Could not find any migrations on ${migrationsPath}`);
+  }
+  const umzug = new Umzug({
+    migrations: {
+      glob: `${migrationsPath}/*.js`,
+      resolve: ({ name, path: migPath, context }) => {
+        const migration = require(migPath);
+        return {
+          name,
+          up: async () => migration.up(context, Sequelize),
+          down: async () => migration.down(context, Sequelize),
+        };
+      },
+    },
+    context: sequelize.getQueryInterface(),
+    storage: new SequelizeStorage({
+      sequelize,
+    }),
+    logger: console,
+  });
+  if (action === 'migrate') {
+    return umzug.up();
+  }
+  if (action === 'revert') {
+    return umzug.down({ to: 0 });
+  }
+  throw Error('No recognized action');
+};
+
 module.exports = {
   createApp,
-  deleteApp,
   createUserToken,
+  deleteApp,
   listApps,
+  migrate,
   resetIntegrationToken,
 };
