@@ -216,14 +216,17 @@ Ti2 uses [Sequelize v6.13](https://sequelize.org/v6) which is the database ORM w
 
 Migrations should be run after the fact, from the root of ti2 instance like so:
 
-
 ```
-$  npm explore ti2<pluginName> -- npx sequelize db:migrate"
+$ ti2 dbapp [plugin name] migrate
 ```
 
 We strongly encourage all the plugin's table names are prefixed with the plugin name (i.e. ti2-pluginName-cacheTable).
 
-This should be executed after the ti2 project migrations have been executed.
+This should be executed after all ti2 host migrations had been executed.
+
+```
+$ ti2 db migrate
+```
 
 ## Scheduled Task (to be released on v2)
 
