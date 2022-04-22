@@ -94,8 +94,10 @@ const migrateApp = async ({ integrationId, action }) => {
   assert(integrationId);
   assert(action);
   const migrationsPath = path.join(
-    process.cwd(),
-    `../ti2-${integrationId}`,
+    __dirname,
+    '../',
+    '../',
+    `ti2-${integrationId}`,
     'migrations',
   );
   try {
@@ -123,6 +125,7 @@ const migrateApp = async ({ integrationId, action }) => {
       sequelize,
       tableName: `SequelizeMeta-${integrationId}`,
     }),
+    logger: console,
   });
   if (action === 'migrate') {
     return umzug.up();
