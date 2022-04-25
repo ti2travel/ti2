@@ -22,7 +22,9 @@ module.exports = ({
   plugins: pluginsParam = {},
   port: portParam,
   startServer = true,
+  worker = false,
 }) => {
+  if (worker) return require('./worker/index.js');
   const port = portParam || process.env.PORT || 10010;
   const app = express();
   const plugins = Object.entries(pluginsParam).map(([pluginName, Plugin]) => {
