@@ -5,6 +5,7 @@ const swaggerUi = require('swagger-ui-express');
 const yaml = require('js-yaml');
 const fs = require('fs');
 const { pickBy } = require('ramda');
+const bb = require('bluebird');
 
 const schema = yaml.load(fs.readFileSync(`${__dirname}/api.yml`));
 
@@ -15,7 +16,7 @@ const appController = require('./controllers/app');
 const userController = require('./controllers/user');
 const bookingsController = require('./controllers/bookings');
 
-module.exports = ({
+module.exports = async ({
   apiDocs = true,
   elasticLogIndex = 'apilog_ti2',
   elasticLogsClient,
@@ -24,10 +25,9 @@ module.exports = ({
   startServer = true,
   worker = false,
 }) => {
-  if (worker) return require('./worker/index.js');
   const port = portParam || process.env.PORT || 10010;
-  const app = express();
-  const plugins = Object.entries(pluginsParam).map(([pluginName, Plugin]) => {
+  // create the plugin instances
+  const plugins = await bb.map(Object.entries(pluginsParam), async([pluginName, Plugin]) => {
     // pass all env variables
     const pluginEnv = pickBy(
       (_val, key) => key.substring(0, `ti2_${pluginName}`.length)
@@ -39,9 +39,13 @@ module.exports = ({
       const nuName = attr.replace(/_/g, '-').replace(`ti2-${pluginName}-`, '');
       params[nuName] = value;
     });
-    return new Plugin({ name: pluginName, ...params });
+    const pluginInstance = await new Plugin({ name: pluginName, ...params })
+    return pluginInstance;
   });
-  // console.log({ plugins });
+  if (worker) {
+    return require('./worker/index.js')({ plugins });
+  }
+  const app = express();
   const api = {
     ...pingController,
     ...adminController,

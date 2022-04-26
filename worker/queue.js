@@ -18,8 +18,6 @@ const allDone = async () => {
   const left1 = await getPending();
   if (left1 === 0) return true;
   return (new Promise(resolve => {
-    // const pending = await getPending();
-    // if (pending === 0) return resolve();
     queue.on('global:completed', async () => {
       const left = await getPending();
       if (left === 0) resolve();
@@ -28,19 +26,11 @@ const allDone = async () => {
 };
 
 queue.on('failed', (job, err) => {
-  // A job failed with reason `err`!
   console.log(`job ${job.id} failed`, err);
 });
 
 const addJob = async (payload, paramsParam) => {
   const params = paramsParam || {};
-  // if (!params.priority) {
-  //   params.priority = (() => {
-  //     console.log(payload.action);
-  //     if (payload.action === 'addPointsForNewReview') return 0;
-  //     return 20;
-  //   })();
-  // }
   const inTesting = Boolean(process.env.JEST_WORKER_ID);
   let id;
   if (inTesting) {
@@ -53,12 +43,13 @@ const addJob = async (payload, paramsParam) => {
     });
     return { id };
   } else {
+    console.log({ params });
     id = R.path(['id'], await queue.add({
       ...payload,
       inTesting,
     }, {
-      ...params,
       removeOnComplete: true,
+      ...params,
     }));
   }
   return id;
