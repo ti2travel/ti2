@@ -6,16 +6,25 @@ module.exports = {
         primaryKey: true,
         type: Sequelize.STRING,
       },
-      pluginJobId : {
+      userId: {
         allowNull: false,
         primaryKey: true,
         type: Sequelize.STRING,
       },
-      cron : {
+      hint: {
+        allowNull: false,
+        primaryKey: true,
+        type: Sequelize.STRING,
+      },
+      pluginJobId : {
         allowNull: false,
         type: Sequelize.STRING,
       },
       bullJobId : {
+        allowNull: false,
+        type: Sequelize.STRING,
+      },
+      cron : {
         allowNull: false,
         type: Sequelize.STRING,
       },

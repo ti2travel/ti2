@@ -43,6 +43,18 @@ class Plugin {
 
     this.searchQuote = jest.fn(() => ({ quote: [{ id: chance.guid() }] }));
     this.createBooking = jest.fn(() => {});
+
+    /**
+     * Background and schedule Jos
+     */
+    this.jobs = [{
+      id: 'dailyReport',
+      payload: {
+        action: 'report',
+      },
+      cron: '0 9 * * *',
+    }]
+
   }
 
   /**
@@ -410,6 +422,7 @@ class Plugin {
    * @returns {Booking} retVal.booking - A Booking object.
    */
   createBooking() {}
+
 }
 
 module.exports = Plugin;

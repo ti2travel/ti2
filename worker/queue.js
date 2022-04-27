@@ -33,7 +33,7 @@ const addJob = async (payload, paramsParam) => {
   const params = paramsParam || {};
   const inTesting = Boolean(process.env.JEST_WORKER_ID);
   let id;
-  if (inTesting) {
+  if (inTesting && !R.path(['repeat', 'cron'], paramsParam)) {
     // execute it now
     const worker = require(`./${payload.file}`)[payload.action];
     const id = ~~((new Date()).getTime());
@@ -43,7 +43,6 @@ const addJob = async (payload, paramsParam) => {
     });
     return { id };
   } else {
-    console.log({ params });
     id = R.path(['id'], await queue.add({
       ...payload,
       inTesting,

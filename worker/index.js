@@ -46,60 +46,12 @@ const worker = ({ plugins }) => (id, disconnect) => {
   });
 };
 
-const master = ({ plugins }) => async () => {
-  await bb.each(plugins, async plugin => {
-    if (Array.isArray(plugin.jobs)) {
-      await bb.each(plugin.jobs, async job => {
-        const where = {
-          pluginName: plugin.name,
-          pluginJobId: job.id,
-        };
-        const existing = await CronJobs.findOne({ where });
-        const jobPayload = {
-          pluginName: plugin.name,
-          ...job.payload,
-        };
-        const jobParams = {
-          ...(job.cron ? {
-            repeat: {
-              cron: job.cron,
-            }
-          } : {}),
-          ...(job.params || {}),
-          removeOnComplete: false,
-        }
-        let bullJobId;
-        if (existing) {
-          let bullJob = await queue.getJob(job.bullJobId);
-          if (!bullJob) {
-            bullJobId = await addJob(jobPayload, jobParams);
-            existing.bullJobId =  bullJobId;
-            await existing.save();
-          } else {
-            // make sure the cron is the same
-            const bullCron = R.path(
-              ['opts','repeat', 'cron'],
-              await queue.getJob(bullJobId)
-            );
-            if (bullCron !== job.cron) {
-              await queue.removeJobs(bullJobId);
-              bullJobId = await addJob(jobPayload, jobParams);
-              existing.bullJobId =  bullJobId;
-              await existing.save();
-            }
-          }
-        } else {
-          bullJobId = await addJob(jobPayload, jobParams);
-          await CronJobs.create({ ...where, bullJobId  })
-        }
-      });
-    }
-  });
-};
+// const master = ({ plugins }) => async () => {
+// };
 
 module.exports = async args => {
   return throng({
-    master: master(args),
+    // master: master(args),
     workers,
     worker: worker(args),
     signals: ['SIGUSR2', 'SIGTERM', 'SIGINT'],

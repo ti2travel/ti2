@@ -6,15 +6,23 @@ const CronJobs = db.define('CronJobs', {
     type: Sequelize.STRING,
     primaryKey: true,
   },
+  userId: {
+    type: Sequelize.STRING,
+    primaryKey: true,
+  },
+  hint: {
+    type: Sequelize.STRING,
+    primaryKey: true,
+  },
   pluginJobId: {
     type: Sequelize.STRING,
     primaryKey: true,
   },
-  cron: {
+  bullJobId: {
     type: Sequelize.STRING,
     allowNull: false,
   },
-  bullJobId: {
+  cron: {
     type: Sequelize.STRING,
     allowNull: false,
   },

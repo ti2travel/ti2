@@ -5,8 +5,13 @@ const { Umzug, SequelizeStorage } = require('umzug');
 const path = require('path');
 const Sequelize = require('sequelize');
 const fs = require('fs').promises;
+const bb = require('bluebird');
 
 const sqldb = require('../models');
+const {
+  queue,
+  addJob,
+  } = require('../worker/queue');
 
 const { env: { jwtSecret } } = process;
 
@@ -48,6 +53,59 @@ const createAppToken = async (req, res, next) => {
     });
     if (userAppKeyDup) await userAppKeyDup.destroy();
     const newAppKey = await sqldb.UserAppKey.create(payload);
+    // create any cronjobs related to the app
+    await bb.each(req.app.plugins, async plugin => {
+      if (Array.isArray(plugin.jobs)) {
+        await bb.each(plugin.jobs.filter(job => Boolean(job.cron)), async job => {
+          const where = {
+            pluginName: plugin.name,
+            pluginJobId: job.id,
+            userId,
+            hint,
+            cron: job.cron,
+          };
+          const existing = await sqldb.CronJobs.findOne({ where });
+          const jobPayload = {
+            ...where,
+            ...job.payload,
+          };
+          const jobParams = {
+            ...(job.cron ? {
+              repeat: {
+                cron: job.cron,
+              }
+            } : {}),
+            ...(job.params || {}),
+            removeOnComplete: false,
+          }
+          let bullJobId;
+          if (existing) {
+            let bullJob = await queue.getJob(job.bullJobId);
+            if (!bullJob) {
+              bullJobId = await addJob(jobPayload, jobParams);
+              existing.bullJobId =  bullJobId;
+              await existing.save();
+            } else {
+              // make sure the cron is the same
+              const bullCron = R.path(
+                ['opts','repeat', 'cron'],
+                await queue.getJob(bullJobId)
+              );
+              if (bullCron !== job.cron) {
+                await queue.removeJobs(bullJobId);
+                bullJobId = await addJob(jobPayload, jobParams);
+                existing.bullJobId =  bullJobId;
+                await existing.save();
+              }
+            }
+          } else {
+            bullJobId = await addJob(jobPayload, jobParams);
+            await sqldb.CronJobs.create({ ...where, bullJobId  })
+          }
+        });
+      }
+    });
+
     return res.json({ value: newAppKey.get('id').toString() });
   } catch (err) {
     return next(err);

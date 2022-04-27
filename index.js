@@ -6,6 +6,8 @@ const yaml = require('js-yaml');
 const fs = require('fs');
 const { pickBy } = require('ramda');
 const bb = require('bluebird');
+const { Op } = require('sequelize');
+const R = require('ramda');
 
 const schema = yaml.load(fs.readFileSync(`${__dirname}/api.yml`));
 
@@ -15,6 +17,7 @@ const adminController = require('./controllers/admin');
 const appController = require('./controllers/app');
 const userController = require('./controllers/user');
 const bookingsController = require('./controllers/bookings');
+const { Integration } = require('./models'); 
 
 module.exports = async ({
   apiDocs = true,
@@ -45,6 +48,27 @@ module.exports = async ({
   if (worker) {
     return require('./worker/index.js')({ plugins });
   }
+  // make sure all plugins have a DB entry
+  const pluginNames = plugins.map(R.prop('name'));
+  const matchedIntegrations = await Integration.findAll({
+    attributes: ['name'],
+    where: {
+      name : {
+        [Op.in]: pluginNames,
+      }
+    }, 
+    raw: true,
+  });
+  const missingIntegrations = R.difference(pluginNames, matchedIntegrations.map(R.prop('name')));
+  if (missingIntegrations.length > 0) {
+     // need to crete the missing integrations
+    await Integration.bulkCreate(missingIntegrations.map(name => ({
+      name,
+      packageName: `ti2-${name}`,
+      adminEmail: `ti2+${name}@localhost.local`,
+    })));
+  }
+  // create the API Web server
   const app = express();
   const api = {
     ...pingController,
@@ -150,6 +174,9 @@ module.exports = async ({
     app.use((err, req, res, next) => {
       // console.log(req.headers.['X-Request-Id'], err);
       res.status(err.status || 500);
+      if (Boolean(process.env.JEST_WORKER_ID)) {
+        console.debug(err);
+      }
       return res.json({
         message: err.message || 'Internal Error',
       });
