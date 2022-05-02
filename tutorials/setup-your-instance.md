@@ -62,8 +62,30 @@ $  ti2 db migrate
 then just create an entry file like this : 
 
 ```javascript
-
 // index.js
+
+module.exports = (async () => {
+    const ti2 = await require('ti2')({
+      plugins: {
+        ventrata: require('ti2-ventrata'),
+        travelgate: require('ti2-travelgate'),
+        tourconnect: require('ti2-tourconnect'),
+      },
+    });
+    return ti2;
+})();
+
+```
+
+and start the server:
+
+```bash
+$ node index.js
+```
+
+in order to support the background job queue (required by some plugins) you should consider the following example:
+
+```javascript
 const plugins = {
   ventrata: require('ti2-ventrata'),
   travelgate: require('ti2-travelgate'),
@@ -73,14 +95,12 @@ const plugins = {
 module.exports = (async () => {
   if (process.argv.indexOf('worker') > 0) {
     const worker = await require('ti2')({
-      elasticLogsClient,
       plugins,
       worker: true,
     });
     return worker;
   } else {
     const ti2 = await require('ti2')({
-      elasticLogsClient,
       plugins,
     });
     return ti2;
@@ -88,16 +108,10 @@ module.exports = (async () => {
 })();
 ```
 
-start the server:
-
-```bash
-$ node index.js
-```
-
 and start a background worker (on a second terminal), required for some plugins:
 
 ```bash
-$ ./app.js worker
+$ node index.js worker
 ```
 
 ## API logging
