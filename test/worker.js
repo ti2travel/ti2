@@ -1,4 +1,4 @@
-// tests only file, should not be ran by itself
+// tests only file, should not be execute by itself
 
 const worker = require('../worker/index')({ plugins: [] });
 
