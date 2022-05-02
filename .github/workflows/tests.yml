@@ -17,9 +17,12 @@ jobs:
           MYSQL_ROOT_PASSWORD: root
         ports:
           - 3306:3306
+      redis:
+        image: redis
     env:
       CI: true
       DB_URL: 'mysql://root:root@mysql/ti2development'
+      REDIS_URL: 'redis://redis:6379'
       dbCryptoKey: 'YmYzYzE5OWMyNDcwY2I0NzdkOTA3YjFlMDkxN2MxN2I='
       jwtSecret: '9rifawckwztuKehocJOtGM6deTqICGWzIyc5CqgNyi'
       frontendKey: 'lYjEJHzb7lbQ1hk3ypjX'
