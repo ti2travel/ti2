@@ -53,7 +53,6 @@ const worker = ({ plugins: pluginsParam }) => (id, disconnect) => {
 
 module.exports = async args => {
   return throng({
-    // master: master(args),
     workers,
     worker: worker(args),
     signals: ['SIGUSR2', 'SIGTERM', 'SIGINT'],
