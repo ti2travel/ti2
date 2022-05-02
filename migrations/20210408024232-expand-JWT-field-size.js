@@ -3,8 +3,8 @@ module.exports = {
     type: Sequelize.TEXT,
     allowNull: false,
   }),
-  down: (queryInterface, Sequelize) =>  queryInterface.changeColumn('UserAppKeys', 'appKey', {
+  down: (queryInterface, Sequelize) => queryInterface.changeColumn('UserAppKeys', 'appKey', {
     type: Sequelize.STRING,
     allowNull: false,
-  })
+  }),
 };

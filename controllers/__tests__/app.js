@@ -1,11 +1,11 @@
-/* globals describe it expect */
+/* globals beforeAll describe it expect */
 const chance = require('chance').Chance();
 const jwt = require('jwt-promise');
 const R = require('ramda');
 
 const testUtils = require('../../test/utils');
 const slugify = require('../../test/slugify');
-const appController = require('../../controllers/app');
+const appController = require('../app');
 
 const { env: { adminKey, jwtSecret } } = process;
 
@@ -18,7 +18,9 @@ describe('app', () => {
     packageName: `ti2-${appName}`,
     adminEmail: chance.email(),
   };
-  let doApiPost, doApiGet, doApiPut;
+  let doApiPost;
+  let doApiGet;
+  let doApiPut;
   let appKey;
   const userId = chance.guid();
   const apiKey = chance.guid();
@@ -80,7 +82,7 @@ describe('app', () => {
       expect(R.head(R.project(['pluginJobId', 'cron'], jobs)))
         .toEqual({
           pluginJobId: 'dailyReport',
-          cron: '0 9 * * *'
+          cron: '0 9 * * *',
         });
     });
     it.todo('if a new version of the plugin has a different set of scheduled tasks, they shoul dbe re-syncjed');
@@ -101,7 +103,7 @@ describe('app', () => {
     });
     it('should be able to get the status of a ran job', async () => {
       await global.sleep(5e3);
-      const url =`/${appName}/${userId}/${jobId}/jobStatus`;
+      const url = `/${appName}/${userId}/${jobId}/jobStatus`;
       const jobStatus = await doApiGet({
         url,
         token: appKey,

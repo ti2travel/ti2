@@ -1,11 +1,8 @@
 const throng = require('throng');
-const bb = require('bluebird');
-const R = require('ramda');
 require('util').inspect.defaultOptions.depth = null;
-const { CronJobs } = require('../models');
 const fakePlugin = require('../test/plugin');
 
-const { queue, saveResult, addJob } = require('./queue');
+const { queue, saveResult } = require('./queue');
 
 const workers = process.env.WEB_CONCURRENCY || 2;
 
@@ -29,34 +26,28 @@ const worker = ({ plugins: pluginsParam }) => (id, disconnect) => {
       data: {
         pluginName,
         method,
-        hint,
         userId,
         inTesting,
       },
-      id,
+      id: jobId,
       data: params,
     } = job;
-    console.log(`job ${id} > running ${pluginName}:${method} for ${userId}`);
-    const plugins = await (async() => {
+    console.log(`job ${jobId} > running ${pluginName}:${method} for ${userId}`);
+    const plugins = await (async () => {
       if (inTesting) {
         return [...pluginsParam, await new fakePlugin({ name: pluginName })];
       }
       return pluginsParam;
     })();
-    const thePlugin = plugins.find(({ name }) => name == pluginName)
+    const thePlugin = plugins.find(({ name }) => name === pluginName);
     const resultValue = await thePlugin[method](params);
-    console.log(`job ${id} > completed`);
-    await saveResult({ id: job.id, resultValue });
+    console.log(`job ${jobId} > completed`);
+    await saveResult({ id: jobId, resultValue });
   });
 };
 
-
-module.exports = async args => {
-  return throng({
-    workers,
-    worker: worker(args),
-    signals: ['SIGUSR2', 'SIGTERM', 'SIGINT'],
-  });
-};
-
-
+module.exports = async args => throng({
+  workers,
+  worker: worker(args),
+  signals: ['SIGUSR2', 'SIGTERM', 'SIGINT'],
+});

@@ -3,14 +3,13 @@
 const chance = require('chance').Chance();
 const request = require('supertest');
 const assert = require('assert');
+
 const appReq = require('../index');
 const Plugin = require('./plugin');
 const slugify = require('./slugify');
 const sqldb = require('../models/db');
 
 const { env: { adminKey } } = process;
-
-const timeout = ms => (new Promise(resolve => setTimeout(resolve, ms)));
 
 afterAll(async () => {
   await sqldb.connectionManager.close();
@@ -104,7 +103,6 @@ module.exports = async (appParams = {}) => {
     doApiPost,
     doApiPut,
     slugify,
-    timeout,
     plugins: app.plugins,
   };
 };

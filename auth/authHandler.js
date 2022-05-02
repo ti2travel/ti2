@@ -68,10 +68,10 @@ const frontend = async (req, res, next) => {
 };
 
 const adminOrUser = levels => async (req, res, next) => {
-  result = await Promise.all(levels.map(
+  const result = await Promise.all(levels.map(
     level => level(req, res, err => err),
   ));
-  if (result.some(val => (!Boolean(val)))) {
+  if (result.some(val => (!val))) {
     return next();
   }
   return next(result[0]);

@@ -1,9 +1,10 @@
 /* global jest, expect */
+/* eslint class-methods-use-this: "off", max-len: "off" */
 
 const jestPlugin = (() => {
   if (typeof jest === 'undefined') {
     return {
-      fn: (fn) => fn,
+      fn: fn => fn,
     };
   }
   return jest;
@@ -387,6 +388,7 @@ class Plugin {
   searchAvailability() {
     // return (args);
   }
+
   /**
    * Retrieve an availability calendar over a date range
    * @async
@@ -403,6 +405,7 @@ class Plugin {
   availabilityCalndar() {
     // return (args);
   }
+
   /**
    * A quote return spec
    * @typedef {Object} Quote
@@ -434,7 +437,6 @@ class Plugin {
    * @returns {Booking} retVal.booking - A Booking object.
    */
   createBooking() {}
-
 }
 
 module.exports = Plugin;

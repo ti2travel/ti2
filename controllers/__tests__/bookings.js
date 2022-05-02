@@ -1,4 +1,4 @@
-/* globals describe it expect */
+/* globals beforeAll describe it expect */
 
 const chance = require('chance').Chance();
 const testUtils = require('../../test/utils');
@@ -22,7 +22,10 @@ describe('user: booking search', () => {
     tokenHint: 'testingToken',
     token,
   };
-  let dpApiDelete, doApiGet, doApiPost, plugins;
+  let doApiDelete;
+  let doApiGet;
+  let doApiPost;
+  let plugins;
   beforeAll(async () => {
     ({
       doApiDelete,
@@ -42,13 +45,17 @@ describe('user: booking search', () => {
         token: adminKey,
         payload: { tokenHint: 'testingToken' },
       });
-    } catch {}
+    } catch (err) {
+      console.debug(err);
+    }
     try {
       await doApiDelete({
         url: '/app/travelgate',
         token: adminKey,
       });
-    } catch {}
+    } catch (err) {
+      console.debug(err);
+    }
   });
   it('create the travelgate app', async () => {
     const { value: apiKey } = await doApiPost({

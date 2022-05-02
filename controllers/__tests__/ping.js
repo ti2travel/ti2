@@ -1,4 +1,4 @@
-/* global describe, it, expect */
+/* global beforeAll, describe, it, expect */
 const testUtils = require('../../test/utils');
 
 describe('ping', () => {

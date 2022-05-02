@@ -1,4 +1,4 @@
-/* globals describe it expect */
+/* globals beforeAll describe it expect */
 
 const chance = require('chance').Chance();
 const testUtils = require('../../test/utils');
@@ -17,7 +17,8 @@ describe('admin', () => {
   };
   let appKey;
   const userId = '536830b6ed19afa44a000002';
-  let doApiPost, doApiGet;
+  let doApiPost; let
+    doApiGet;
   beforeAll(async () => {
     ({
       doApiGet,

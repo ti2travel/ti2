@@ -13,7 +13,7 @@ const {
   queue,
   addJob,
   jobStatus,
-  } = require('../worker/queue');
+} = require('../worker/queue');
 
 const { env: { jwtSecret } } = process;
 
@@ -77,34 +77,34 @@ const createAppToken = async (req, res, next) => {
             ...(job.cron ? {
               repeat: {
                 cron: job.cron,
-              }
+              },
             } : {}),
             ...(job.params || {}),
             removeOnComplete: false,
-          }
+          };
           let bullJobId;
           if (existing) {
-            let bullJob = await queue.getJob(job.bullJobId);
+            const bullJob = await queue.getJob(job.bullJobId);
             if (!bullJob) {
               bullJobId = await addJob(jobPayload, jobParams);
-              existing.bullJobId =  bullJobId;
+              existing.bullJobId = bullJobId;
               await existing.save();
             } else {
               // make sure the cron is the same
               const bullCron = R.path(
-                ['opts','repeat', 'cron'],
-                await queue.getJob(bullJobId)
+                ['opts', 'repeat', 'cron'],
+                await queue.getJob(bullJobId),
               );
               if (bullCron !== job.cron) {
                 await queue.removeJobs(bullJobId);
                 bullJobId = await addJob(jobPayload, jobParams);
-                existing.bullJobId =  bullJobId;
+                existing.bullJobId = bullJobId;
                 await existing.save();
               }
             }
           } else {
             bullJobId = await addJob(jobPayload, jobParams);
-            await sqldb.CronJobs.create({ ...where, bullJobId  })
+            await sqldb.CronJobs.create({ ...where, bullJobId });
           }
         });
       }
@@ -209,7 +209,7 @@ const getAppScheduledJobs = async ({
     where,
     raw: true,
   });
-  return  { jobs };
+  return { jobs };
 };
 
 const runAppJob = async (req, res, next) => {
@@ -230,13 +230,13 @@ const runAppJob = async (req, res, next) => {
       pluginName,
       hint,
       userId,
-    }, jobParams); 
+    }, jobParams);
     assert(bullJobId);
     return res.json(await jobStatus({ jobId: bullJobId }));
   } catch (err) {
     return next(err);
   }
-}
+};
 
 const getJobStatus = async (req, res, next) => {
   const {
@@ -244,9 +244,13 @@ const getJobStatus = async (req, res, next) => {
       jobId,
     },
   } = req;
-  return res.json(await jobStatus({ jobId }));
-}
-
+  try {
+    const returnValue = await jobStatus({ jobId });
+    return res.json(returnValue);
+  } catch (err) {
+    return next(err);
+  }
+};
 
 module.exports = {
   createAppToken,

@@ -1,11 +1,7 @@
 // controllers/user.js
-const { omit, flatten } = require('ramda');
-const assert = require('assert');
-const Promise = require('bluebird');
-const moment = require('moment');
+const { omit } = require('ramda');
 
-const { UserAppKey, Sequelize: { Op } } = require('../models');
-// const { load } = require('../../plugins/index.js');
+const { UserAppKey } = require('../models');
 
 const userAppList = async (req, res, next) => {
   const { params: { userId } } = req;

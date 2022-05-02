@@ -17,7 +17,7 @@ const adminController = require('./controllers/admin');
 const appController = require('./controllers/app');
 const userController = require('./controllers/user');
 const bookingsController = require('./controllers/bookings');
-const { Integration } = require('./models'); 
+const { Integration } = require('./models');
 
 module.exports = async ({
   apiDocs = true,
@@ -30,7 +30,7 @@ module.exports = async ({
 }) => {
   const port = portParam || process.env.PORT || 10010;
   // create the plugin instances
-  const plugins = await bb.map(Object.entries(pluginsParam), async([pluginName, Plugin]) => {
+  const plugins = await bb.map(Object.entries(pluginsParam), async ([pluginName, Plugin]) => {
     // pass all env variables
     const pluginEnv = pickBy(
       (_val, key) => key.substring(0, `ti2_${pluginName}`.length)
@@ -42,26 +42,26 @@ module.exports = async ({
       const nuName = attr.replace(/_/g, '-').replace(`ti2-${pluginName}-`, '');
       params[nuName] = value;
     });
-    const pluginInstance = await new Plugin({ name: pluginName, ...params })
+    const pluginInstance = await new Plugin({ name: pluginName, ...params });
     return pluginInstance;
   });
   if (worker) {
-    return require('./worker/index.js')({ plugins });
+    return require('./worker/index')({ plugins });
   }
   // make sure all plugins have a DB entry
   const pluginNames = plugins.map(R.prop('name'));
   const matchedIntegrations = await Integration.findAll({
     attributes: ['name'],
     where: {
-      name : {
+      name: {
         [Op.in]: pluginNames,
-      }
-    }, 
+      },
+    },
     raw: true,
   });
   const missingIntegrations = R.difference(pluginNames, matchedIntegrations.map(R.prop('name')));
   if (missingIntegrations.length > 0) {
-     // need to crete the missing integrations
+    // need to crete the missing integrations
     await Integration.bulkCreate(missingIntegrations.map(name => ({
       name,
       packageName: `ti2-${name}`,
@@ -171,10 +171,10 @@ module.exports = async ({
     connect(app);
     app.use(middleware.mock());
     // global error Handling
-    app.use((err, req, res, next) => {
+    app.use((err, req, res) => {
       // console.log(req.headers.['X-Request-Id'], err);
       res.status(err.status || 500);
-      if (Boolean(process.env.JEST_WORKER_ID)) {
+      if ((process.env.JEST_WORKER_ID)) {
         console.debug(err);
       }
       return res.json({
@@ -189,8 +189,11 @@ module.exports = async ({
   // first create a generic "terminator"
   const terminator = sig => {
     if (typeof sig === 'string') {
-      console.log('%s: Received %s - terminating ti2 ...',
-        Date(Date.now()), sig);
+      console.log(
+        '%s: Received %s - terminating ti2 ...',
+        Date(Date.now()),
+        sig,
+      );
       process.exit(1);
     }
     console.log('%s: Node server stopped.', Date(Date.now()));

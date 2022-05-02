@@ -15,7 +15,8 @@ describe('user', () => {
     packageName: `ti2-${appName}`,
     adminEmail: chance.email(),
   };
-  let doApiGet, doApiPost, doApiDelete;
+  let doApiGet; let doApiPost; let
+    doApiDelete;
   let appKey;
   const userId = chance.guid();
   let apiKey = chance.guid();
@@ -29,7 +30,6 @@ describe('user', () => {
       doApiDelete,
       doApiGet,
       doApiPost,
-      plugins,
     } = await testUtils({
       plugins: [appName],
     }));
