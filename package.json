@@ -8,6 +8,11 @@
     "sequelize": "sequelize-cli",
     "doc": "jsdoc -c jsdoc.conf.json -u tutorials"
   },
+  "jest": {
+    "setupFilesAfterEnv": [
+      "./jest.setup.js"
+    ]
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ti2travel/ti2.git"

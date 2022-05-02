@@ -1,8 +1,13 @@
 /* global describe, it, expect */
-
-const { doApiGet } = require('../../test/utils')();
+const testUtils = require('../../test/utils');
 
 describe('ping', () => {
+  let doApiGet;
+  beforeAll(async () => {
+    ({
+      doApiGet,
+    } = await testUtils());
+  });
   it('should get a server pong', async () => {
     const response = await doApiGet({
       url: '/ping',

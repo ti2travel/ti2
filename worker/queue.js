@@ -32,25 +32,13 @@ queue.on('failed', (job, err) => {
 const addJob = async (payload, paramsParam) => {
   const params = paramsParam || {};
   const inTesting = Boolean(process.env.JEST_WORKER_ID);
-  let id;
-  if (inTesting && !R.path(['repeat', 'cron'], paramsParam)) {
-    // execute it now
-    const worker = require(`./${payload.file}`)[payload.action];
-    const id = ~~((new Date()).getTime());
-    await saveResult({
-      id,
-      resultValue: await worker(...(payload.params)),
-    });
-    return { id };
-  } else {
-    id = R.path(['id'], await queue.add({
-      ...payload,
-      inTesting,
-    }, {
-      removeOnComplete: true,
-      ...params,
-    }));
-  }
+  const id = R.path(['id'], await queue.add({
+    ...payload,
+    inTesting,
+  }, {
+    removeOnComplete: true,
+    ...params,
+  }));
   return id;
 };
 
@@ -63,13 +51,13 @@ const jobStatus = async ({ jobId }) => {
     const job = await queue.getJob(jobId);
     if (!job) {
       // check if it is done
-      const resultValue = JSON.parse(await redisResults.get(jobId));
+      const result = JSON.parse(await redisResults.get(jobId));
       // await global.sleep();
-      if (resultValue) {
+      if (result) {
         return {
           jobId,
           status: 'success',
-          ...resultValue,
+          result,
         };
       }
       return { // 404

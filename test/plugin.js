@@ -1,4 +1,14 @@
 /* global jest, expect */
+
+const jestPlugin = (() => {
+  if (typeof jest === 'undefined') {
+    return {
+      fn: (fn) => fn,
+    };
+  }
+  return jest;
+})();
+
 const chance = require('chance').Chance();
 
 class Plugin {
@@ -15,16 +25,16 @@ class Plugin {
       this[attr] = value;
     });
     // mock implementations
-    this.validateToken = jest.fn(() => true);
-    this.getProfile = jest.fn(() => {});
-    this.updateProfile = jest.fn(() => {});
-    this.getProduct = jest.fn(() => ({ products: [] }));
-    this.getProducts = jest.fn(() => true);
-    this.createLocation = jest.fn(() => ({ locationId: chance.guid() }));
-    this.updateLocation = jest.fn(() => true);
-    this.searchBooking = jest.fn(() => ({ bookings: [] }));
-    this.searchProducts = jest.fn(() => ({ bookings: [], products: [] }));
-    this.searchAvailability = jest.fn(({
+    this.validateToken = jestPlugin.fn(() => true);
+    this.getProfile = jestPlugin.fn(() => {});
+    this.updateProfile = jestPlugin.fn(() => {});
+    this.getProduct = jestPlugin.fn(() => ({ products: [] }));
+    this.getProducts = jestPlugin.fn(() => true);
+    this.createLocation = jestPlugin.fn(() => ({ locationId: chance.guid() }));
+    this.updateLocation = jestPlugin.fn(() => true);
+    this.searchBooking = jestPlugin.fn(() => ({ bookings: [] }));
+    this.searchProducts = jestPlugin.fn(() => ({ bookings: [], products: [] }));
+    this.searchAvailability = jestPlugin.fn(({
       token,
       payload: {
         travelDateStart,
@@ -40,21 +50,23 @@ class Plugin {
       expect(Array.isArray(occupancies)).toBeTruthy();
       return { availability: [{ id: chance.guid() }] };
     });
-
-    this.searchQuote = jest.fn(() => ({ quote: [{ id: chance.guid() }] }));
-    this.createBooking = jest.fn(() => {});
+    this.searchQuote = jestPlugin.fn(() => ({ quote: [{ id: chance.guid() }] }));
+    this.createBooking = jestPlugin.fn(() => {});
 
     /**
      * Background and schedule Jos
      */
     this.jobs = [{
-      id: 'dailyReport',
+      method: 'dailyReport',
       payload: {
         action: 'report',
       },
       cron: '0 9 * * *',
-    }]
+    }];
 
+    this.dailyReport = jestPlugin.fn(() => ({
+      someVal: true,
+    }));
   }
 
   /**
@@ -270,7 +282,7 @@ class Plugin {
     return true;
   }
 
-  searchHotelBooking = jest.fn(() => ({ bookings: [] }));
+  searchHotelBooking = jestPlugin.fn(() => ({ bookings: [] }));
 
   /**
    * Booking Object

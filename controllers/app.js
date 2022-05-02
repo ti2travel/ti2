@@ -6,11 +6,13 @@ const path = require('path');
 const Sequelize = require('sequelize');
 const fs = require('fs').promises;
 const bb = require('bluebird');
+const R = require('ramda');
 
 const sqldb = require('../models');
 const {
   queue,
   addJob,
+  jobStatus,
   } = require('../worker/queue');
 
 const { env: { jwtSecret } } = process;
@@ -59,12 +61,14 @@ const createAppToken = async (req, res, next) => {
         await bb.each(plugin.jobs.filter(job => Boolean(job.cron)), async job => {
           const where = {
             pluginName: plugin.name,
-            pluginJobId: job.id,
+            pluginJobId: job.method,
             userId,
             hint,
             cron: job.cron,
           };
-          const existing = await sqldb.CronJobs.findOne({ where });
+          const existing = await sqldb.CronJobs.findOne({
+            where: R.omit(['cron'], where),
+          });
           const jobPayload = {
             ...where,
             ...job.payload,
@@ -191,10 +195,66 @@ const migrateApp = async ({ integrationId, action }) => {
   throw Error('No recognized action');
 };
 
+const getAppScheduledJobs = async ({
+  integrationId,
+  userId,
+  hint,
+}) => {
+  const where = R.reject(R.isNil)({
+    pluginName: integrationId,
+    userId,
+    hint,
+  });
+  const jobs = await sqldb.CronJobs.findAll({
+    where,
+    raw: true,
+  });
+  return  { jobs };
+};
+
+const runAppJob = async (req, res, next) => {
+  const {
+    body: {
+      payload,
+      jobParams,
+    },
+    params: {
+      app: pluginName,
+      hint,
+      userId,
+    },
+  } = req;
+  try {
+    const bullJobId = await addJob({
+      ...payload,
+      pluginName,
+      hint,
+      userId,
+    }, jobParams); 
+    assert(bullJobId);
+    return res.json(await jobStatus({ jobId: bullJobId }));
+  } catch (err) {
+    return next(err);
+  }
+}
+
+const getJobStatus = async (req, res, next) => {
+  const {
+    params: {
+      jobId,
+    },
+  } = req;
+  return res.json(await jobStatus({ jobId }));
+}
+
+
 module.exports = {
   createAppToken,
   deleteAppToken,
+  getAppScheduledJobs,
+  getJobStatus,
   jwtEncode,
   listAppTokens,
   migrateApp,
+  runAppJob,
 };

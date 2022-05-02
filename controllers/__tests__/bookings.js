@@ -22,13 +22,16 @@ describe('user: booking search', () => {
     tokenHint: 'testingToken',
     token,
   };
-  const {
-    doApiDelete,
-    doApiGet,
-    doApiPost,
-    plugins,
-  } = testUtils({
-    plugins: [newApp.name],
+  let dpApiDelete, doApiGet, doApiPost, plugins;
+  beforeAll(async () => {
+    ({
+      doApiDelete,
+      doApiGet,
+      doApiPost,
+      plugins,
+    } = await testUtils({
+      plugins: [newApp.name],
+    }));
   });
 
   let userToken;

@@ -29,6 +29,34 @@ components:
       properties:
         value:
           type: string
+    JobSpec:
+      type: object
+      properties:
+        payload:
+          type: object
+          description: The job app parameters
+          required: true
+          example: '{
+            "method": "dailyReport"
+          }'
+        jobParams:
+          type: object
+          description: Additional bull job params
+          example: '{
+            "delay": "5000"
+          }'
+    JobStatus:
+      type: object
+      properties:
+        jobId:
+          type: string
+        status:
+          type: string
+          example: 'active'
+        result:
+          type: object
+          description: The job return values
+          example: '{ "result": "value" }'
     App:
       type: object
       properties:
@@ -534,6 +562,128 @@ paths:
           content:
             application/json:
               schema: '#/components/schemas/Message'
+
+  /{app}/{userId}/jobRun:
+    security:
+      - bearerAuth: ['app', 'user', 'admin']
+    post:
+      tags:
+        - jobs
+      summary: Run a Job
+      security:
+        - bearerAuth: ['app', 'user', 'admin']
+      operationId: runAppJob
+      parameters:
+        - name: app
+          in: path
+          description: app that defines the job
+          example: 'ventrata'
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: user to run the schedule app against
+          example: '536830b6ed19afa44a000002'
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: The job parameters
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobSpec'
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema: '#/components/schemas/JobStatus'
+  /{app}/{userId}/{hint}/jobRun:
+    security:
+      - bearerAuth: ['app', 'user', 'admin']
+    post:
+      tags:
+        - jobs
+      summary: Run a schedule Job
+      security:
+        - bearerAuth: ['app', 'user', 'admin']
+      operationId: runAppJob
+      parameters:
+        - name: app
+          in: path
+          description: app that defines the job
+          example: 'ventrata'
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: user to run the schedule app against
+          example: '536830b6ed19afa44a000002'
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'travelgate-australia'
+          schema:
+            type: string
+      requestBody:
+        description: The job parameters
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobSpec'
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema: '#/components/schemas/JobStatus'
+  /{app}/{userId}/{jobId}/jobStatus:
+    security:
+      - bearerAuth: ['app', 'user', 'admin']
+    get:
+      tags:
+        - jobs
+      summary: Get the status and/or result from a job
+      security:
+        - bearerAuth: ['app', 'user', 'admin']
+      operationId: getJobStatus
+      parameters:
+        - name: app
+          in: path
+          description: app that defines the job
+          example: 'ventrata'
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: user that owns the job
+          example: '536830b6ed19afa44a000002'
+          required: true
+          schema:
+            type: string
+        - name: jobId
+          in: path
+          description: jobId to get the status for
+          example: '536830b6ed19afa44a000002'
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema: '#/components/schemas/JobStatus'
   /user/{userId}/apps:
     get:
       security:
