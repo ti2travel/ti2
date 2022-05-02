@@ -1,7 +1,6 @@
 const throng = require('throng');
 const bb = require('bluebird');
 const R = require('ramda');
-// const closeAll = require('./closeAll.js');
 require('util').inspect.defaultOptions.depth = null;
 const { CronJobs } = require('../models');
 const fakePlugin = require('../test/plugin');
@@ -18,9 +17,7 @@ const worker = ({ plugins: pluginsParam }) => (id, disconnect) => {
   const bye = () => {
     console.log(`Worker ${id} exiting`);
     disconnect();
-    // closeAll().then(() => {
     process.exit(0);
-    // });
   };
 
   process.on('SIGTERM', bye);
@@ -46,17 +43,13 @@ const worker = ({ plugins: pluginsParam }) => (id, disconnect) => {
       }
       return pluginsParam;
     })();
-    // const worker = require(`./${fle}`)[action];
     const thePlugin = plugins.find(({ name }) => name == pluginName)
     const resultValue = await thePlugin[method](params);
     console.log(`job ${id} > completed`);
-    // USE callbackUrl and ping with the result
     await saveResult({ id: job.id, resultValue });
   });
 };
 
-// const master = ({ plugins }) => async () => {
-// };
 
 module.exports = async args => {
   return throng({
