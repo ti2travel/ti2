@@ -33,7 +33,7 @@ jobs:
       with:
         node-version: 12
     - name: install dependencies
-      run: npm i
+      run: npm ci
     - name: create/migrate the database
       run: npx sequelize db:create && npx sequelize db:migrate
     - name: seed the database
