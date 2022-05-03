@@ -159,7 +159,7 @@ const migrateApp = async ({ integrationId, action }) => {
     __dirname,
     '../',
     '../',
-    `ti2-${integrationId}`,
+    integrationId,
     'migrations',
   );
   try {
