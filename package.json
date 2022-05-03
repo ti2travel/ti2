@@ -8,21 +8,28 @@
     "sequelize": "sequelize-cli",
     "doc": "jsdoc -c jsdoc.conf.json -u tutorials"
   },
+  "jest": {
+    "setupFilesAfterEnv": [
+      "./jest.setup.js"
+    ]
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ti2travel/ti2.git"
   },
   "bin": "./cli.js",
   "author": "",
-  "license": "GPL-3",
+  "license": "GPL-3.0",
   "bugs": {
     "url": "https://github.com/ti2travel/ti2/issues"
   },
   "homepage": "https://github.com/ti2travel/ti2#readme",
   "dependencies": {
     "bluebird": "^3.7.2",
+    "bull": "^4.8.2",
     "commander": "^9.2.0",
     "express": "^4.17.2",
+    "ioredis": "^5.0.4",
     "js-yaml": "^4.1.0",
     "jsonwebtoken": "^8.5.1",
     "jwt-promise": "^1.0.0",
@@ -34,17 +41,18 @@
     "swagger-express-middleware": "3.0.0-alpha.5",
     "swagger-routes-express": "3.3.1",
     "swagger-ui-express": "4.3.0",
+    "throng": "^5.0.0",
     "umzug": "^3.1.1",
     "uninstall": "^0.0.0"
   },
   "devDependencies": {
+    "@salvador/minami": "^1.2.3",
     "chance": "^1.1.8",
     "eslint": "^8.7.0",
     "eslint-config-airbnb-base": "^15.0.0",
     "eslint-plugin-import": "^2.25.4",
     "jest": "^27.4.7",
     "jsdoc": "^3.6.10",
-    "minami": "git+https://github.com/MyNameReallySux/minami.git#sort-data",
     "supertest": "^6.2.2"
   }
 }

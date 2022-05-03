@@ -3,6 +3,7 @@
 const chance = require('chance').Chance();
 const request = require('supertest');
 const assert = require('assert');
+
 const appReq = require('../index');
 const Plugin = require('./plugin');
 const slugify = require('./slugify');
@@ -10,12 +11,10 @@ const sqldb = require('../models/db');
 
 const { env: { adminKey } } = process;
 
-const timeout = ms => (new Promise(resolve => setTimeout(resolve, ms)));
-
 afterAll(async () => {
   await sqldb.connectionManager.close();
 });
-module.exports = (appParams = {}) => {
+module.exports = async (appParams = {}) => {
   const plugins = (() => {
     if (Array.isArray(appParams.plugins)) {
       const retVal = {};
@@ -28,7 +27,7 @@ module.exports = (appParams = {}) => {
       mockName: Plugin,
     };
   })();
-  const app = appReq({
+  const app = await appReq({
     startServer: false,
     ...appParams,
     plugins,
@@ -104,7 +103,6 @@ module.exports = (appParams = {}) => {
     doApiPost,
     doApiPut,
     slugify,
-    timeout,
     plugins: app.plugins,
   };
 };

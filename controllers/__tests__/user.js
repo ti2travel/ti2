@@ -15,9 +15,8 @@ describe('user', () => {
     packageName: `ti2-${appName}`,
     adminEmail: chance.email(),
   };
-  const { doApiPost, doApiGet, doApiDelete } = testUtils({
-    plugins: [appName],
-  });
+  let doApiGet; let doApiPost; let
+    doApiDelete;
   let appKey;
   const userId = chance.guid();
   let apiKey = chance.guid();
@@ -27,6 +26,13 @@ describe('user', () => {
     apiKey,
   };
   beforeAll(async () => {
+    ({
+      doApiDelete,
+      doApiGet,
+      doApiPost,
+    } = await testUtils({
+      plugins: [appName],
+    }));
     // create an App
     ({ value: appKey } = await doApiPost({
       url: '/app',

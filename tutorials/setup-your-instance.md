@@ -23,6 +23,7 @@ User + app integration credentials can be added after the app has been added to 
 A MySQl instance is required and the following environment variables are required:
 
 - DB_URL (mysql connection in url format)
+- REDIS_URL (a redis database url to store the background queue)
 - dbCryptoKey (integration details encription key, should be a 32 chars base64 encoded random string)
 - adminKey (a key for admin related requests)
 - jwtKey (a key to encrypt user sessions request)
@@ -31,6 +32,7 @@ A MySQl instance is required and the following environment variables are require
 
 ```
 DB_URL=mysql://root:@mysqlserver/ti2development
+REDIS_URL=redis://redis:6379
 dbCryptoKey=cG9VYmJyQ2tlSDVHeXQ4RUN4VlNieEJRejNYWDlZU0g=
 jwtSecret=C8k0mrHVfWVTP7pIoZEHRrvFgTULhw3E4swDq1aoDH4P
 frontendKey=IpOiLahrGQxsQimwoK7Z
@@ -61,19 +63,55 @@ then just create an entry file like this :
 
 ```javascript
 // index.js
-const ti2 = require('ti2')({
-  plugins: {
-    travelgate: require('ti2-travelgate'),
-    ventrata: require('ti2-ventrata'),
-    tourconnect: require('ti2-tourconnect'),
-  },
-});
+
+module.exports = (async () => {
+    const ti2 = await require('ti2')({
+      plugins: {
+        ventrata: require('ti2-ventrata'),
+        travelgate: require('ti2-travelgate'),
+        tourconnect: require('ti2-tourconnect'),
+      },
+    });
+    return ti2;
+})();
+
 ```
 
-and stat the server using node:
+and start the server:
 
-```
+```bash
 $ node index.js
+```
+
+in order to support the background job queue (required by some plugins) you should consider the following example:
+
+```javascript
+const plugins = {
+  ventrata: require('ti2-ventrata'),
+  travelgate: require('ti2-travelgate'),
+  tourconnect: require('ti2-tourconnect'),
+};
+
+module.exports = (async () => {
+  if (process.argv.indexOf('worker') > 0) {
+    const worker = await require('ti2')({
+      plugins,
+      worker: true,
+    });
+    return worker;
+  } else {
+    const ti2 = await require('ti2')({
+      plugins,
+    });
+    return ti2;
+  }
+})();
+```
+
+and start a background worker (on a second terminal), required for some plugins:
+
+```bash
+$ node index.js worker
 ```
 
 ## API logging
@@ -87,12 +125,26 @@ const elasticLogsClient = (() => {
   return new Client({ node: elasticLogs });
 })();
 
-const ti2 = require('ti2')({
-  elasticLogsClient,
-  plugins: {
-    ventrata: require('ti2-ventrata'),
-    travelgate: require('ti2-travelgate'),
-    tourconnect: require('ti2-tourconnect'),
-  },
-});
+const plugins = {
+  ventrata: require('ti2-ventrata'),
+  travelgate: require('ti2-travelgate'),
+  tourconnect: require('ti2-tourconnect'),
+};
+
+module.exports = (async () => {
+  if (process.argv.indexOf('worker') > 0) {
+    const worker = await require('ti2')({
+      elasticLogsClient,
+      plugins,
+      worker: true,
+    });
+    return worker;
+  } else {
+    const ti2 = await require('ti2')({
+      elasticLogsClient,
+      plugins,
+    });
+    return ti2;
+  }
+})();
 ```

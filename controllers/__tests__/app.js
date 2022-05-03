@@ -1,9 +1,11 @@
-/* globals describe it expect */
-
+/* globals beforeAll describe it expect */
 const chance = require('chance').Chance();
 const jwt = require('jwt-promise');
+const R = require('ramda');
+
 const testUtils = require('../../test/utils');
 const slugify = require('../../test/slugify');
+const appController = require('../app');
 
 const { env: { adminKey, jwtSecret } } = process;
 
@@ -16,9 +18,9 @@ describe('app', () => {
     packageName: `ti2-${appName}`,
     adminEmail: chance.email(),
   };
-  const { doApiPost, doApiGet, doApiPut } = testUtils({
-    plugins: [appName],
-  });
+  let doApiPost;
+  let doApiGet;
+  let doApiPut;
   let appKey;
   const userId = chance.guid();
   const apiKey = chance.guid();
@@ -31,6 +33,11 @@ describe('app', () => {
     payload: { lorem: chance.paragraph() },
   };
   let encodedKey;
+  beforeAll(async () => {
+    ({ doApiPost, doApiGet, doApiPut } = await testUtils({
+      plugins: [appName],
+    }));
+  });
   it('should create a new app', async () => {
     ({ value: appKey } = await doApiPost({
       url: '/app',
@@ -61,6 +68,51 @@ describe('app', () => {
       },
     });
     expect(parseInt(value, 10)).toBeGreaterThan(0);
+  });
+  describe('jobs', () => {
+    it('the scheduled job should have been created for the user', async () => {
+      const jobs = R.path(
+        ['jobs'],
+        await appController.getAppScheduledJobs({
+          integrationId: appName,
+          userId,
+        }),
+      );
+      expect(Array.isArray(jobs)).toBeTruthy();
+      expect(R.head(R.project(['pluginJobId', 'cron'], jobs)))
+        .toEqual({
+          pluginJobId: 'dailyReport',
+          cron: '0 9 * * *',
+        });
+    });
+    it.todo('if a new version of the plugin has a different set of scheduled tasks, they shoul dbe re-syncjed');
+    let jobId;
+    it('should be able to run a job', async () => {
+      let status;
+      ({ jobId, status } = await doApiPost({
+        url: `/${appName}/${userId}/jobRun`,
+        token: appKey,
+        payload: {
+          payload: {
+            method: 'dailyReport',
+          },
+        },
+      }));
+      expect(jobId).toBeTruthy();
+      expect(status).toBeTruthy();
+    });
+    it('should be able to get the status of a ran job', async () => {
+      await global.sleep(5e3);
+      const url = `/${appName}/${userId}/${jobId}/jobStatus`;
+      const jobStatus = await doApiGet({
+        url,
+        token: appKey,
+        payload: {},
+      });
+      expect(jobStatus.jobId).toBeTruthy();
+      expect(jobStatus.status).toBe('success');
+      expect(jobStatus.result).toEqual({ someVal: true });
+    }, 6e3);
   });
   it('should be able to get a list of all tokens related to the app', async () => {
     const { userAppKeys } = await doApiGet({

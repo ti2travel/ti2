@@ -1,4 +1,4 @@
-/* globals describe it expect */
+/* globals beforeAll describe it expect */
 
 const chance = require('chance').Chance();
 const testUtils = require('../../test/utils');
@@ -15,11 +15,18 @@ describe('admin', () => {
     packageName: `ti2-${appName}`,
     adminEmail: chance.email(),
   };
-  const { doApiPost, doApiGet } = testUtils({
-    plugins: [appName],
-  });
   let appKey;
   const userId = '536830b6ed19afa44a000002';
+  let doApiPost; let
+    doApiGet;
+  beforeAll(async () => {
+    ({
+      doApiGet,
+      doApiPost,
+    } = await testUtils({
+      plugins: [appName],
+    }));
+  });
   it('should be able to create an app', async () => {
     ({ value: appKey } = await doApiPost({
       url: '/app',
@@ -33,11 +40,7 @@ describe('admin', () => {
       url: '/apps',
       token: adminKey,
     });
-    expect(integrations).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining(newApp),
-      ]),
-    );
+    expect(integrations.find(({ name }) => name === newApp.name)).toBeTruthy();
   });
   it('should be able to reset an app\'s key', async () => {
     const url = `/app/resetAppKey/${newApp.name}`;

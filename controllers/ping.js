@@ -20,7 +20,8 @@ const ping = (_req, res, next) => {
     });
   } catch (err) {
     return next(err);
-  } };
+  }
+};
 
 module.exports = {
   ping,

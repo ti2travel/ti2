@@ -7,7 +7,7 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     container:
-      image: node:erbium
+      image: node:16.15.0
     services:
       mysql:
         image: mysql
@@ -17,9 +17,12 @@ jobs:
           MYSQL_ROOT_PASSWORD: root
         ports:
           - 3306:3306
+      redis:
+        image: redis
     env:
       CI: true
       DB_URL: 'mysql://root:root@mysql/ti2development'
+      REDIS_URL: 'redis://redis:6379'
       dbCryptoKey: 'YmYzYzE5OWMyNDcwY2I0NzdkOTA3YjFlMDkxN2MxN2I='
       jwtSecret: '9rifawckwztuKehocJOtGM6deTqICGWzIyc5CqgNyi'
       frontendKey: 'lYjEJHzb7lbQ1hk3ypjX'
@@ -30,10 +33,11 @@ jobs:
       with:
         node-version: 12
     - name: install dependencies
-      run: npm i
+      run: npm ci
     - name: create/migrate the database
       run: npx sequelize db:create && npx sequelize db:migrate
     - name: seed the database
       run: npx sequelize db:seed:all
+    - run: RUNNER_TRACKING_ID="" && (nohup node ./test/worker.js&)
     - name: run the tests
       run: npx jest -i --coverage --forceExit
