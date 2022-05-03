@@ -21,6 +21,7 @@ program.command('dbapp')
   )
   .action(async (integration, action) => {
     await migrateApp({ integrationId: integration, action });
+    process.exit(0);
   });
 
 program.command('db')
@@ -31,6 +32,7 @@ program.command('db')
   )
   .action(async action => {
     await migrate({ action });
+    process.exit(0);
   });
 
 program.parse();
