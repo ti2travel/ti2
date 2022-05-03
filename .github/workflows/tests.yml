@@ -7,7 +7,7 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     container:
-      image: node:erbium
+      image: node:16.15.0
     services:
       mysql:
         image: mysql
