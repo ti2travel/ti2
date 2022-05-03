@@ -23,6 +23,6 @@
         "recurse": true,
         "sort": false,
         "readme": "README.md",
-        "template": "node_modules/minami"
+        "template": "node_modules/@salvador/minami"
     }
 }
