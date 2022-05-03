@@ -46,13 +46,13 @@
     "uninstall": "^0.0.0"
   },
   "devDependencies": {
+    "@salvador/minami": "^1.2.3",
     "chance": "^1.1.8",
     "eslint": "^8.7.0",
     "eslint-config-airbnb-base": "^15.0.0",
     "eslint-plugin-import": "^2.25.4",
     "jest": "^27.4.7",
     "jsdoc": "^3.6.10",
-    "minami": "https://github.com/MyNameReallySux/minami.git#sort-data",
     "supertest": "^6.2.2"
   }
 }
