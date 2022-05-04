@@ -1,6 +1,5 @@
 const throng = require('throng');
 require('util').inspect.defaultOptions.depth = null;
-const fakePlugin = require('../test/plugin');
 
 const { queue, saveResult } = require('./queue');
 
@@ -35,6 +34,7 @@ const worker = ({ plugins: pluginsParam }) => (id, disconnect) => {
     console.log(`job ${jobId} > running ${pluginName}:${method} for ${userId}`);
     const plugins = await (async () => {
       if (inTesting) {
+        const fakePlugin = require('../test/plugin');
         return [...pluginsParam, await new fakePlugin({ name: pluginName })];
       }
       return pluginsParam;
