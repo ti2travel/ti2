@@ -87,7 +87,7 @@ module.exports = async ({
   // add the plugin schema to the schema
   const appControllers = {};
   const allSchema = plugins.filter(e => e.schema).reduce((prev, { schema: currSchema, name }) => {
-    appControllers[name] = R.uniq(R.pluck(['operationId'])(R.flatten(Object.values(currSchema?.paths || {}).map(Object.values))));
+    appControllers[name] = R.uniq(R.pluck(['operationId'])(R.flatten(Object.values(currSchema.paths || {}).map(Object.values))));
     const newSchema = R.modifyPath(
       ['paths'],
       rebuild(
