@@ -18,6 +18,11 @@ const appController = require('./controllers/app');
 const userController = require('./controllers/user');
 const bookingsController = require('./controllers/bookings');
 const { Integration } = require('./models');
+const cache = require('./cache');
+
+// src : https://github.com/ramda/ramda/issues/3137#issuecomment-1016012904
+const rebuild = fn => obj =>
+  Object.fromEntries(Object.entries(obj).flatMap(([k, v]) => fn(k, v)));
 
 module.exports = async ({
   apiDocs = true,
@@ -76,11 +81,37 @@ module.exports = async ({
     ...appController,
     ...userController(plugins),
     ...bookingsController(plugins),
+    cache: R.omit(['cache'], cache),
   }; // mehthods that should map to the yaml api spec
   app.plugins = plugins;
-  createMiddleware(schema, app, (_err, middleware) => {
+  // add the plugin schema to the schema
+  const appControllers = {};
+  const allSchema = plugins.filter(e => e.schema).reduce((prev, { schema: currSchema, name }) => {
+    appControllers[name] = R.uniq(R.pluck(['operationId'])(R.flatten(Object.values(currSchema.paths || {}).map(Object.values))));
+    const newSchema = R.modifyPath(
+      ['paths'],
+      rebuild(
+        (attr, val) => {
+          const newVal = {};
+          Object.entries(val).forEach(([pathAttr, pathValue]) => {
+            newVal[pathAttr] = R.modifyPath(['operationId'], operationName => `${name}_${operationName}`, pathValue);
+          });
+          return [[`/apps/${name}${attr}`, newVal]];
+        },
+      ),
+      currSchema,
+    );
+    return R.mergeDeepLeft(prev, newSchema);
+  }, schema);
+  Object.entries(appControllers).forEach(([name, actions]) => {
+    actions.forEach(action => {
+      const thePlugin = plugins.find(({ name: pluginName }) => pluginName === name);
+      api[`${name}_${action}`] = thePlugin[action]({ plugins, api });
+    });
+  });
+  createMiddleware(allSchema, app, (_err, middleware) => {
     if (apiDocs) {
-      app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(schema));
+      app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(allSchema));
     }
     app.use(
       middleware.metadata(),
@@ -88,7 +119,7 @@ module.exports = async ({
       middleware.parseRequest(),
       // middleware.validateRequest(),
     );
-    const connect = connector(api, schema, {
+    const connect = connector(api, allSchema, {
       security: auth,
     });
     if (elasticLogsClient) { // API request logs are saved on elastic
