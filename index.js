@@ -18,6 +18,7 @@ const appController = require('./controllers/app');
 const userController = require('./controllers/user');
 const bookingsController = require('./controllers/bookings');
 const { Integration } = require('./models');
+const cache = require('./cache');
 
 // src : https://github.com/ramda/ramda/issues/3137#issuecomment-1016012904
 const rebuild = fn => obj =>
@@ -80,6 +81,7 @@ module.exports = async ({
     ...appController,
     ...userController(plugins),
     ...bookingsController(plugins),
+    cache: R.omit(['cache'], cache),
   }; // mehthods that should map to the yaml api spec
   app.plugins = plugins;
   // add the plugin schema to the schema
@@ -104,7 +106,7 @@ module.exports = async ({
   Object.entries(appControllers).forEach(([name, actions]) => {
     actions.forEach(action => {
       const thePlugin = plugins.find(({ name: pluginName }) => pluginName === name);
-      api[`${name}_${action}`] = thePlugin[action];
+      api[`${name}_${action}`] = thePlugin[action]({ plugins, api });
     });
   });
   createMiddleware(allSchema, app, (_err, middleware) => {
