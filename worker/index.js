@@ -40,7 +40,10 @@ const worker = ({ plugins: pluginsParam }) => (id, disconnect) => {
       return pluginsParam;
     })();
     const thePlugin = plugins.find(({ name }) => name === pluginName);
-    const resultValue = await thePlugin[method](params);
+    const resultValue = await thePlugin[method]({
+      ...params,
+      plugins,
+    });
     console.log(`job ${jobId} > completed`);
     await saveResult({ id: jobId, resultValue });
   });
