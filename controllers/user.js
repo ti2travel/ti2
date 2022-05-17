@@ -14,11 +14,25 @@ const userAppList = async (req, res, next) => {
   }
 };
 
+// source: https://stackoverflow.com/questions/31054910/get-functions-methods-of-a-class
+const getAllFuncs = toCheck => {
+  const props = [];
+  let obj = toCheck;
+  do {
+    props.push(...Object.getOwnPropertyNames(obj));
+  } while (obj = Object.getPrototypeOf(obj));
+
+  return props.sort().filter((e, i, arr) => {
+    if (e !== arr[i + 1] && typeof toCheck[e] === 'function') return true;
+    return undefined;
+  });
+};
+
 const getAppMethods = plugins => async (req, res, next) => {
   const { params: { appKey } } = req;
   try {
     const app = plugins.filter(({ name }) => name === appKey)[0];
-    const methods = Object.getOwnPropertyNames(app);
+    const methods = getAllFuncs(app);
     return res.json({
       methods,
     });
