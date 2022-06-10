@@ -55,8 +55,19 @@ const getOrExec = async ({
   return value;
 };
 
+const drop = async ({
+  pluginName,
+  fn,
+  fnParams,
+}) => {
+  let key = hash({ fn, fnParams });
+  key = `${pluginName}:${key}`;
+  await cache.del(key);
+};
+
 module.exports = {
   cache,
   save,
   getOrExec,
+  drop,
 };
