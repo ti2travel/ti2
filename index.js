@@ -203,6 +203,9 @@ module.exports = async ({
     app.use(middleware.mock());
     // global error Handling
     app.use((err, req, res) => {
+      if (process.env.CONSOLE_ERRORS) {
+        console.error(err);
+      }
       // console.log(req.headers.['X-Request-Id'], err);
       res.status(err.status || 500);
       if ((process.env.JEST_WORKER_ID)) {
