@@ -203,15 +203,13 @@ module.exports = async ({
     app.use(middleware.mock());
     // global error Handling
     app.use((err, req, res) => {
-      if (process.env.CONSOLE_ERRORS) {
+      if (process.env.CONSOLE_ERRORS || process.env.JEST_WORKER_ID) {
         console.error(err);
       }
-      // console.log(req.headers.['X-Request-Id'], err);
-      res.status(err.status || 500);
-      if ((process.env.JEST_WORKER_ID)) {
-        console.debug(err);
-      }
-      return res.json({
+      return res.status((() => {
+        if (isNan(err.status)) return 500;
+        return parseInt(err.status, 10);
+      })()).json({
         message: err.message || 'Internal Error',
       });
     });
