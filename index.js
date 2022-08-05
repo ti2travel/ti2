@@ -124,6 +124,8 @@ module.exports = async ({
     );
     const connect = connector(api, allSchema, {
       security: auth,
+      notFound: (req, res) => res.sendStatus(404),
+      notImplemented: (req, res) => res.sendStatus(501),
     });
     if (elasticLogsClient) { // API request logs are saved on elastic
       // setup the index
@@ -204,7 +206,6 @@ module.exports = async ({
     }
     connect(app);
     app.use(middleware.mock());
-    app.use((req, res) => res.sendStatus(404));
     // global error Handling
     app.use((err, req, res) => {
       if (process.env.CONSOLE_ERRORS || process.env.JEST_WORKER_ID) {
