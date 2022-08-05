@@ -24,6 +24,9 @@ const cache = require('./cache');
 const rebuild = fn => obj =>
   Object.fromEntries(Object.entries(obj).flatMap(([k, v]) => fn(k, v)));
 
+const isNumber = value => !Number.isNaN(Number(value));
+
+
 module.exports = async ({
   apiDocs = true,
   elasticLogIndex = 'apilog_ti2',
@@ -203,17 +206,15 @@ module.exports = async ({
     if (process.env.mock) {
       app.use(middleware.mock());
     }
-    app.use((req, res, next) => {
-      return res.sendStatus(404);
-    })
+    app.use((req, res) => res.sendStatus(404));
     // global error Handling
     app.use((err, req, res) => {
       if (process.env.CONSOLE_ERRORS || process.env.JEST_WORKER_ID) {
         console.error(err);
       }
       return res.status((() => {
-        if (isNan(err.status)) return 500;
-        return parseInt(err.status, 10);
+        if (!isNumber(err.status)) return 500;
+        return Number(err.status);
       })()).json({
         message: err.message || 'Internal Error',
       });
