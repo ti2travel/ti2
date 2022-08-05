@@ -200,7 +200,9 @@ module.exports = async ({
       });
     }
     connect(app);
-    app.use(middleware.mock());
+    if (process.env.mock) {
+      app.use(middleware.mock());
+    }
     app.use((req, res, next) => {
       return res.sendStatus(404);
     })
