@@ -1,6 +1,5 @@
 const jsonwebtoken = require('jsonwebtoken');
 const Promise = require('bluebird');
-const assert = require('assert');
 
 const sqldb = require('../models');
 
@@ -12,7 +11,8 @@ const {
   },
 } = process;
 
-const invalid = next => next({ status: 401, message: 'Unauthorized' });
+const invalid = (res, msg) => res.status(401).json({ error: msg || 'Unauthorized' });
+
 const getToken = ({ req }) => {
   if (
     !req.header('Authorization')
@@ -20,61 +20,101 @@ const getToken = ({ req }) => {
   ) return null;
   return req.header('Authorization').split(' ')[1];
 };
+
 // the authentication middleware
-const app = async (req, res, next) => {
-  if (!req.pathParams || !req.pathParams.app) return invalid(next);
+const appCheck = async req => {
+  if (!req.pathParams || !req.pathParams.app) {
+    return 'App parameters not found';
+  }
   const token = getToken({ req });
-  if (!token) return invalid(next);
-  // try {
+  if (!token) return 'Api key not found';
   const appRecord = await sqldb.Integration.findOne({
     where: {
       name: req.pathParams.app,
     },
   });
-  if (!appRecord) return invalid(next);
+  if (!appRecord) return 'App not found';
   if (appRecord.apiKey !== token) {
-    return invalid(next);
+    return 'Invalid api key';
   }
   req.appRecord = appRecord.dataValues;
+  return undefined;
+};
+
+const app = async (req, res, next) => {
+  const error = await appCheck(req);
+  if (error) {
+    return invalid(res, error);
+  }
   return next();
 };
 
 // The requester is an admin; createApps and other admin tasks
-const admin = async (req, res, next) => {
+const adminCheck = async req => {
   const token = getToken({ req });
-  if (token !== adminKey) return invalid(next);
+  if (token !== adminKey) return 'Invalid admin key';
+  return undefined;
+};
+
+const admin = async (req, res, next) => {
+  const error = await adminCheck(req);
+  if (error) {
+    return invalid(res, error);
+  }
   return next();
 };
 
 // the request is from a user, checke the userId agains the url param
-const user = async (req, res, next) => {
+const userCheck = async req => {
   const token = getToken({ req });
-  if (!token) return invalid(next);
+  if (!token) return 'Token not found';
+  let userId;
   try {
-    const { userId } = jsonwebtoken.verify(token, jwtSecret);
-    assert(userId);
-    if (req.params.userId && userId !== req.params.userId) return invalid(next);
+    ({ userId } = jsonwebtoken.verify(token, jwtSecret));
   } catch (err) {
-    return invalid(next);
+    return 'Invalid token';
+  }
+  if (!userId) return 'UserId not found';
+  if (req.params.userId && userId !== req.params.userId) {
+    return 'Non matching user id';
+  }
+  return undefined;
+};
+
+const user = async (req, res, next) => {
+  const error = await userCheck(req);
+  if (error) {
+    return invalid(res, error);
   }
   return next();
 };
 
 // The requester comes from frontend; frontend driven tasks
-const frontend = async (req, res, next) => {
+const frontendCheck = async req => {
   const token = getToken({ req });
-  if (token !== frontendKey) return invalid(next);
+  if (token !== frontendKey) {
+    return 'Invalid frontend token';
+  }
+  return undefined;
+};
+
+const frontend = async (req, res, next) => {
+  const error = await frontendCheck(req);
+  if (error) {
+    return invalid(res, error);
+  }
   return next();
 };
 
-const adminOrUser = levels => async (req, res, next) => {
-  const result = await Promise.all(levels.map(
-    level => level(req, res, err => err),
+const multipleAuthEval = levels => async (req, res, next) => {
+  // res.send = true;
+  const results = await Promise.all(levels.map(
+    levelCheck => levelCheck(req),
   ));
-  if (result.some(val => (!val))) {
+  if (results.some(val => !val)) {
     return next();
   }
-  return next(result[0]);
+  return invalid(res, results.join(' or '));
 };
 
 module.exports = {
@@ -82,6 +122,6 @@ module.exports = {
   frontend,
   admin,
   user,
-  'admin,user': adminOrUser([admin, user]),
-  'admin,app,user': adminOrUser([admin, app, user]),
+  'admin,user': multipleAuthEval([adminCheck, userCheck]),
+  'admin,app,user': multipleAuthEval([adminCheck, appCheck, userCheck]),
 };
