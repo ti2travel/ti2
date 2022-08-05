@@ -203,9 +203,7 @@ module.exports = async ({
       });
     }
     connect(app);
-    if (process.env.mock) {
-      app.use(middleware.mock());
-    }
+    app.use(middleware.mock());
     app.use((req, res) => res.sendStatus(404));
     // global error Handling
     app.use((err, req, res) => {
