@@ -72,16 +72,28 @@ describe('allotment', () => {
       expect(value).toBeTruthy();
     }
   });
+  const payload = {
+    dateFormat: 'DD-MM-YYYY',
+    startDate: '01-12-2022',
+    endDate: '15-12-2022',
+    keyPath: `${chance.guid()}|${chance.guid()}`,
+  };
+  const urlParams = new URLSearchParams(payload).toString();
   it('should be able to get some allotments', async () => {
-    const payload = {
-      dateFormat: 'DD-MM-YYYY',
-      startDate: '01-12-2022',
-      endDate: '15-12-2022',
-      keyPath: `${chance.guid()}|${chance.guid()}`,
-    };
-    const urlParams = new URLSearchParams(payload).toString();
     const { allotments } = await doApiGet({
       url: `/allotment/${appKey}/${userId}?${urlParams}`,
+      token: userToken,
+      payload,
+    });
+    expect(plugins[0].queryAllotment).toHaveBeenCalled();
+    expect(Array.isArray(allotments)).toBeTruthy();
+    const call = plugins[0].queryAllotment.mock.calls[0][0];
+    expect(call.payload).toEqual(payload);
+    expect(call.token).toEqual(token);
+  });
+  it('should be able to get some allotments with a hint', async () => {
+    const { allotments } = await doApiGet({
+      url: `/allotment/${appKey}/${newIntegration.tokenHint}/${userId}?${urlParams}`,
       token: userToken,
       payload,
     });

@@ -6,8 +6,8 @@ const queryAllotment = plugins => async (req, res, next) => {
   const {
     params: {
       appKey,
-      userId,
       hint,
+      userId,
     },
     query,
   } = req;
