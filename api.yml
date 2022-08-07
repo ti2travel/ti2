@@ -1342,3 +1342,104 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnyValue'
+  /allotment/{appKey}/{userId}:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - allotment
+      summary: Query the allotment
+      operationId: queryAllotment
+      parameters:
+        - name: appKey
+          in: path
+          description: app to create the booking for, defaults to first token
+          required: true
+          example: 'tourplan'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: startDate
+          schema:
+            type: string
+          description: the start date of the requested allotment (dd/mm/yyyy)
+          default: "01/04/2023"
+        - in: query
+          name: endDate
+          schema:
+            type: string
+          description: the end date of the requested allotment (dd/mm/yyyy)
+          default: "03/04/2023"
+        - in: query
+          name: keyPath
+          schema:
+            type: string
+          description: a string with the product path separater by pipes ie. supplierId|locationId|productID
+          default: "MAGLUX|7CQLDACMAGLUXDELSUI"
+      responses:
+        '200':
+          description: Allotment Details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyValue'
+  /allotment/{appKey}/{hint}/{userId}:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - allotment
+      summary: Query the allotment with an specific hit
+      operationId: queryAllotment
+      parameters:
+        - name: appKey
+          in: path
+          description: app to create the booking for, defaults to first token
+          required: true
+          example: 'tourplan'
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'tourplan-australia'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: startDate
+          schema:
+            type: string
+          description: the start date of the requested allotment (dd/mm/yyyy)
+          default: "01/04/2023"
+        - in: query
+          name: endDate
+          schema:
+            type: string
+          description: the end date of the requested allotment (dd/mm/yyyy)
+          default: "03/04/2023"
+        - in: query
+          name: keyPath
+          schema:
+            type: string
+          description: a string with the product path separater by pipes ie. supplierId|locationId|productID
+          default: "MAGLUX|7CQLDACMAGLUXDELSUI"
+      responses:
+        '200':
+          description: Allotment Details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyValue'
