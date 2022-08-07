@@ -67,7 +67,8 @@ module.exports = async ({
     },
     raw: true,
   });
-  const missingIntegrations = R.difference(pluginNames, matchedIntegrations.map(R.prop('name')));
+  const matchedIntegrationsNames = matchedIntegrations.map(R.prop('name'));
+  const missingIntegrations = R.difference(pluginNames, matchedIntegrationsNames);
   if (missingIntegrations.length > 0) {
     // need to crete the missing integrations
     await Integration.bulkCreate(missingIntegrations.map(name => ({
