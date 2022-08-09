@@ -293,7 +293,7 @@ class Plugin {
    * @property {Cancelled|Active|Pending} status The currrent booking status.
    * @property {Holder} holder Booking holder information.
    * @property {string} telephone Contact telephone.
-   * @property {string} supplierId Supplier of the Booking
+   * @property {string} supplierBookingId Booking Id for the supplier booking system
    * @property {string} hotelId A HotelId if the booking is for an accommodation.
    * @property {string} hotelName A Hotel Name if the booking is for an accommodation.
    * @property {BookingRoom[]} rooms Booking Room details.

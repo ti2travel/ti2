@@ -89,7 +89,7 @@ describe('user: booking search', () => {
   });
   it('should be able to search a for a booking', async () => {
     const payload = {
-      bookingId: '', supplierId: '', name: '',
+      bookingId: '', supplierBookingId: '', name: '',
     };
     const { bookings } = await doApiPost({
       url: `/bookings/${appKey}/${userId}/search`,
