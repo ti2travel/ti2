@@ -24,8 +24,7 @@ const queryAllotment = plugins => async (req, res, next) => {
     assert(userAppKeys, 'could not find the app key');
     const token = userAppKeys.appKey;
     assert(app.queryAllotment, 'could not find the allotment method');
-    const search = app.queryAllotment;
-    const results = await search({
+    const results = await app.queryAllotment({
       token,
       payload: query,
     });
