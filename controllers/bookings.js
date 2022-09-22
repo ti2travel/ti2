@@ -1,6 +1,21 @@
 const assert = require('assert');
 
 const { UserAppKey } = require('../models/index');
+const { typeDefs: productTypeDefs, query: productQuery } = require('./graphql-schemas/product');
+const { typeDefs: availTypeDefs, query: availQuery } = require('./graphql-schemas/availability');
+const { typeDefs: bookingTypeDefs, query: bookingQuery } = require('./graphql-schemas/booking');
+const { typeDefs: rateTypeDefs, query: rateQuery } = require('./graphql-schemas/rate');
+
+const typeDefsAndQueries = {
+  productTypeDefs,
+  productQuery,
+  availTypeDefs,
+  availQuery,
+  bookingTypeDefs,
+  bookingQuery,
+  rateTypeDefs,
+  rateQuery,
+};
 
 const bookingsSearch = plugins => async (req, res, next) => {
   const {
@@ -22,6 +37,7 @@ const bookingsSearch = plugins => async (req, res, next) => {
     const results = await search({
       token,
       payload: body,
+      typeDefsAndQueries,
     });
     return res.json(results);
   } catch (err) {
@@ -49,6 +65,7 @@ const bookingsCancel = plugins => async (req, res, next) => {
     const results = await app.cancelBooking({
       token,
       payload: body,
+      typeDefsAndQueries,
     });
     return res.json(results);
   } catch (err) {
@@ -76,6 +93,7 @@ const $bookingsProductSearch = plugins => async ({
   const results = await app.searchProducts({
     token,
     payload,
+    typeDefsAndQueries,
   });
   return results;
 };
@@ -112,6 +130,7 @@ const bookingsAvailabilitySearch = plugins => async (req, res, next) => {
     const results = await app.searchAvailability({
       token,
       payload,
+      typeDefsAndQueries,
     });
     return res.json(results);
   } catch (err) {
@@ -139,6 +158,7 @@ const $bookingsAvailabilityCalendar = plugins => async ({
   return app.availabilityCalendar({
     token,
     payload,
+    typeDefsAndQueries,
   });
 };
 
@@ -175,6 +195,7 @@ const searchQuote = plugins => async (req, res, next) => {
     const results = await app.searchQuote({
       token,
       payload,
+      typeDefsAndQueries,
     });
     return res.json(results);
   } catch (err) {
@@ -203,6 +224,7 @@ const createBooking = plugins => async (req, res, next) => {
     const results = await app.createBooking({
       token,
       payload,
+      typeDefsAndQueries,
     });
     return res.json(results);
   } catch (err) {
