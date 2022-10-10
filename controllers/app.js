@@ -151,19 +151,19 @@ const validateAppToken = plugins => async (req, res, next) => {
       userId,
     },
   } = req;
-  const app = plugins.find(({ name }) => name === appKey);
-  assert(app, `could not find the app ${appKey}`);
-  const userAppKeys = await sqldb.UserAppKey.findOne({
-    where: {
-      userId,
-      integrationId: appKey,
-      ...(hint ? { hint } : {}),
-    },
-  });
-  assert(userAppKeys, 'could not find the app key');
-  const token = userAppKeys.appKey;
-  assert(app.validateToken, 'could not find the validateToken method');
   try {
+    const app = plugins.find(({ name }) => name === appKey);
+    assert(app, `could not find the app ${appKey}`);
+    const userAppKeys = await sqldb.UserAppKey.findOne({
+      where: {
+        userId,
+        integrationId: appKey,
+        ...(hint ? { hint } : {}),
+      },
+    });
+    assert(userAppKeys, 'could not find the app key');
+    const token = userAppKeys.appKey;
+    assert(app.validateToken, `could not find the validateToken method for ${appKey}`);
     const valid = await app.validateToken({
       token,
     });
