@@ -141,6 +141,39 @@ const deleteAppToken = async (req, res, next) => {
   return res.json({ message: `${retVal} erased` });
 };
 
+const validateAppToken = plugins => async (req, res, next) => {
+  const {
+    body: {
+      tokenHint: hint,
+    },
+    params: {
+      app: appKey,
+      userId,
+    },
+  } = req;
+  const app = plugins.find(({ name }) => name === appKey);
+  assert(app, `could not find the app ${appKey}`);
+  const userAppKeys = await sqldb.UserAppKey.findOne({
+    where: {
+      userId,
+      integrationId: appKey,
+      ...(hint ? { hint } : {}),
+    },
+  });
+  assert(userAppKeys, 'could not find the app key');
+  const token = userAppKeys.appKey;
+  assert(app.validateToken, 'could not find the validateToken method');
+  try {
+    const valid = await app.validateToken({
+      token,
+    });
+    return res.json({ valid });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+
 const listAppTokens = async (req, res, next) => {
   const { params: { app: integrationId } } = req;
   try {
@@ -253,7 +286,7 @@ const getJobStatus = async (req, res, next) => {
   }
 };
 
-module.exports = {
+module.exports = plugins => ({
   createAppToken,
   deleteAppToken,
   getAppScheduledJobs,
@@ -262,4 +295,5 @@ module.exports = {
   listAppTokens,
   migrateApp,
   runAppJob,
-};
+  validateAppToken: validateAppToken(plugins),
+});

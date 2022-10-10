@@ -82,7 +82,7 @@ module.exports = async ({
   const api = {
     ...pingController,
     ...adminController,
-    ...appController,
+    ...appController(plugins),
     ...userController(plugins),
     ...bookingsController(plugins),
     ...allotmentController(plugins),
