@@ -58,7 +58,8 @@ const createAppToken = async (req, res, next) => {
     // create any cronjobs related to the app
     await bb.each(req.app.plugins, async plugin => {
       if (Array.isArray(plugin.jobs)) {
-        await bb.each(plugin.jobs.filter(job => Boolean(job.cron)), async job => {
+        const validJobs = plugin.jobs.filter(job => Boolean(job.cron) && Boolean(job.method));
+        await bb.each(validJobs, async job => {
           const where = {
             pluginName: plugin.name,
             pluginJobId: job.method,
