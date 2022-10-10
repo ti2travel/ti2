@@ -69,6 +69,17 @@ describe('app', () => {
     });
     expect(parseInt(value, 10)).toBeGreaterThan(0);
   });
+  it('should be able to test a user token for the app', async () => {
+    const { valid } = await doApiPost({
+      url: `/${appName}/${userId}/validate`,
+      token: appKey,
+      payload: {
+        tokenHint: apiKey.split('-')[0],
+        token,
+      },
+    });
+    expect(valid).toBe(true);
+  });
   describe('jobs', () => {
     it('the scheduled job should have been created for the user', async () => {
       const jobs = R.path(

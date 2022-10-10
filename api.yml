@@ -96,6 +96,14 @@ components:
           type: string
           description: An identifier for this token, it should NOT be the token itself but a short safe version of it
           example: 'expediaTestLocation-23'
+    UserAppValidate:
+      description: A user + App configuration to validate
+      type: object
+      properties:
+        tokenHint:
+          type: string
+          description: An identifier for this token, it should NOT be the token itself but a short safe version of it
+          example: 'expediaTestLocation-23'
     UserId:
       description: userId to create the token for
       type: object
@@ -556,6 +564,44 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/UserAppDelete'
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema: '#/components/schemas/Message'
+
+  /{app}/{userId}/validate:
+    post:
+      tags:
+        - app
+        - user
+      summary: Should delete a user+appToken configuration, the auth token can be from an app or a user
+      security:
+        - bearerAuth: ['admin', 'app', 'user']
+      operationId: validateAppToken
+      parameters:
+        - name: app
+          in: path
+          description: app name to validate (must match app token)
+          example: 'expedia'
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: owner of the token to validate
+          example: '536830b6ed19afa44a000002'
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: The User+App configuration to validate
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserAppValidate'
       responses:
         200:
           description: success
