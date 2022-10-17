@@ -380,6 +380,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Message'
+  /app/{appKey}/tokenTemplate:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - admin
+        - user
+      summary: Should return the token template
+      operationId: tokenTemplate
+      parameters:
+        - name: appKey
+          in: path
+          description: Ann name to get the token template attributes
+          required: true
+          example: 'expedia'
+          schema:
+            type: string
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyValue'
   /apps:
     get:
       security:
