@@ -39,8 +39,8 @@ const tokenTemplate = async (req, res, next) => {
     const safeRegExp = el => ({
       ...el,
       regExp: {
-        flags: JSON.stringify(el.regExp.flags),
-        source: JSON.stringify(el.regExp.source),
+        flags: el.regExp.flags,
+        source: el.regExp.source,
       },
     });
     template = R.map(safeRegExp, template);
