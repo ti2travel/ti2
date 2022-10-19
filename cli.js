@@ -2,7 +2,7 @@
 
 const { Command, Argument } = require('commander');
 
-const { migrateApp } = require('./controllers/app');
+const { migrateApp } = require('./controllers/app')();
 const { migrate } = require('./controllers/admin');
 
 const program = new Command();
