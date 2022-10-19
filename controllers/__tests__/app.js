@@ -5,7 +5,7 @@ const R = require('ramda');
 
 const testUtils = require('../../test/utils');
 const slugify = require('../../test/slugify');
-const appController = require('../app');
+let appController = require('../app');
 
 const { env: { adminKey, jwtSecret } } = process;
 
@@ -37,6 +37,7 @@ describe('app', () => {
     ({ doApiPost, doApiGet, doApiPut } = await testUtils({
       plugins: [appName],
     }));
+    appController = appController([appName]);
   });
   it('should create a new app', async () => {
     ({ value: appKey } = await doApiPost({
