@@ -54,6 +54,13 @@ class Plugin {
     this.searchQuote = jestPlugin.fn(() => ({ quote: [{ id: chance.guid() }] }));
     this.createBooking = jestPlugin.fn(() => {});
     this.queryAllotment = jestPlugin.fn(() => ({ allotments: [] }));
+    this.tokenTemplate = jestPlugin.fn(() => ({
+      apiKey: {
+        type: 'text',
+        regExp: /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/,
+        description: 'Api Key',
+      },
+    }));
 
     /**
      * Background and schedule Jos
@@ -81,6 +88,18 @@ class Plugin {
   validateToken() {
     return Boolean(this);
   }
+
+  /**
+   * Returns the the token template of a plugin.
+   * Properties are dynamic since every attribute should correspond to a token
+   * key, every attribute should contain at least the type (ie text) a regExp and 
+   * a description.
+   * The regExp property gets decomposed into both source and flags as strings.
+   */
+  tokenTemplate() {
+    return {};
+  }
+
   /**
    * GPS Location Object
    * @typedef {Object} GPSLocation

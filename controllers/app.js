@@ -26,6 +26,30 @@ const jwtEncode = async (req, res, next) => {
   }
 };
 
+const tokenTemplate = async (req, res, next) => {
+  const {
+    params: {
+      appKey: pluginName,
+    },
+  } = req;
+  try {
+    const thePlugin = req.app.plugins.find(({ name }) => name === pluginName);
+    assert(thePlugin);
+    let template = thePlugin.tokenTemplate();
+    const safeRegExp = el => ({
+      ...el,
+      regExp: {
+        flags: el.regExp.flags,
+        source: el.regExp.source,
+      },
+    });
+    template = R.map(safeRegExp, template);
+    return res.json({ template });
+  } catch (err) {
+    return next(err);
+  }
+};
+
 const createAppToken = async (req, res, next) => {
   const {
     body: {
@@ -295,5 +319,6 @@ module.exports = plugins => ({
   listAppTokens,
   migrateApp,
   runAppJob,
+  tokenTemplate,
   validateAppToken: validateAppToken(plugins),
 });
