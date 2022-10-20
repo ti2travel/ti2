@@ -40,6 +40,8 @@ const typeDefs = `
     price: Price
     cancelPolicy: String
     resellerReference: String
+    publicUrl: String
+    privateUrl: String
   }
 `;
 
@@ -82,6 +84,8 @@ const query = `{
   cancelPolicy
   optionId
   resellerReference
+  publicUrl
+  privateUrl
 }`;
 
 module.exports = {
