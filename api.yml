@@ -96,6 +96,14 @@ components:
           type: string
           description: An identifier for this token, it should NOT be the token itself but a short safe version of it
           example: 'expediaTestLocation-23'
+    UserAppValidate:
+      description: A user + App configuration to validate
+      type: object
+      properties:
+        tokenHint:
+          type: string
+          description: An identifier for this token, it should NOT be the token itself but a short safe version of it
+          example: 'expediaTestLocation-23'
     UserId:
       description: userId to create the token for
       type: object
@@ -372,6 +380,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Message'
+  /app/{appKey}/tokenTemplate:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - admin
+        - user
+      summary: Should return the token template
+      operationId: tokenTemplate
+      parameters:
+        - name: appKey
+          in: path
+          description: Ann name to get the token template attributes
+          required: true
+          example: 'expedia'
+          schema:
+            type: string
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyValue'
   /apps:
     get:
       security:
@@ -556,6 +588,44 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/UserAppDelete'
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema: '#/components/schemas/Message'
+
+  /{app}/{userId}/validate:
+    post:
+      tags:
+        - app
+        - user
+      summary: Should delete a user+appToken configuration, the auth token can be from an app or a user
+      security:
+        - bearerAuth: ['admin', 'app', 'user']
+      operationId: validateAppToken
+      parameters:
+        - name: app
+          in: path
+          description: app name to validate (must match app token)
+          example: 'expedia'
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: owner of the token to validate
+          example: '536830b6ed19afa44a000002'
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: The User+App configuration to validate
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserAppValidate'
       responses:
         200:
           description: success
@@ -1338,6 +1408,107 @@ paths:
       responses:
         '200':
           description: Booking Details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyValue'
+  /allotment/{appKey}/{userId}:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - allotment
+      summary: Query the allotment
+      operationId: queryAllotment
+      parameters:
+        - name: appKey
+          in: path
+          description: app to create the booking for, defaults to first token
+          required: true
+          example: 'tourplan'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: startDate
+          schema:
+            type: string
+          description: the start date of the requested allotment (dd/mm/yyyy)
+          default: "01/04/2023"
+        - in: query
+          name: endDate
+          schema:
+            type: string
+          description: the end date of the requested allotment (dd/mm/yyyy)
+          default: "03/04/2023"
+        - in: query
+          name: keyPath
+          schema:
+            type: string
+          description: a string with the product path separater by pipes ie. supplierId|locationId|productID
+          default: "MAGLUX|7CQLDACMAGLUXDELSUI"
+      responses:
+        '200':
+          description: Allotment Details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyValue'
+  /allotment/{appKey}/{hint}/{userId}:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - allotment
+      summary: Query the allotment with an specific hit
+      operationId: queryAllotment
+      parameters:
+        - name: appKey
+          in: path
+          description: app to create the booking for, defaults to first token
+          required: true
+          example: 'tourplan'
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'tourplan-australia'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: startDate
+          schema:
+            type: string
+          description: the start date of the requested allotment (dd/mm/yyyy)
+          default: "01/04/2023"
+        - in: query
+          name: endDate
+          schema:
+            type: string
+          description: the end date of the requested allotment (dd/mm/yyyy)
+          default: "03/04/2023"
+        - in: query
+          name: keyPath
+          schema:
+            type: string
+          description: a string with the product path separater by pipes ie. supplierId|locationId|productID
+          default: "MAGLUX|7CQLDACMAGLUXDELSUI"
+      responses:
+        '200':
+          description: Allotment Details
           content:
             application/json:
               schema:

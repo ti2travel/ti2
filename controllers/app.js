@@ -26,6 +26,30 @@ const jwtEncode = async (req, res, next) => {
   }
 };
 
+const tokenTemplate = async (req, res, next) => {
+  const {
+    params: {
+      appKey: pluginName,
+    },
+  } = req;
+  try {
+    const thePlugin = req.app.plugins.find(({ name }) => name === pluginName);
+    assert(thePlugin);
+    let template = thePlugin.tokenTemplate();
+    const safeRegExp = el => ({
+      ...el,
+      regExp: {
+        flags: el.regExp.flags,
+        source: el.regExp.source,
+      },
+    });
+    template = R.map(safeRegExp, template);
+    return res.json({ template });
+  } catch (err) {
+    return next(err);
+  }
+};
+
 const createAppToken = async (req, res, next) => {
   const {
     body: {
@@ -58,7 +82,8 @@ const createAppToken = async (req, res, next) => {
     // create any cronjobs related to the app
     await bb.each(req.app.plugins, async plugin => {
       if (Array.isArray(plugin.jobs)) {
-        await bb.each(plugin.jobs.filter(job => Boolean(job.cron)), async job => {
+        const validJobs = plugin.jobs.filter(job => Boolean(job.cron) && Boolean(job.method));
+        await bb.each(validJobs, async job => {
           const where = {
             pluginName: plugin.name,
             pluginJobId: job.method,
@@ -139,6 +164,39 @@ const deleteAppToken = async (req, res, next) => {
   if (retVal === 0) return next({ status: 404, message: 'Key not found' });
   return res.json({ message: `${retVal} erased` });
 };
+
+const validateAppToken = plugins => async (req, res, next) => {
+  const {
+    body: {
+      tokenHint: hint,
+    },
+    params: {
+      app: appKey,
+      userId,
+    },
+  } = req;
+  try {
+    const app = plugins.find(({ name }) => name === appKey);
+    assert(app, `could not find the app ${appKey}`);
+    const userAppKeys = await sqldb.UserAppKey.findOne({
+      where: {
+        userId,
+        integrationId: appKey,
+        ...(hint ? { hint } : {}),
+      },
+    });
+    assert(userAppKeys, 'could not find the app key');
+    const token = userAppKeys.appKey;
+    assert(app.validateToken, `could not find the validateToken method for ${appKey}`);
+    const valid = await app.validateToken({
+      token,
+    });
+    return res.json({ valid });
+  } catch (err) {
+    return next(err);
+  }
+};
+
 
 const listAppTokens = async (req, res, next) => {
   const { params: { app: integrationId } } = req;
@@ -252,7 +310,7 @@ const getJobStatus = async (req, res, next) => {
   }
 };
 
-module.exports = {
+module.exports = plugins => ({
   createAppToken,
   deleteAppToken,
   getAppScheduledJobs,
@@ -261,4 +319,6 @@ module.exports = {
   listAppTokens,
   migrateApp,
   runAppJob,
-};
+  tokenTemplate,
+  validateAppToken: validateAppToken(plugins),
+});

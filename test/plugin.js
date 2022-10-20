@@ -53,6 +53,14 @@ class Plugin {
     });
     this.searchQuote = jestPlugin.fn(() => ({ quote: [{ id: chance.guid() }] }));
     this.createBooking = jestPlugin.fn(() => {});
+    this.queryAllotment = jestPlugin.fn(() => ({ allotments: [] }));
+    this.tokenTemplate = jestPlugin.fn(() => ({
+      apiKey: {
+        type: 'text',
+        regExp: /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/,
+        description: 'Api Key',
+      },
+    }));
 
     /**
      * Background and schedule Jos
@@ -80,6 +88,18 @@ class Plugin {
   validateToken() {
     return Boolean(this);
   }
+
+  /**
+   * Returns the the token template of a plugin.
+   * Properties are dynamic since every attribute should correspond to a token
+   * key, every attribute should contain at least the type (ie text) a regExp and 
+   * a description.
+   * The regExp property gets decomposed into both source and flags as strings.
+   */
+  tokenTemplate() {
+    return {};
+  }
+
   /**
    * GPS Location Object
    * @typedef {Object} GPSLocation
@@ -437,6 +457,25 @@ class Plugin {
    * @returns {Booking} retVal.booking - A Booking object.
    */
   createBooking() {}
+
+  /**
+   * Query Allotment
+   * @async
+   * @param {Object} args - Allotment query arguments.
+   * @param {Object} args.token - A token definition, it's content varies between integrations.
+   * @param {Object} args.payload - Search spect object.
+   *      dateFormat = 'DD/MM/YYYY',
+      startDate,
+      endDate,
+      keyPath,
+   * @param {string} args.payload.dateFormat - Date format to use for params and return value (i.e. DD/MM/YYYY
+   * @param {string} args.payload.startDate - Start date for the query of allotment objects
+   * @param {string} args.payload.endDate - End date for the query of allotment objects
+   * @param {string} args.payload.keyPath - End date for the query of allotment objects
+   * @returns {object} retVal - the return object.
+   * @returns {Booking} retVal.booking - A Booking object.
+   */
+  queryAllotment() {}
 }
 
 module.exports = Plugin;

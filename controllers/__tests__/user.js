@@ -1,5 +1,6 @@
 /* globals describe it expect beforeAll, jest, afterEach */
 
+const R = require('ramda');
 const chance = require('chance').Chance();
 const testUtils = require('../../test/utils');
 const slugify = require('../../test/slugify');
@@ -75,6 +76,15 @@ describe('user', () => {
         }),
       ]),
     );
+  });
+  it('should be able to get the app\'s token template', async () => {
+    const { template } = await doApiGet({
+      url: `/app/${appName}/tokenTemplate`,
+      token: userKey,
+      payload: {},
+    });
+    expect(template).toBeTruthy();
+    expect(R.path(['apiKey', 'regExp', 'source'], template)).toBeTruthy();
   });
   it('should be able to delete a user/app key', async () => {
     await doApiDelete({

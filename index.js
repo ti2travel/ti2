@@ -17,12 +17,15 @@ const adminController = require('./controllers/admin');
 const appController = require('./controllers/app');
 const userController = require('./controllers/user');
 const bookingsController = require('./controllers/bookings');
+const allotmentController = require('./controllers/allotment');
 const { Integration } = require('./models');
 const cache = require('./cache');
 
 // src : https://github.com/ramda/ramda/issues/3137#issuecomment-1016012904
 const rebuild = fn => obj =>
   Object.fromEntries(Object.entries(obj).flatMap(([k, v]) => fn(k, v)));
+
+const isNumber = value => !Number.isNaN(Number(value));
 
 module.exports = async ({
   apiDocs = true,
@@ -64,7 +67,8 @@ module.exports = async ({
     },
     raw: true,
   });
-  const missingIntegrations = R.difference(pluginNames, matchedIntegrations.map(R.prop('name')));
+  const matchedIntegrationsNames = matchedIntegrations.map(R.prop('name'));
+  const missingIntegrations = R.difference(pluginNames, matchedIntegrationsNames);
   if (missingIntegrations.length > 0) {
     // need to crete the missing integrations
     await Integration.bulkCreate(missingIntegrations.map(name => ({
@@ -78,9 +82,10 @@ module.exports = async ({
   const api = {
     ...pingController,
     ...adminController,
-    ...appController,
+    ...appController(plugins),
     ...userController(plugins),
     ...bookingsController(plugins),
+    ...allotmentController(plugins),
     cache: R.omit(['cache'], cache),
   }; // mehthods that should map to the yaml api spec
   app.plugins = plugins;
@@ -121,6 +126,8 @@ module.exports = async ({
     );
     const connect = connector(api, allSchema, {
       security: auth,
+      notFound: (req, res) => res.sendStatus(404),
+      notImplemented: (req, res) => res.sendStatus(501),
     });
     if (elasticLogsClient) { // API request logs are saved on elastic
       // setup the index
@@ -202,16 +209,17 @@ module.exports = async ({
     connect(app);
     app.use(middleware.mock());
     // global error Handling
-    app.use((err, req, res) => {
-      if (process.env.CONSOLE_ERRORS) {
+    app.use((err, req, res, next) => {
+      if (res.headersSent) {
+        return next(err);
+      }
+      if (process.env.CONSOLE_ERRORS || process.env.JEST_WORKER_ID) {
         console.error(err);
       }
-      // console.log(req.headers.['X-Request-Id'], err);
-      res.status(err.status || 500);
-      if ((process.env.JEST_WORKER_ID)) {
-        console.debug(err);
-      }
-      return res.json({
+      return res.status((() => {
+        if (!isNumber(err.status)) return 500;
+        return Number(err.status);
+      })()).json({
         message: err.message || 'Internal Error',
       });
     });
