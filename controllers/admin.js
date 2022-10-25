@@ -60,6 +60,15 @@ const listApps = async (req, res, next) => {
   }
 };
 
+const listUsers = async (req, res, next) => {
+  try {
+    const users = await sqldb.User.findAll();
+    return res.json({ users });
+  } catch (err) {
+    return next(err);
+  }
+};
+
 const createUserToken = async (req, res, next) => {
   const {
     body: {
@@ -140,6 +149,7 @@ module.exports = {
   createUserToken,
   deleteApp,
   listApps,
+  listUsers,
   migrate,
   resetIntegrationToken,
 };
