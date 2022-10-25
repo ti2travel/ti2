@@ -132,6 +132,20 @@ components:
                 type: string
               updatedAt:
                 type: string
+    UserList:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            type: object
+            properties:
+              userId:
+                type: string
+              createdAt:
+                type: string
+              updatedAt:
+                type: string
     AppTokenList:
       type: object
       properties:
@@ -419,6 +433,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IntegrationList'
+  /users:
+    get:
+      security:
+        - bearerAuth: ['admin']
+      tags:
+        - admin
+      summary: list all created users
+      operationId: listUsers
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserList'
   /app/resetAppKey/{appKey}:
     get:
       security:

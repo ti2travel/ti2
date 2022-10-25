@@ -59,4 +59,11 @@ describe('admin', () => {
     });
     expect(value).toBeTruthy();
   });
+  it('the created user should be on the user list', async () => {
+    const { users } = await doApiGet({
+      url: '/users',
+      token: adminKey,
+    });
+    expect(users.find(currentUser => currentUser.userId === userId)).toBeTruthy();
+  });
 });
