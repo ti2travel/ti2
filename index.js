@@ -130,6 +130,21 @@ module.exports = async ({
       notImplemented: (req, res) => res.sendStatus(501),
     });
     if (elasticLogsClient) { // API request logs are saved on elastic
+      const mappings = {
+        dynamic: true,
+        properties: {
+          body: { type: 'object' },
+          client: { type: 'keyword' },
+          date: { type: 'long' },
+          method: { type: 'keyword' },
+          operationId: { type: 'keyword' },
+          params: { type: 'object' },
+          query: { type: 'object' },
+          url: { type: 'text' },
+          responseStatusCode: { type: 'long' },
+          responseTimeInMs: { type: 'long' },
+        },
+      };
       // setup the index
       elasticLogsClient.indices.existsTemplate({
         name: 'apilog',
@@ -144,22 +159,32 @@ module.exports = async ({
               settings: {
                 number_of_shards: 1,
               },
-              mappings: {
-                dynamic: true,
-                properties: {
-                  body: { type: 'object' },
-                  client: { type: 'keyword' },
-                  date: { type: 'long' },
-                  method: { type: 'keyword' },
-                  params: { type: 'object' },
-                  query: { type: 'object' },
-                  url: { type: 'text' },
-                  responseStatusCode: { type: 'long' },
-                  responseTimeInMs: { type: 'long' },
-                },
-              },
+              mappings,
             },
           });
+          console.log('index template created');
+        } else {
+          // index exists, we might have to updated it
+          const current = R.path(
+            ['body', 'apilog', 'mappings'],
+            await elasticLogsClient.indices.getTemplate({
+              name: 'apilog',
+            }),
+          );
+          if (!R.equals(current, mappings)) {
+            console.log('=- updating index template -=');
+            await elasticLogsClient.indices.putTemplate({
+              name: 'apilog',
+              body: {
+                index_patterns: [`${elasticLogIndex}*`],
+                settings: {
+                  number_of_shards: 1,
+                },
+                mappings,
+              },
+            });
+            console.log('updated');
+          }
         }
         const exists = await elasticLogsClient.indices.exists({
           index: elasticLogIndex,
@@ -169,6 +194,7 @@ module.exports = async ({
           await elasticLogsClient.indices.create({
             index: elasticLogIndex,
           });
+          console.log('index created');
         }
       }).catch(console.log);
       app.use((req, res, next) => {
@@ -181,6 +207,7 @@ module.exports = async ({
           query: req.query,
           appRecord: req.appRecord,
           method: req.method,
+          operationId: R.path(['openapi', 'operation', 'operationId'], req),
           client: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
         };
         elasticLogsClient.index({
