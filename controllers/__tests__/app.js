@@ -76,7 +76,6 @@ describe('app', () => {
       token: appKey,
       payload: {
         tokenHint: apiKey.split('-')[0],
-        token,
       },
     });
     expect(valid).toBe(true);
