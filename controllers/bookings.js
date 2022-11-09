@@ -32,7 +32,7 @@ const bookingsSearch = plugins => async (req, res, next) => {
       },
     });
     assert(userAppKeys, 'could not find the app key');
-    const token = userAppKeys.appKey;
+    const token = await userAppKeys.token;
     const search = app.searchHotelBooking || app.searchBooking;
     const results = await search({
       token,
@@ -61,7 +61,7 @@ const bookingsCancel = plugins => async (req, res, next) => {
       },
     }));
     assert(userAppKeys, 'could not find the app key');
-    const token = userAppKeys.appKey;
+    const token = await userAppKeys.token;
     const results = await app.cancelBooking({
       token,
       payload: body,
@@ -89,7 +89,7 @@ const $bookingsProductSearch = plugins => async ({
     },
   }));
   assert(userAppKeys, 'could not find the app key');
-  const token = userAppKeys.appKey;
+  const token = await userAppKeys.token;
   const results = await app.searchProducts({
     token,
     payload,
@@ -126,7 +126,7 @@ const bookingsAvailabilitySearch = plugins => async (req, res, next) => {
       },
     }));
     assert(userAppKeys, 'could not find the app key');
-    const token = userAppKeys.appKey;
+    const token = await userAppKeys.token;
     const results = await app.searchAvailability({
       token,
       payload,
@@ -154,7 +154,7 @@ const $bookingsAvailabilityCalendar = plugins => async ({
     },
   }));
   assert(userAppKeys, 'could not find the app key');
-  const token = userAppKeys.appKey;
+  const token = await userAppKeys.token;
   return app.availabilityCalendar({
     token,
     payload,
@@ -190,7 +190,7 @@ const searchQuote = plugins => async (req, res, next) => {
       },
     }));
     assert(userAppKeys, 'could not find the app key');
-    const token = userAppKeys.appKey;
+    const token = await userAppKeys.token;
     assert(payload.id, 'the availability id is required');
     const results = await app.searchQuote({
       token,
@@ -219,7 +219,7 @@ const createBooking = plugins => async (req, res, next) => {
       },
     }));
     assert(userAppKeys, 'could not find the app key');
-    const token = userAppKeys.appKey;
+    const token = await userAppKeys.token;
     assert(payload.id, 'the quote id is required');
     const results = await app.createBooking({
       token,
