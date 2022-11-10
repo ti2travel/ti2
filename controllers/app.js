@@ -73,7 +73,7 @@ const createAppToken = async (req, res, next) => {
     if (!userRecord) { // create the user record
       await sqldb.User.create({ userId });
     }
-    // check if the user alrady has the same app with the same hint
+    // check if the user already has the same app with the same hint
     const userAppKeyDup = await sqldb.UserAppKey.findOne({
       where: { userId, integrationId, hint },
     });
@@ -186,7 +186,7 @@ const validateAppToken = plugins => async (req, res, next) => {
       },
     });
     assert(userAppKeys, 'could not find the app key');
-    const token = userAppKeys.appKey;
+    const token = await userAppKeys.token;
     assert(app.validateToken, `could not find the validateToken method for ${appKey}`);
     const valid = await app.validateToken({
       token,
@@ -197,13 +197,12 @@ const validateAppToken = plugins => async (req, res, next) => {
   }
 };
 
-
 const listAppTokens = async (req, res, next) => {
   const { params: { app: integrationId } } = req;
   try {
     const userAppKeys = (await sqldb.UserAppKey.findAll({ where: { integrationId } }))
       .map(userAppKey => userAppKey.dataValues);
-    return res.json({ userAppKeys: userAppKeys.map(userAppKey => omit(['appKey', 'id'], userAppKey)) });
+    return res.json({ userAppKeys: userAppKeys.map(userAppKey => omit(['appKey', 'id', 'token'], userAppKey)) });
   } catch (err) {
     return next(err);
   }
@@ -310,9 +309,89 @@ const getJobStatus = async (req, res, next) => {
   }
 };
 
+const createAppSettings = async (req, res, next) => {
+  const {
+    body: {
+      settings,
+    },
+    params: {
+      appKey: integrationId,
+      userId,
+    },
+  } = req;
+  try {
+    const payload = {
+      integrationId,
+      userId,
+      settings,
+    };
+    // check if the user exists
+    const userRecord = await sqldb.User.findOne({ where: { userId } });
+    if (!userRecord) { // create the user record
+      await sqldb.User.create({ userId });
+    }
+    // check if the user already has the same app settings
+    const userSettings = await sqldb.UserIntegrationSettings.findOne({
+      where: { userId, integrationId },
+    });
+    if (userSettings) {
+      userSettings.settings = settings;
+      await userSettings.save();
+    } else {
+      await sqldb.UserIntegrationSettings.create(payload);
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    console.log(err.stack);
+    return next(err);
+  }
+};
+
+const deleteAppSettings = async (req, res, next) => {
+  const {
+    params: {
+      appKey: integrationId,
+      userId,
+    },
+  } = req;
+  // check if the user exists
+  const userRecord = await sqldb.User.findOne({ where: { userId } });
+  if (!userRecord) return next({ status: 404, message: 'User does not exists' });
+  const retVal = await sqldb.UserIntegrationSettings.destroy({
+    where: {
+      integrationId,
+      userId,
+    },
+  });
+  if (retVal === 0) return next({ status: 404, message: 'Settings not found' });
+  return res.json({ success: true });
+};
+
+const getAppSettings = async (req, res, next) => {
+  const {
+    params: {
+      appKey: integrationId,
+      userId,
+    },
+  } = req;
+  // check if the user exists
+  const userRecord = await sqldb.User.findOne({ where: { userId } });
+  if (!userRecord) return next({ status: 404, message: 'User does not exists' });
+  const userIntegrationSettings = await sqldb.UserIntegrationSettings.findOne({
+    where: { userId, integrationId },
+  });
+  if (!userIntegrationSettings) {
+    return res.json({ settings: {} });
+  }
+  return res.json({ settings: userIntegrationSettings.settings });
+};
+
 module.exports = plugins => ({
   createAppToken,
+  createAppSettings,
+  getAppSettings,
   deleteAppToken,
+  deleteAppSettings,
   getAppScheduledJobs,
   getJobStatus,
   jwtEncode,

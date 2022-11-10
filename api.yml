@@ -29,6 +29,11 @@ components:
       properties:
         value:
           type: string
+    Status:
+      type: object
+      properties:
+        success:
+          type: boolean
     JobSpec:
       type: object
       properties:
@@ -334,6 +339,13 @@ components:
         id:
           type: string
           description: a quote Id to make a reservation for
+    settingsBody:
+      type: object
+      required: true
+      properties:
+        settings:
+          type: object
+          description: an object with the app+user seettings
 paths:
   /ping:
     get:
@@ -828,6 +840,98 @@ paths:
           content:
             appication/json:
               schema: '#/components/schemas/appMethods'
+  /settings/{appKey}/{userId}:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - user
+      summary: Creates user settings for an app, shared across tokens per user
+      operationId: createAppSettings
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to use for the settings
+          required: true
+          example: 'expedia'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: user id for the setting to be created
+          required: true
+          example: '536830b6ed19afa44a000002'
+          schema:
+            type: string
+      requestBody:
+        description: Creation Payload
+        required:  true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/settingsBody'
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema: '#/components/schemas/Success'
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - user
+      summary: Retrieves a user settings for an app, shared across tokens per user
+      operationId: getAppSettings
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to use for the settings
+          required: true
+          example: 'expedia'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: user id for the setting to be created
+          required: true
+          example: '536830b6ed19afa44a000002'
+          schema:
+            type: string
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema: '#/components/schemas/settingsBody'
+    delete:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - user
+      summary: Deletes a user settings for an app, shared across tokens per user
+      operationId: deleteAppSettings
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to use for the settings
+          required: true
+          example: 'expedia'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: user id for the setting to be created
+          required: true
+          example: '536830b6ed19afa44a000002'
+          schema:
+            type: string
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+                $ref: '#/components/schemas/Status'
   /bookings/{appKey}/{userId}/search:
     post:
       security:

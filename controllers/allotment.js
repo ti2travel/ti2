@@ -22,7 +22,7 @@ const queryAllotment = plugins => async (req, res, next) => {
       },
     });
     assert(userAppKeys, 'could not find the app key');
-    const token = userAppKeys.appKey;
+    const token = await userAppKeys.token;
     assert(app.queryAllotment, 'could not find the allotment method');
     const results = await app.queryAllotment({
       token,

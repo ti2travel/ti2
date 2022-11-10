@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 const Sequelize = require('sequelize');
-const { omit } = require('ramda');
+const { omit, pathOr } = require('ramda');
 const db = require('./db');
 
 const { env: { dbCryptoKey } } = process;
@@ -43,6 +43,16 @@ const UserAppKey = db.define('UserAppKey', {
     get: function getter(field) {
       const retValue = jwt.verify(this.getDataValue(field), dbCryptoKey);
       return omit(['iat'], retValue);
+    },
+  },
+  token: {
+    type: Sequelize.VIRTUAL,
+    async get() {
+      const sqldb = require('./index');
+      const userIntegrationSettings = await sqldb.UserIntegrationSettings.findOne({
+        where: { userId: this.getDataValue('userId'), integrationId: this.getDataValue('integrationId') },
+      });
+      return { ...pathOr({}, ['settings'], userIntegrationSettings), ...this.appKey };
     },
   },
 }, {});

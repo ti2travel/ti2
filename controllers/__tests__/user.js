@@ -26,11 +26,13 @@ describe('user', () => {
     endpoint: chance.url(),
     apiKey,
   };
+  let plugins;
   beforeAll(async () => {
     ({
       doApiDelete,
       doApiGet,
       doApiPost,
+      plugins,
     } = await testUtils({
       plugins: [appName],
     }));
@@ -132,6 +134,44 @@ describe('user', () => {
         }),
       ]),
     );
+  });
+  it('should be able to create an app setting', async () => {
+    const returnValue = await doApiPost({
+      url: `/settings/${appName}/${userId}`,
+      token: userKey,
+      payload: {
+        settings: {
+          custom: true,
+        },
+      },
+    });
+    expect(returnValue.success).toBe(true);
+  });
+  it('should be able to get an app settings', async () => {
+    const returnValue = await doApiGet({
+      url: `/settings/${appName}/${userId}`,
+      token: userKey,
+    });
+    expect(returnValue.settings.custom).toBe(true);
+  });
+  it('testing the user token should include the user app seting', async () => {
+    const { valid } = await doApiPost({
+      url: `/${appName}/${userId}/validate`,
+      token: userKey,
+      payload: {
+        tokenHint: apiKey.split('-')[0],
+      },
+    });
+    expect(plugins[0].validateToken).toHaveBeenCalled();
+    expect(valid).toBe(true);
+    expect(plugins[0].validateToken.mock.calls[0][0].token).toEqual({ custom: true, ...token });
+  });
+  it('should be able to delete an app settings', async () => {
+    const returnValue = await doApiDelete({
+      url: `/settings/${appName}/${userId}`,
+      token: userKey,
+    });
+    expect(returnValue.success).toBe(true);
   });
   it('should be able to get all the methods for an app', async () => {
     const { methods } = await doApiGet({

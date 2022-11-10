@@ -11,6 +11,9 @@ User.associate = models => {
   User.hasMany(models.UserAppKey, {
     foreignKey: 'userId',
   });
+  User.hasMany(models.UserIntegrationSettings, {
+    foreignKey: 'userId',
+  });
   // associations can be defined here
 };
 
