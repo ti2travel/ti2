@@ -381,10 +381,7 @@ const getAppSettings = async (req, res, next) => {
     where: { userId, integrationId },
   });
   if (!userIntegrationSettings) {
-    return next({
-      status: 404,
-      message: 'Settings do not exist',
-    });
+    return res.json({ settings: {} });
   }
   return res.json({ settings: userIntegrationSettings.settings });
 };
