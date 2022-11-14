@@ -635,7 +635,75 @@ paths:
           content:
             application/json:
               schema: '#/components/schemas/Message'
-
+  /{app}/{userId}/{hint}/token:
+    get:
+      tags:
+        - app
+        - user
+        - admin
+      summary: Get a user app+Token configuration, the authorization can be either from the app or the user
+      security:
+        - bearerAuth: ['app', 'user', 'admin']
+      operationId: getAppToken
+      parameters:
+        - name: app
+          in: path
+          description: app name to read the userId for (must match app token)
+          example: 'expedia'
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'travelgate-australia'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: user to read the app token for
+          example: '536830b6ed19afa44a000002'
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema: '#/components/schemas/UserApp'
+  /{app}/{userId}/token:
+    get:
+      tags:
+        - app
+        - user
+        - admin
+      summary: Get a user app+Token configuration, the authorization can be either from the app or the user, it will return the first token found (since no hint is required)
+      security:
+        - bearerAuth: ['app', 'user', 'admin']
+      operationId: getAppToken
+      parameters:
+        - name: app
+          in: path
+          description: app name to read the userId for (must match app token)
+          example: 'expedia'
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: user to read the app token for
+          example: '536830b6ed19afa44a000002'
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema: '#/components/schemas/UserApp'
   /{app}/{userId}/validate:
     post:
       tags:

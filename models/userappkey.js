@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const Sequelize = require('sequelize');
 const { omit, pathOr } = require('ramda');
+const { encrypt, decrypt } = require('../lib/security');
 const db = require('./db');
 
 const { env: { dbCryptoKey } } = process;
@@ -37,12 +38,12 @@ const UserAppKey = db.define('UserAppKey', {
     type: Sequelize.TEXT,
     allowNull: false,
     set: function setter(value, field) {
-      const newValue = jwt.sign(value, dbCryptoKey);
-      this.setDataValue(field, newValue);
-    },
-    get: function getter(field) {
-      const retValue = jwt.verify(this.getDataValue(field), dbCryptoKey);
-      return omit(['iat'], retValue);
+      if (typeof value === 'object') {
+        const newValue = encrypt(JSON.stringify(value));
+        this.setDataValue(field, newValue);
+      } else {
+        this.setDataValue(field, value);
+      }
     },
   },
   token: {
@@ -52,7 +53,11 @@ const UserAppKey = db.define('UserAppKey', {
       const userIntegrationSettings = await sqldb.UserIntegrationSettings.findOne({
         where: { userId: this.getDataValue('userId'), integrationId: this.getDataValue('integrationId') },
       });
-      return { ...pathOr({}, ['settings'], userIntegrationSettings), ...this.appKey };
+      const appKey = JSON.parse(decrypt(this.getDataValue('appKey')));
+      return {
+        ...pathOr({}, ['settings'], userIntegrationSettings),
+        ...appKey,
+      };
     },
   },
 }, {});

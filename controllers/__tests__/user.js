@@ -135,6 +135,20 @@ describe('user', () => {
       ]),
     );
   });
+  it('should be able to read an user/app token', async () => {
+    const returnValue = await doApiGet({
+      url: `/${appName}/${userId}/token`,
+      token: userKey,
+    });
+    expect(returnValue.token).toEqual(token);
+  });
+  it('should be able to read an user/app token by hint', async () => {
+    const returnValue = await doApiGet({
+      url: `/${appName}/${userId}/${apiKey.split('-')[0]}/token`,
+      token: userKey,
+    });
+    expect(returnValue.token).toEqual(token);
+  });
   it('should be able to create an app setting', async () => {
     const returnValue = await doApiPost({
       url: `/settings/${appName}/${userId}`,
