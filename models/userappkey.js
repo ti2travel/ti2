@@ -42,7 +42,7 @@ const UserAppKey = db.define('UserAppKey', {
         const newValue = encrypt(JSON.stringify(value));
         this.setDataValue(field, newValue);
       } else {
-        this.setDataValue(field, value);
+        this.setDataValue(field, encrypt(value));
       }
     },
   },

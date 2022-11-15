@@ -29,7 +29,7 @@ module.exports = {
     }
     for (const { id, appToken } of valuesToUpdate) {
       const currentToken = await sqldb.UserAppKey.findOne({ where: { id } });
-      currentToken.appKey = appToken;
+      currentToken.setDataValue('appKey', appToken);
       await currentToken.save();
     }
   },
@@ -38,7 +38,7 @@ module.exports = {
     for (const currentToken of existingTokens) {
       const decodedToken = decrypt(currentToken.dataValues.appKey);
       const jwtToken = jwt.sign(decodedToken, dbCryptoKey);
-      currentToken.appKey = jwtToken;
+      currentToken.setDataValue('appKey', jwtToken);
       await currentToken.save();
     }
   },
