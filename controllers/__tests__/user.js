@@ -168,7 +168,7 @@ describe('user', () => {
     });
     expect(returnValue.settings.custom).toBe(true);
   });
-  it('testing the user token should include the user app seting', async () => {
+  it('testing the user token should include the user app setting', async () => {
     const { valid } = await doApiPost({
       url: `/${appName}/${userId}/validate`,
       token: userKey,
