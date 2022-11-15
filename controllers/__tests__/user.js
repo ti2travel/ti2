@@ -135,6 +135,33 @@ describe('user', () => {
       ]),
     );
   });
+  const apiKey2 = chance.guid();
+  const token2 = { ...token };
+  it('create a second token', async () => {
+    // set up new token
+    await doApiPost({
+      url: `/${appName}/${userId}`,
+      token: userKey,
+      payload: {
+        tokenHint: apiKey2.split('-')[1],
+        token: token2,
+      },
+    });
+  });
+  it('should be able to read a user/app token', async () => {
+    const returnValue = await doApiGet({
+      url: `/${appName}/${userId}/token`,
+      token: userKey,
+    });
+    expect(returnValue.token).toEqual(token);
+  });
+  it('should be able to read the second user/app token by hint', async () => {
+    const returnValue = await doApiGet({
+      url: `/${appName}/${userId}/${apiKey2.split('-')[1]}/token`,
+      token: userKey,
+    });
+    expect(returnValue.token).toEqual(token2);
+  });
   it('should be able to create an app setting', async () => {
     const returnValue = await doApiPost({
       url: `/settings/${appName}/${userId}`,
@@ -154,7 +181,7 @@ describe('user', () => {
     });
     expect(returnValue.settings.custom).toBe(true);
   });
-  it('testing the user token should include the user app seting', async () => {
+  it('testing the user token should include the user app setting', async () => {
     const { valid } = await doApiPost({
       url: `/${appName}/${userId}/validate`,
       token: userKey,

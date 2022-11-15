@@ -386,8 +386,33 @@ const getAppSettings = async (req, res, next) => {
   return res.json({ settings: userIntegrationSettings.settings });
 };
 
+const getAppToken = async (req, res, next) => {
+  const {
+    params: {
+      app: integrationId,
+      userId,
+      hint,
+    },
+  } = req;
+  // check if the user exists
+  const userRecord = await sqldb.User.findOne({ where: { userId } });
+  if (!userRecord) return next({ status: 404, message: 'User does not exists' });
+  const userAppKey = await sqldb.UserAppKey.findOne({
+    where: {
+      userId,
+      integrationId,
+      ...(hint ? { hint } : {}),
+    },
+  });
+  if (!userAppKey) {
+    return next({ status: 404, message: 'User integratio is not found' });
+  }
+  return res.json({ token: await userAppKey.token });
+};
+
 module.exports = plugins => ({
   createAppToken,
+  getAppToken,
   createAppSettings,
   getAppSettings,
   deleteAppToken,

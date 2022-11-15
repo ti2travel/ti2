@@ -4,6 +4,7 @@ const { Command, Argument } = require('commander');
 
 const { migrateApp } = require('./controllers/app')();
 const { migrate } = require('./controllers/admin');
+const { decrypt, encrypt } = require('./lib/security');
 
 const program = new Command();
 
@@ -32,6 +33,25 @@ program.command('db')
   )
   .action(async action => {
     await migrate({ action });
+    process.exit(0);
+  });
+
+program.command('decrypt')
+  .description('decrypt a string')
+  .addArgument(
+    new Argument('<key>', 'key to decrypt'),
+  )
+.action(async key => {
+    console.log(await decrypt(key));
+    process.exit(0);
+  });
+program.command('encrypt')
+  .description('encrypt a string')
+  .addArgument(
+    new Argument('<key>', 'key to encrypt'),
+  )
+.action(async key => {
+    console.log(await encrypt(key));
     process.exit(0);
   });
 
