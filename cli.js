@@ -38,6 +38,7 @@ program.command('db')
 
 program.command('decrypt')
   .description('Handle database migrations for integrations')
+  .description('decrypt a string')
   .addArgument(
     new Argument('<key>', 'key to decrypt'),
   )

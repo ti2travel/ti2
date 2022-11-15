@@ -15,7 +15,7 @@ module.exports = {
     for (const currentToken of existingTokens) {
       const decodedToken = JSON.stringify(R.omit(
         ['iat'],
-        jwt.verify(currentToken.dataValues.appKey, dbCryptoKey)
+        jwt.verify(currentToken.dataValues.appKey, dbCryptoKey),
       ));
       const encryptedToken = encrypt(decodedToken);
       // make sure we can decrypt it
@@ -28,7 +28,7 @@ module.exports = {
       });
     }
     for (const { id, appToken } of valuesToUpdate) {
-      const currentToken = await sqldb.UserAppKey.findOne({ where: { id }});
+      const currentToken = await sqldb.UserAppKey.findOne({ where: { id } });
       currentToken.appKey = appToken;
       await currentToken.save();
     }
