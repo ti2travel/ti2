@@ -1,10 +1,11 @@
 const jwt = require('jsonwebtoken');
 const Sequelize = require('sequelize');
-const { omit, pathOr } = require('ramda');
+const R = require('ramda');
 const { encrypt, decrypt } = require('../lib/security');
 const db = require('./db');
 
 const { env: { dbCryptoKey } } = process;
+const removeEmptyAttributes = obj => R.reject(R.anyPass([R.isEmpty, R.isNil]))(obj);
 
 const UserAppKey = db.define('UserAppKey', {
   id: {
@@ -55,8 +56,8 @@ const UserAppKey = db.define('UserAppKey', {
       });
       const appKey = JSON.parse(decrypt(this.getDataValue('appKey')));
       return {
-        ...pathOr({}, ['settings'], userIntegrationSettings),
-        ...appKey,
+        ...R.pathOr({}, ['settings'], userIntegrationSettings),
+        ...removeEmptyAttributes(appKey),
       };
     },
   },
