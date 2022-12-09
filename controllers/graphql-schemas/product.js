@@ -15,6 +15,7 @@ const typeDefs = `
     unitName: String
     subtitle: String!
     restrictions: Restriction
+    type: String
     pricing: [Pricing]
   }
   type Option {
@@ -27,6 +28,7 @@ const typeDefs = `
     productName: String
     availableCurrencies: [String]
     defaultCurrency: String
+    settlementMethods: [String]
     options: [Option]
   }
 `;

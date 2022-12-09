@@ -241,13 +241,13 @@ module.exports = async ({
         return next(err);
       }
       if (process.env.CONSOLE_ERRORS || process.env.JEST_WORKER_ID) {
-        console.error(err);
+        console.error(R.path(['response', 'data'], err), err.message);
       }
       return res.status((() => {
         if (!isNumber(err.status)) return 500;
         return Number(err.status);
       })()).json({
-        message: err.message || 'Internal Error',
+        message: R.path(['response', 'data', 'errorMessage'], err) || err.message || 'Internal Error',
       });
     });
   });
