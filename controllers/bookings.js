@@ -33,7 +33,7 @@ const bookingsSearch = plugins => async (req, res, next) => {
     });
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
-    const search = app.searchHotelBooking || app.searchBooking;
+    const search = (app.searchHotelBooking || app.searchBooking).bind(app);
     const results = await search({
       token,
       payload: body,
@@ -232,6 +232,62 @@ const createBooking = plugins => async (req, res, next) => {
   }
 };
 
+const getAffiliateAgents = plugins => async (req, res, next) => {
+  const {
+    params: { appKey, userId, hint },
+    body: payload,
+  } = req;
+  try {
+    const app = plugins.find(({ name }) => name === appKey);
+    // const app = load(appKey);
+    const userAppKeys = (await UserAppKey.findOne({
+      where: {
+        userId,
+        integrationId: appKey,
+        ...(hint ? { hint } : {}),
+      },
+    }));
+    assert(userAppKeys, 'could not find the app key');
+    const token = await userAppKeys.token;
+    assert(app.getAffiliateAgents, `getAffiliateAgents is not available for ${appKey}`);
+    const results = await app.getAffiliateAgents({
+      token,
+      payload,
+    });
+    return res.json(results);
+  } catch (err) {
+    return next(err);
+  }
+};
+
+const getAffiliateDesks = plugins => async (req, res, next) => {
+  const {
+    params: { appKey, userId, hint },
+    body: payload,
+  } = req;
+  try {
+    const app = plugins.find(({ name }) => name === appKey);
+    // const app = load(appKey);
+    const userAppKeys = (await UserAppKey.findOne({
+      where: {
+        userId,
+        integrationId: appKey,
+        ...(hint ? { hint } : {}),
+      },
+    }));
+    assert(userAppKeys, 'could not find the app key');
+    const token = await userAppKeys.token;
+    assert(app.getAffiliateDesks, `getAffiliateDesks is not available for ${appKey}`);
+    const results = await app.getAffiliateDesks({
+      token,
+      payload,
+    });
+    return res.json(results);
+  } catch (err) {
+    return next(err);
+  }
+};
+
 module.exports = plugins => ({
   bookingsSearch: bookingsSearch(plugins),
   bookingsCancel: bookingsCancel(plugins),
@@ -242,4 +298,6 @@ module.exports = plugins => ({
   bookingsAvailabilityCalendar: bookingsAvailabilityCalendar(plugins),
   searchQuote: searchQuote(plugins),
   createBooking: createBooking(plugins),
+  getAffiliateAgents: getAffiliateAgents(plugins),
+  getAffiliateDesks: getAffiliateDesks(plugins),
 });

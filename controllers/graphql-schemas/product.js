@@ -7,7 +7,7 @@ const typeDefs = `
   type Pricing {
     original: Int
     retail: Int
-    currency: Int
+    currency: String
     currencyPrecision: Int
   }
   type Unit {

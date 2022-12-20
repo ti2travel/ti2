@@ -194,6 +194,20 @@ components:
           type: array
           items:
             type: string
+    desk:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+    agent:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
     bookingSearchQuery:
       type: object
       additionalProperties: true
@@ -558,7 +572,8 @@ paths:
           description: success
           content:
             application/json:
-              schema: '#/components/schemas/AppTokenList'
+              schema:
+                $ref: '#/components/schemas/AppTokenList'
   /{app}/{userId}:
     security:
       - bearerAuth: ['app']
@@ -598,7 +613,8 @@ paths:
           description: success
           content:
             application/json:
-              schema: '#/components/schemas/Message'
+              schema:
+                $ref: '#/components/schemas/Message'
     delete:
       tags:
         - app
@@ -634,7 +650,8 @@ paths:
           description: success
           content:
             application/json:
-              schema: '#/components/schemas/Message'
+              schema:
+                $ref: '#/components/schemas/Message'
   /{app}/{userId}/{hint}/token:
     get:
       tags:
@@ -672,7 +689,8 @@ paths:
           description: success
           content:
             application/json:
-              schema: '#/components/schemas/UserApp'
+              schema:
+                $ref: '#/components/schemas/UserApp'
   /{app}/{userId}/token:
     get:
       tags:
@@ -703,7 +721,8 @@ paths:
           description: success
           content:
             application/json:
-              schema: '#/components/schemas/UserApp'
+              schema:
+                $ref: '#/components/schemas/UserApp'
   /{app}/{userId}/validate:
     post:
       tags:
@@ -740,7 +759,8 @@ paths:
           description: success
           content:
             application/json:
-              schema: '#/components/schemas/Message'
+              schema:
+                $ref: '#/components/schemas/Message'
 
   /{app}/{userId}/jobRun:
     security:
@@ -779,7 +799,8 @@ paths:
           description: success
           content:
             application/json:
-              schema: '#/components/schemas/JobStatus'
+              schema:
+                $ref: '#/components/schemas/JobStatus'
   /{app}/{userId}/{hint}/jobRun:
     security:
       - bearerAuth: ['app', 'user', 'admin']
@@ -824,7 +845,8 @@ paths:
           description: success
           content:
             application/json:
-              schema: '#/components/schemas/JobStatus'
+              schema:
+                $ref: '#/components/schemas/JobStatus'
   /{app}/{userId}/{jobId}/jobStatus:
     security:
       - bearerAuth: ['app', 'user', 'admin']
@@ -858,11 +880,12 @@ paths:
           schema:
             type: string
       responses:
-        200:
+        '200':
           description: success
           content:
             application/json:
-              schema: '#/components/schemas/JobStatus'
+              schema:
+                $ref: '#/components/schemas/JobStatus'
   /user/{userId}/apps:
     get:
       security:
@@ -885,7 +908,8 @@ paths:
           description: success
           content:
             application/json:
-              schema: '#/components/schemas/AppTokenList'
+              schema:
+                $ref: '#/components/schemas/AppTokenList'
   /app/{appKey}/methods:
     get:
       security:
@@ -907,7 +931,8 @@ paths:
           description: the methods available
           content:
             appication/json:
-              schema: '#/components/schemas/appMethods'
+              schema:
+                $ref: '#/components/schemas/appMethods'
   /settings/{appKey}/{userId}:
     post:
       security:
@@ -938,12 +963,6 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/settingsBody'
-      responses:
-        200:
-          description: success
-          content:
-            application/json:
-              schema: '#/components/schemas/Success'
     get:
       security:
         - bearerAuth: ['admin', 'user']
@@ -971,7 +990,8 @@ paths:
           description: success
           content:
             application/json:
-              schema: '#/components/schemas/settingsBody'
+              schema:
+                $ref: '#/components/schemas/settingsBody'
     delete:
       security:
         - bearerAuth: ['admin', 'user']
@@ -1000,6 +1020,156 @@ paths:
           content:
             application/json:
                 $ref: '#/components/schemas/Status'
+  /affiliate/{appKey}/{userId}/desks:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Gets all desks for this affiliate
+      operationId: getAffiliateDesks
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to get the desks for (defaults to first token found)
+          required: true
+          example: 'fareharbor'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: desks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  desks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/desk'
+  /affiliate/{appKey}/{userId}/{hint}/desks:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Gets all desks for this affiliate
+      operationId: getAffiliateDesks
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to get the desks for the token using the hint
+          required: true
+          example: 'fareharbor'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'fareharbor-helloworld'
+          schema:
+            type: string
+      responses:
+        '200':
+          description: desks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  desks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/desk'
+  /affiliate/{appKey}/{userId}/agents:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Gets all agents for this affiliate
+      operationId: getAffiliateAgents
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to get the agents for (defaults to first token found)
+          required: true
+          example: 'fareharbor'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: agents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/agent'
+  /affiliate/{appKey}/{userId}/{hint}/agents:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Gets all agents for this affiliate
+      operationId: getAffiliateAgents
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to get the agents for the token using the hint
+          required: true
+          example: 'fareharbor'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'fareharbor-helloworld'
+          schema:
+            type: string
+      responses:
+        '200':
+          description: agents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/agent'
   /bookings/{appKey}/{userId}/search:
     post:
       security:

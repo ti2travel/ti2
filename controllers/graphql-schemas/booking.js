@@ -18,6 +18,14 @@ const typeDefs = `
     currencyPrecision: Int
     currency: String
   }
+  type Agent {
+    id: Int
+    name: String
+  }
+  type Desk {
+    id: Int
+    name: String
+  }
   type Query {
     id: ID
     orderId: ID
@@ -42,6 +50,8 @@ const typeDefs = `
     resellerReference: String
     publicUrl: String
     privateUrl: String
+    agent: Agent
+    desk: Desk
   }
 `;
 
@@ -86,6 +96,14 @@ const query = `{
   resellerReference
   publicUrl
   privateUrl
+  agent {
+    id
+    name
+  }
+  desk {
+    id
+    name
+  }
 }`;
 
 module.exports = {
