@@ -26,6 +26,19 @@ const typeDefs = `
     id: Int
     name: String
   }
+  type PickupPoint {
+    id: ID
+    name: String
+    directions: String
+    latitude: Float
+    longitude: Float
+    street: String
+    postal: String
+    city: String
+    state: String
+    country: String
+    localDateTime: String
+  }
   type Query {
     id: ID
     orderId: ID
@@ -52,6 +65,11 @@ const typeDefs = `
     privateUrl: String
     agent: Agent
     desk: Desk
+    pickupRequested: Boolean
+    pickupPointId: ID
+    pickupHotel: String
+    pickupHotelRoom: String
+    pickupPoint: PickupPoint
   }
 `;
 
@@ -103,6 +121,23 @@ const query = `{
   desk {
     id
     name
+  }
+  pickupRequested
+  pickupPointId
+  pickupHotel
+  pickupHotelRoom
+  pickupPoint {
+    id
+    name
+    directions
+    latitude
+    longitude
+    street
+    postal
+    city
+    state
+    country
+    localDateTime
   }
 }`;
 

@@ -15,6 +15,20 @@ const typeDefs = `
     title: String
     description: String
   }
+  type PickupPoint {
+    id: ID
+    name: String
+    pickupAvail: Boolean
+    directions: String
+    latitude: Float
+    longitude: Float
+    street: String
+    postal: String
+    city: String
+    state: String
+    country: String
+    localDateTime: String
+  }
   type Query {
     key(productId: String, optionId: String, currency: String, unitsWithQuantity: [UnitWithQuantity], jwtKey: String): String
     dateTimeStart: String
@@ -25,6 +39,9 @@ const typeDefs = `
     pricing: Pricing
     unitPricing: [Pricing]
     offer: Offer
+    pickupAvailable: Boolean
+    pickupRequired: Boolean
+    pickupPoints: [PickupPoint]
   }
 `;
 
@@ -35,6 +52,22 @@ const query = `query getAvailability ($pId: String, $oId: String, $currency: Str
   allDay
   vacancies
   available
+  pickupAvailable
+  pickupRequired
+  pickupPoints {
+    id
+    name
+    pickupAvail
+    directions
+    latitude
+    longitude
+    street
+    postal
+    city
+    state
+    country
+    localDateTime
+  }
   pricing {
     ...pricingFields
   }
