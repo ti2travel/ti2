@@ -30,7 +30,7 @@ const typeDefs = `
     localDateTime: String
   }
   type Query {
-    key(productId: String, optionId: String, currency: String, unitsWithQuantity: [UnitWithQuantity], jwtKey: String): String
+    key(productId: ID, optionId: ID, currency: String, unitsWithQuantity: [UnitWithQuantity], jwtKey: String): String
     dateTimeStart: String
     dateTimeEnd: String
     allDay: Boolean
@@ -45,8 +45,8 @@ const typeDefs = `
   }
 `;
 
-const query = `query getAvailability ($pId: String, $oId: String, $currency: String, $unitsWithQuantity: [UnitWithQuantity], $jwtKey: String) {
-  key (productId: $pId, optionId: $oId, currency: $currency, unitsWithQuantity: $unitsWithQuantity, jwtKey: $jwtKey)
+const query = `query getAvailability ($productId: ID, $optionId: ID, $currency: String, $unitsWithQuantity: [UnitWithQuantity], $jwtKey: String) {
+  key (productId: $productId, optionId: $optionId, currency: $currency, unitsWithQuantity: $unitsWithQuantity, jwtKey: $jwtKey)
   dateTimeStart
   dateTimeEnd
   allDay

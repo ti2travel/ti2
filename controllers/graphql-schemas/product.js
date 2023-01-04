@@ -13,7 +13,7 @@ const typeDefs = `
   type Unit {
     unitId: ID
     unitName: String
-    subtitle: String!
+    subtitle: String
     restrictions: Restriction
     type: String
     pricing: [Pricing]
