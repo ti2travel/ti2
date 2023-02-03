@@ -178,11 +178,6 @@ module.exports = async ({
       });
     }
 
-    // const continue = () => {
-    // }
-    // await bb.each(
-    //   , await plugin => {
-    //   });
     connect(app);
     app.use(middleware.mock());
     // global error Handling
