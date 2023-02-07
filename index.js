@@ -9,6 +9,10 @@ const bb = require('bluebird');
 const { Op } = require('sequelize');
 const R = require('ramda');
 const { v4: uuidv4 } = require('uuid');
+const EventEmitter = require('eventemitter2');
+
+const ti2Events = new EventEmitter({ captureRejections: true, wildcard: true });
+ti2Events.on('event error', console.error);
 
 const schema = yaml.load(fs.readFileSync(`${__dirname}/api.yml`));
 
@@ -49,7 +53,7 @@ module.exports = async ({
       const nuName = attr.replace(/_/g, '-').replace(`ti2-${pluginName}-`, '');
       params[nuName] = value;
     });
-    const pluginInstance = await new Plugin({ name: pluginName, ...params });
+    const pluginInstance = await new Plugin({ name: pluginName, events: ti2Events, ...params });
     return pluginInstance;
   });
   if (worker) {
@@ -128,55 +132,42 @@ module.exports = async ({
       notFound: (req, res) => res.sendStatus(404),
       notImplemented: (req, res) => res.sendStatus(501),
     });
-    const onRequestStartPlugins = plugins.filter(currentPlugin => (api.getAllFuncs(currentPlugin).indexOf('onRequestStart') > -1));
-    const onRequestEndPlugins = plugins.filter(currentPlugin => (api.getAllFuncs(currentPlugin).indexOf('onRequestEnd') > -1));
+    const eventHandlerPlugins = plugins.filter(currentPlugin => (api.getAllFuncs(currentPlugin).indexOf('eventHandler') > -1));
+    eventHandlerPlugins.forEach(plugin => {
+      plugin.eventHandler(ti2Events);
+    });
 
-    if (onRequestStartPlugins.length > 0) {
-      app.use((req, res, next) => {
-        const startHrTime = process.hrtime();
-        const requestId = uuidv4();
-        const body = {
-          requestId,
-          date: Math.floor(Date.now() / 1e3),
-          url: req.url,
-          // body: req.body,
-          params: req.pathParams,
-          query: req.query,
-          appRecord: req.appRecord,
-          method: req.method,
-          operationId: R.path(['openapi', 'operation', 'operationId'], req),
-          client: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
-        };
-        bb.each(onRequestStartPlugins, async startPlugin => {
-          try {
-            await startPlugin.onRequestStart(body);
-          } catch (err) {
-            console.log(`unable to log to ${startPlugin.name}`, err);
-          }
-        }).then();
-        if (onRequestEndPlugins.length > 0) {
-          res.on('finish', () => {
-            const elapsedHrTime = process.hrtime(startHrTime);
-            const responseTimeInMs = parseInt(
-              elapsedHrTime[0] * 1e3 + elapsedHrTime[1] / 1e6,
-              10,
-            );
-            bb.each(onRequestEndPlugins, async endPlugin => {
-              try {
-                await endPlugin.onRequestEnd({
-                  ...body,
-                  responseTimeInMs,
-                  responseStatusCode: res.statusCode,
-                });
-              } catch (err) {
-                console.log(`unable to log to ${endPlugin.name}`, err);
-              }
-            }).then();
-          });
-        }
-        next();
+    app.use((req, res, next) => {
+      const startHrTime = process.hrtime();
+      const requestId = uuidv4();
+      const body = {
+        requestId,
+        date: Math.floor(Date.now() / 1e3),
+        url: req.url,
+        body: req.body,
+        params: req.pathParams,
+        query: req.query,
+        appRecord: req.appRecord,
+        method: req.method,
+        operationId: R.path(['openapi', 'operation', 'operationId'], req),
+        client: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+      };
+      ti2Events.emit('request.start', body);
+      req.requestId = requestId;
+      res.on('finish', () => {
+        const elapsedHrTime = process.hrtime(startHrTime);
+        const responseTimeInMs = parseInt(
+          elapsedHrTime[0] * 1e3 + elapsedHrTime[1] / 1e6,
+          10,
+        );
+        ti2Events.emit('request.end', {
+          ...body,
+          responseTimeInMs,
+          responseStatusCode: res.statusCode,
+        });
       });
-    }
+      next();
+    });
 
     connect(app);
     app.use(middleware.mock());

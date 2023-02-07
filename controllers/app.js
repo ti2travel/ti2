@@ -190,6 +190,7 @@ const validateAppToken = plugins => async (req, res, next) => {
     assert(app.validateToken, `could not find the validateToken method for ${appKey}`);
     const valid = await app.validateToken({
       token,
+      requestId: req.requestId,
     });
     return res.json({ valid });
   } catch (err) {
