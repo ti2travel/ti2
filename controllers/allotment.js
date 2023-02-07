@@ -27,6 +27,7 @@ const queryAllotment = plugins => async (req, res, next) => {
     const results = await app.queryAllotment({
       token,
       payload: query,
+      requestId: req.requestId,
     });
     return res.json(results);
   } catch (err) {
