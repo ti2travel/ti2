@@ -80,6 +80,7 @@ const $bookingsProductSearch = plugins => async ({
   userId,
   hint,
   payload,
+  requestId,
 }) => {
   const app = plugins.find(({ name }) => name === appKey);
   // const app = load(appKey);
@@ -96,7 +97,7 @@ const $bookingsProductSearch = plugins => async ({
     token,
     payload,
     typeDefsAndQueries,
-    requestId: req.requestId,
+    requestId,
   });
   return results;
 };
@@ -105,9 +106,10 @@ const bookingsProductSearch = plugins => async (req, res, next) => {
   const {
     params,
     body: payload,
+    requestId,
   } = req;
   try {
-    return res.json(await $bookingsProductSearch(plugins)({ ...params, payload }));
+    return res.json(await $bookingsProductSearch(plugins)({ ...params, payload, requestId }));
   } catch (err) {
     return next(err);
   }
