@@ -23,7 +23,11 @@ const getAllFuncs = toCheck => {
   } while (obj = Object.getPrototypeOf(obj));
 
   return props.sort().filter((e, i, arr) => {
-    if (e !== arr[i + 1] && typeof toCheck[e] === 'function') return true;
+    try {
+      if (e !== arr[i + 1] && typeof toCheck[e] === 'function') return true;
+    } catch {
+      return undefined;
+    }
     return undefined;
   });
 };
@@ -42,6 +46,7 @@ const getAppMethods = plugins => async (req, res, next) => {
 };
 
 module.exports = plugins => ({
-  userAppList,
+  getAllFuncs,
   getAppMethods: getAppMethods(plugins),
+  userAppList,
 });

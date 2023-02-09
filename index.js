@@ -8,6 +8,11 @@ const { pickBy } = require('ramda');
 const bb = require('bluebird');
 const { Op } = require('sequelize');
 const R = require('ramda');
+const { v4: uuidv4 } = require('uuid');
+const EventEmitter = require('eventemitter2');
+
+const ti2Events = new EventEmitter({ captureRejections: true, wildcard: true });
+ti2Events.on('event error', console.error);
 
 const schema = yaml.load(fs.readFileSync(`${__dirname}/api.yml`));
 
@@ -29,8 +34,6 @@ const isNumber = value => !Number.isNaN(Number(value));
 
 module.exports = async ({
   apiDocs = true,
-  elasticLogIndex = 'apilog_ti2',
-  elasticLogsClient,
   plugins: pluginsParam = {},
   port: portParam,
   startServer = true,
@@ -50,7 +53,7 @@ module.exports = async ({
       const nuName = attr.replace(/_/g, '-').replace(`ti2-${pluginName}-`, '');
       params[nuName] = value;
     });
-    const pluginInstance = await new Plugin({ name: pluginName, ...params });
+    const pluginInstance = await new Plugin({ name: pluginName, events: ti2Events, ...params });
     return pluginInstance;
   });
   if (worker) {
@@ -129,110 +132,43 @@ module.exports = async ({
       notFound: (req, res) => res.sendStatus(404),
       notImplemented: (req, res) => res.sendStatus(501),
     });
-    if (elasticLogsClient) { // API request logs are saved on elastic
-      const mappings = {
-        dynamic: true,
-        properties: {
-          body: { type: 'object' },
-          client: { type: 'keyword' },
-          date: { type: 'long' },
-          method: { type: 'keyword' },
-          operationId: { type: 'keyword' },
-          params: { type: 'object' },
-          query: { type: 'object' },
-          url: { type: 'text' },
-          responseStatusCode: { type: 'long' },
-          responseTimeInMs: { type: 'long' },
-        },
+    const eventHandlerPlugins = plugins.filter(currentPlugin => (api.getAllFuncs(currentPlugin).indexOf('eventHandler') > -1));
+    eventHandlerPlugins.forEach(plugin => {
+      plugin.eventHandler(ti2Events);
+    });
+
+    app.use((req, res, next) => {
+      const startHrTime = process.hrtime();
+      const requestId = uuidv4();
+      const body = {
+        requestId,
+        date: Math.floor(Date.now() / 1e3),
+        url: req.url,
+        body: req.body,
+        params: req.pathParams,
+        query: req.query,
+        appRecord: req.appRecord,
+        method: req.method,
+        operationId: R.path(['openapi', 'operation', 'operationId'], req),
+        client: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
       };
-      // setup the index
-      elasticLogsClient.indices.existsTemplate({
-        name: 'apilog',
-      }).then(async ({ body }) => {
-        if (!body) {
-          // the template has to be created
-          console.log('=- creating index template -=');
-          await elasticLogsClient.indices.putTemplate({
-            name: 'apilog',
-            body: {
-              index_patterns: [`${elasticLogIndex}*`],
-              settings: {
-                number_of_shards: 1,
-              },
-              mappings,
-            },
-          });
-          console.log('index template created');
-        } else {
-          // index exists, we might have to updated it
-          const current = R.path(
-            ['body', 'apilog', 'mappings'],
-            await elasticLogsClient.indices.getTemplate({
-              name: 'apilog',
-            }),
-          );
-          if (!R.equals(current, mappings)) {
-            console.log('=- updating index template -=');
-            await elasticLogsClient.indices.putTemplate({
-              name: 'apilog',
-              body: {
-                index_patterns: [`${elasticLogIndex}*`],
-                settings: {
-                  number_of_shards: 1,
-                },
-                mappings,
-              },
-            });
-            console.log('updated');
-          }
-        }
-        const exists = await elasticLogsClient.indices.exists({
-          index: elasticLogIndex,
+      ti2Events.emit('request.start', body);
+      req.requestId = requestId;
+      res.on('finish', () => {
+        const elapsedHrTime = process.hrtime(startHrTime);
+        const responseTimeInMs = parseInt(
+          elapsedHrTime[0] * 1e3 + elapsedHrTime[1] / 1e6,
+          10,
+        );
+        ti2Events.emit('request.end', {
+          ...body,
+          responseTimeInMs,
+          responseStatusCode: res.statusCode,
         });
-        if (!exists || !exists.body) {
-          console.log('=- creating index =-');
-          await elasticLogsClient.indices.create({
-            index: elasticLogIndex,
-          });
-          console.log('index created');
-        }
-      }).catch(console.log);
-      app.use((req, res, next) => {
-        const startHrTime = process.hrtime();
-        const body = {
-          date: Math.floor(Date.now() / 1e3),
-          url: req.url,
-          // body: req.body,
-          params: req.pathParams,
-          query: req.query,
-          appRecord: req.appRecord,
-          method: req.method,
-          operationId: R.path(['openapi', 'operation', 'operationId'], req),
-          client: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
-        };
-        elasticLogsClient.index({
-          index: elasticLogIndex,
-          body,
-        }).then(({ body: { _id } }) => {
-          res.on('finish', () => {
-            const elapsedHrTime = process.hrtime(startHrTime);
-            const responseTimeInMs = parseInt(elapsedHrTime[0] * 1e3 + elapsedHrTime[1] / 1e6, 10);
-            elasticLogsClient.index({
-              index: elasticLogIndex,
-              id: _id,
-              body: {
-                ...body,
-                ...{
-                  responseTimeInMs,
-                  responseStatusCode: res.statusCode,
-                },
-              },
-            }).catch((err, response) => console.log(err, response));
-          });
-        }).catch((err, response) => console.log(err, response));
-        next();
       });
-    }
+      next();
+    });
+
     connect(app);
     app.use(middleware.mock());
     // global error Handling

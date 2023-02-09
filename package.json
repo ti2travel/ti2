@@ -1,6 +1,6 @@
 {
   "name": "ti2",
-  "version": "1.0.47",
+  "version": "1.0.50",
   "description": "Tourist Industry Exchange (TI2)",
   "main": "index.js",
   "scripts": {
@@ -28,6 +28,7 @@
     "bluebird": "^3.7.2",
     "bull": "^4.8.2",
     "commander": "^9.2.0",
+    "eventemitter2": "^6.4.9",
     "express": "^4.17.2",
     "ioredis": "^5.0.4",
     "js-yaml": "^4.1.0",
@@ -44,7 +45,7 @@
     "swagger-ui-express": "4.3.0",
     "throng": "^5.0.0",
     "umzug": "^3.1.1",
-    "uninstall": "^0.0.0"
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
     "@salvador/minami": "^1.2.3",

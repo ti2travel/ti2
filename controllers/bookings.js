@@ -41,6 +41,7 @@ const bookingsSearch = plugins => async (req, res, next) => {
       token,
       payload: body,
       typeDefsAndQueries,
+      requestId: req.requestId,
     });
     return res.json(results);
   } catch (err) {
@@ -69,6 +70,7 @@ const bookingsCancel = plugins => async (req, res, next) => {
       token,
       payload: body,
       typeDefsAndQueries,
+      requestId: req.requestId,
     });
     return res.json(results);
   } catch (err) {
@@ -81,6 +83,7 @@ const $bookingsProductSearch = plugins => async ({
   userId,
   hint,
   payload,
+  requestId,
 }) => {
   const app = plugins.find(({ name }) => name === appKey);
   // const app = load(appKey);
@@ -97,6 +100,7 @@ const $bookingsProductSearch = plugins => async ({
     token,
     payload,
     typeDefsAndQueries,
+    requestId,
   });
   return results;
 };
@@ -105,9 +109,10 @@ const bookingsProductSearch = plugins => async (req, res, next) => {
   const {
     params,
     body: payload,
+    requestId,
   } = req;
   try {
-    return res.json(await $bookingsProductSearch(plugins)({ ...params, payload }));
+    return res.json(await $bookingsProductSearch(plugins)({ ...params, payload, requestId }));
   } catch (err) {
     return next(err);
   }
@@ -134,6 +139,7 @@ const bookingsAvailabilitySearch = plugins => async (req, res, next) => {
       token,
       payload,
       typeDefsAndQueries,
+      requestId: req.requestId,
     });
     return res.json(results);
   } catch (err) {
@@ -146,6 +152,7 @@ const $bookingsAvailabilityCalendar = plugins => async ({
   userId,
   hint,
   payload,
+  requestId,
 }) => {
   const app = plugins.find(({ name }) => name === appKey);
   // const app = load(appKey);
@@ -162,6 +169,7 @@ const $bookingsAvailabilityCalendar = plugins => async ({
     token,
     payload,
     typeDefsAndQueries,
+    requestId,
   });
 };
 
@@ -169,9 +177,14 @@ const bookingsAvailabilityCalendar = plugins => async (req, res, next) => {
   const {
     params,
     body: payload,
+    requestId,
   } = req;
   try {
-    return res.json(await $bookingsAvailabilityCalendar(plugins)({ ...params, payload }));
+    return res.json(await $bookingsAvailabilityCalendar(plugins)({
+      ...params,
+      payload,
+      requestId,
+    }));
   } catch (err) {
     return next(err);
   }
@@ -199,6 +212,7 @@ const searchQuote = plugins => async (req, res, next) => {
       token,
       payload,
       typeDefsAndQueries,
+      requestId: req.requestId,
     });
     return res.json(results);
   } catch (err) {
@@ -228,6 +242,7 @@ const createBooking = plugins => async (req, res, next) => {
       token,
       payload,
       typeDefsAndQueries,
+      requestId: req.requestId,
     });
     return res.json(results);
   } catch (err) {
@@ -256,6 +271,7 @@ const getAffiliateAgents = plugins => async (req, res, next) => {
     const results = await app.getAffiliateAgents({
       token,
       payload,
+      requestId: req.requestId,
     });
     return res.json(results);
   } catch (err) {
@@ -284,6 +300,7 @@ const getAffiliateDesks = plugins => async (req, res, next) => {
     const results = await app.getAffiliateDesks({
       token,
       payload,
+      requestId: req.requestId,
     });
     return res.json(results);
   } catch (err) {
