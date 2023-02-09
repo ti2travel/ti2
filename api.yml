@@ -208,6 +208,13 @@ components:
           type: string
         name:
           type: string
+    pickuppoint:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
     bookingSearchQuery:
       type: object
       additionalProperties: true
@@ -1170,6 +1177,81 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/agent'
+  /{appKey}/{userId}/pickup-points:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Gets all pickup points for this supplier
+      operationId: getPickupPoints
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to get the pickup points from (defaults to first token found)
+          required: true
+          example: 'fareharbor'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: pickup points
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pickupPoints:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/pickuppoint'
+  /{appKey}/{userId}/{hint}/pickup-points:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Gets all pickup points for this supplier
+      operationId: getPickupPoints
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to get the pickup points from (defaults to first token found) using the hint
+          required: true
+          example: 'fareharbor'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'fareharbor-helloworld'
+          schema:
+            type: string
+      responses:
+        '200':
+          description: pickup points
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pickupPoints:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/pickuppoint'
   /bookings/{appKey}/{userId}/search:
     post:
       security:
