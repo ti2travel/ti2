@@ -5,6 +5,7 @@ const { typeDefs: productTypeDefs, query: productQuery } = require('./graphql-sc
 const { typeDefs: availTypeDefs, query: availQuery } = require('./graphql-schemas/availability');
 const { typeDefs: bookingTypeDefs, query: bookingQuery } = require('./graphql-schemas/booking');
 const { typeDefs: rateTypeDefs, query: rateQuery } = require('./graphql-schemas/rate');
+const { typeDefs: pickupTypeDefs, query: pickupQuery } = require('./graphql-schemas/pickup-point');
 
 const typeDefsAndQueries = {
   productTypeDefs,
@@ -15,6 +16,8 @@ const typeDefsAndQueries = {
   bookingQuery,
   rateTypeDefs,
   rateQuery,
+  pickupTypeDefs,
+  pickupQuery,
 };
 
 const bookingsSearch = plugins => async (req, res, next) => {
@@ -288,6 +291,35 @@ const getAffiliateDesks = plugins => async (req, res, next) => {
   }
 };
 
+const getPickupPoints = plugins => async (req, res, next) => {
+  const {
+    params: { appKey, userId, hint },
+    body: payload,
+  } = req;
+  try {
+    const app = plugins.find(({ name }) => name === appKey);
+    // const app = load(appKey);
+    const userAppKeys = (await UserAppKey.findOne({
+      where: {
+        userId,
+        integrationId: appKey,
+        ...(hint ? { hint } : {}),
+      },
+    }));
+    assert(userAppKeys, 'could not find the app key');
+    const token = await userAppKeys.token;
+    assert(app.getPickupPoints, `getPickupPoints is not available for ${appKey}`);
+    const results = await app.getPickupPoints({
+      token,
+      payload,
+      typeDefsAndQueries,
+    });
+    return res.json(results);
+  } catch (err) {
+    return next(err);
+  }
+};
+
 module.exports = plugins => ({
   bookingsSearch: bookingsSearch(plugins),
   bookingsCancel: bookingsCancel(plugins),
@@ -300,4 +332,5 @@ module.exports = plugins => ({
   createBooking: createBooking(plugins),
   getAffiliateAgents: getAffiliateAgents(plugins),
   getAffiliateDesks: getAffiliateDesks(plugins),
+  getPickupPoints: getPickupPoints(plugins),
 });
