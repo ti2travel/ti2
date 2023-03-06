@@ -177,7 +177,8 @@ module.exports = async ({
           10,
         );
         ti2Events.emit('request.end', {
-          ...req.customBody,
+          ...body,
+          cacheKey: req.cacheKey,
           responseTimeInMs,
           responseStatusCode: res.statusCode,
         });
@@ -195,14 +196,13 @@ module.exports = async ({
         const body = req.customBody;
         if (cachingOperations.indexOf(body.operationId) > -1) {
           const cacheKey = hash(R.omit(['requestId', 'date'], body));
-
+          req.cacheKey = cacheKey;
           const foundCache = await cache.get({
             pluginName: body.params.appKey,
             key: cacheKey,
           });
           if (foundCache) {
             // console.log('foundCache', cacheKey);
-            req.customBody.usedCache = cacheKey;
             res.json(foundCache);
           }
           const realSend = res.json;
