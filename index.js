@@ -170,23 +170,6 @@ module.exports = async ({
       const body = composeBodyFromReq(req);
       ti2Events.emit('request.start', body);
       req.requestId = body.requestId;
-      const currentPlugin = plugins.find(p => p.name === req.pathParams.appKey);
-      const cachingOperations = [
-        ...cacheSettings['*'],
-        ...(currentPlugin ? R.pathOr([], [currentPlugin.name], cacheSettings) : []),
-      ];
-      if (cachingOperations.indexOf(body.operationId) > -1) {
-        const cacheKey = hash(R.omit(['requestId', 'date'], body));
-        // console.log('hit here', cacheKey, body.url);
-        const foundCache = await cache.get({
-          pluginName: body.params.appKey,
-          key: cacheKey,
-        });
-        if (foundCache) {
-          body.usedCache = true;
-          res.json(foundCache);
-        }
-      }
       res.on('finish', async () => {
         const elapsedHrTime = process.hrtime(startHrTime);
         const responseTimeInMs = parseInt(
@@ -201,7 +184,27 @@ module.exports = async ({
       });
       next();
     });
-
+    app.use(async (req, res, next) => {
+      const currentPlugin = plugins.find(p => p.name === req.pathParams.appKey);
+      const cachingOperations = [
+        ...cacheSettings['*'],
+        ...(currentPlugin ? R.pathOr([], [currentPlugin.name], cacheSettings) : []),
+      ];
+      const body = composeBodyFromReq(req);
+      if (cachingOperations.indexOf(body.operationId) > -1) {
+        const cacheKey = hash(R.omit(['requestId', 'date'], body));
+        // console.log('hit here', cacheKey, body.url);
+        const foundCache = await cache.get({
+          pluginName: body.params.appKey,
+          key: cacheKey,
+        });
+        if (foundCache) {
+          body.usedCache = true;
+          res.json(foundCache);
+        }
+      }
+      next();
+    });
     connect(app);
     app.use(async (req, res, next) => {
       try {
