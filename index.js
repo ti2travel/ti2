@@ -3,6 +3,7 @@ const createMiddleware = require('swagger-express-middleware');
 const { connector } = require('swagger-routes-express');
 const swaggerUi = require('swagger-ui-express');
 const yaml = require('js-yaml');
+const hash = require('object-hash');
 const fs = require('fs');
 const { pickBy } = require('ramda');
 const bb = require('bluebird');
@@ -11,6 +12,19 @@ const R = require('ramda');
 const { v4: uuidv4 } = require('uuid');
 const EventEmitter = require('eventemitter2');
 
+const cacheSettings = {
+  '*': [
+    'getAppSettings',
+    'userAppList',
+    'tokenTemplate',
+    'getAffiliateAgents',
+    'getAffiliateDesks',
+    'getPickupPoints',
+    'bookingsProductSearch',
+  ],
+  ventrata: [],
+  fareharbor: [],
+};
 const ti2Events = new EventEmitter({ captureRejections: true, wildcard: true });
 ti2Events.on('event error', console.error);
 
@@ -136,11 +150,9 @@ module.exports = async ({
     eventHandlerPlugins.forEach(plugin => {
       plugin.eventHandler(ti2Events);
     });
-
-    app.use((req, res, next) => {
-      const startHrTime = process.hrtime();
+    const composeBodyFromReq = req => {
       const requestId = uuidv4();
-      const body = {
+      return {
         requestId,
         date: Math.floor(Date.now() / 1e3),
         url: req.url,
@@ -152,9 +164,30 @@ module.exports = async ({
         operationId: R.path(['openapi', 'operation', 'operationId'], req),
         client: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
       };
+    };
+    app.use(async (req, res, next) => {
+      const startHrTime = process.hrtime();
+      const body = composeBodyFromReq(req);
       ti2Events.emit('request.start', body);
-      req.requestId = requestId;
-      res.on('finish', () => {
+      req.requestId = body.requestId;
+      const currentPlugin = plugins.find(p => p.name === req.pathParams.appKey);
+      const cachingOperations = [
+        ...cacheSettings['*'],
+        ...(currentPlugin ? R.pathOr([], [currentPlugin.name], cacheSettings) : []),
+      ];
+      if (cachingOperations.indexOf(body.operationId) > -1) {
+        const cacheKey = hash(R.omit(['requestId', 'date'], body));
+        // console.log('hit here', cacheKey, body.url);
+        const foundCache = await cache.get({
+          pluginName: body.params.appKey,
+          key: cacheKey,
+        });
+        if (foundCache) {
+          body.usedCache = true;
+          res.json(foundCache);
+        }
+      }
+      res.on('finish', async () => {
         const elapsedHrTime = process.hrtime(startHrTime);
         const responseTimeInMs = parseInt(
           elapsedHrTime[0] * 1e3 + elapsedHrTime[1] / 1e6,
@@ -170,6 +203,34 @@ module.exports = async ({
     });
 
     connect(app);
+    app.use(async (req, res, next) => {
+      try {
+        const currentPlugin = plugins.find(p => p.name === req.pathParams.appKey);
+        const body = composeBodyFromReq(req);
+        const cachingOperations = [
+          ...cacheSettings['*'],
+          ...(currentPlugin ? R.pathOr([], [currentPlugin.name], cacheSettings) : []),
+        ];
+        if (cachingOperations.indexOf(R.path(['openapi', 'operation', 'operationId'], req)) > -1) {
+          const cacheKey = hash(R.omit(['requestId', 'date'], body));
+          // console.log('new app use', cacheKey, body.url, res.headersSent);
+          // TODO: if using cache service
+          // save cache (send if not sent)
+          if (req.data) {
+            if (!res.headersSent) res.json(req.data);
+            return cache.save({
+              pluginName: body.params.appKey,
+              key: cacheKey,
+              value: req.data,
+              ttl: 60 * 60 * 24, // one day
+            });
+          }
+        }
+        return next();
+      } catch (err) {
+        return next(err);
+      }
+    });
     app.use(middleware.mock());
     // global error Handling
     app.use((err, req, res, next) => {

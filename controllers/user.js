@@ -8,7 +8,8 @@ const userAppList = async (req, res, next) => {
   try {
     const userAppKeys = (await UserAppKey.findAll({ where: { userId } }))
       .map(userAppKey => userAppKey.dataValues);
-    return res.json({ userAppKeys: userAppKeys.map(userAppKey => omit(['appKey', 'id'], userAppKey)) });
+    req.data = ({ userAppKeys: userAppKeys.map(userAppKey => omit(['appKey', 'id'], userAppKey)) });
+    return next();
   } catch (err) {
     return next(err);
   }

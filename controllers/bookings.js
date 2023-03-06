@@ -43,7 +43,9 @@ const bookingsSearch = plugins => async (req, res, next) => {
       typeDefsAndQueries,
       requestId: req.requestId,
     });
-    return res.json(results);
+    req.data = results;
+    // return res.json(results);
+    return next();
   } catch (err) {
     return next(err);
   }
@@ -112,7 +114,9 @@ const bookingsProductSearch = plugins => async (req, res, next) => {
     requestId,
   } = req;
   try {
-    return res.json(await $bookingsProductSearch(plugins)({ ...params, payload, requestId }));
+    const results = await $bookingsProductSearch(plugins)({ ...params, payload, requestId });
+    req.data = results;
+    return next();
   } catch (err) {
     return next(err);
   }
@@ -273,7 +277,8 @@ const getAffiliateAgents = plugins => async (req, res, next) => {
       payload,
       requestId: req.requestId,
     });
-    return res.json(results);
+    req.data = results;
+    return next();
   } catch (err) {
     return next(err);
   }
@@ -302,7 +307,8 @@ const getAffiliateDesks = plugins => async (req, res, next) => {
       payload,
       requestId: req.requestId,
     });
-    return res.json(results);
+    req.data = results;
+    return next();
   } catch (err) {
     return next(err);
   }
@@ -331,7 +337,8 @@ const getPickupPoints = plugins => async (req, res, next) => {
       payload,
       typeDefsAndQueries,
     });
-    return res.json(results);
+    req.data = results;
+    return next();
   } catch (err) {
     return next(err);
   }
