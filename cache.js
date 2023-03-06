@@ -3,7 +3,6 @@ const hash = require('object-hash');
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
 const cache = new Redis(`${REDIS_URL}/2`);
-
 const defaultTTL = 60 * 60; // 1 hour
 
 const save = async ({
@@ -57,10 +56,11 @@ const getOrExec = async ({
 
 const drop = async ({
   pluginName,
+  key: keyParam,
   fn,
   fnParams,
 }) => {
-  let key = hash({ fn, fnParams });
+  let key = keyParam || hash({ fn, fnParams });
   key = `${pluginName}:${key}`;
   await cache.del(key);
 };
@@ -70,4 +70,5 @@ module.exports = {
   save,
   getOrExec,
   drop,
+  get,
 };
