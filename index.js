@@ -25,6 +25,7 @@ const cacheSettings = {
 };
 const ti2Events = new EventEmitter({ captureRejections: true, wildcard: true });
 ti2Events.on('event error', console.error);
+ti2Events.on('error', console.error);
 
 const schema = yaml.load(fs.readFileSync(`${__dirname}/api.yml`));
 
