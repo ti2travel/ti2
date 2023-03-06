@@ -44,8 +44,7 @@ const tokenTemplate = async (req, res, next) => {
       },
     });
     template = R.map(safeRegExp, template);
-    req.data = ({ template });
-    return next();
+    return res.json({ template });
   } catch (err) {
     return next(err);
   }
@@ -383,9 +382,9 @@ const getAppSettings = async (req, res, next) => {
     where: { userId, integrationId },
   });
   if (!userIntegrationSettings) {
-    req.data = ({ settings: {} });
-  } else req.data = ({ settings: userIntegrationSettings.settings });
-  return next();
+    return res.json({ settings: {} });
+  }
+  return res.json({ settings: userIntegrationSettings.settings });
 };
 
 const getAppToken = async (req, res, next) => {

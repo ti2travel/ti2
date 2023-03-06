@@ -168,6 +168,7 @@ module.exports = async ({
     app.use(async (req, res, next) => {
       const startHrTime = process.hrtime();
       const body = composeBodyFromReq(req);
+      req.customBody = body;
       ti2Events.emit('request.start', body);
       req.requestId = body.requestId;
       res.on('finish', async () => {
@@ -177,63 +178,55 @@ module.exports = async ({
           10,
         );
         ti2Events.emit('request.end', {
-          ...body,
+          ...req.customBody,
           responseTimeInMs,
           responseStatusCode: res.statusCode,
         });
       });
       next();
     });
-    app.use(async (req, res, next) => {
-      const currentPlugin = plugins.find(p => p.name === req.pathParams.appKey);
-      const cachingOperations = [
-        ...cacheSettings['*'],
-        ...(currentPlugin ? R.pathOr([], [currentPlugin.name], cacheSettings) : []),
-      ];
-      const body = composeBodyFromReq(req);
-      if (cachingOperations.indexOf(body.operationId) > -1) {
-        const cacheKey = hash(R.omit(['requestId', 'date'], body));
-        // console.log('hit here', cacheKey, body.url);
-        const foundCache = await cache.get({
-          pluginName: body.params.appKey,
-          key: cacheKey,
-        });
-        if (foundCache) {
-          body.usedCache = true;
-          res.json(foundCache);
-        }
-      }
-      next();
-    });
-    connect(app);
+
     app.use(async (req, res, next) => {
       try {
         const currentPlugin = plugins.find(p => p.name === req.pathParams.appKey);
-        const body = composeBodyFromReq(req);
         const cachingOperations = [
           ...cacheSettings['*'],
           ...(currentPlugin ? R.pathOr([], [currentPlugin.name], cacheSettings) : []),
         ];
-        if (cachingOperations.indexOf(R.path(['openapi', 'operation', 'operationId'], req)) > -1) {
+        const body = req.customBody;
+        if (cachingOperations.indexOf(body.operationId) > -1) {
           const cacheKey = hash(R.omit(['requestId', 'date'], body));
-          // console.log('new app use', cacheKey, body.url, res.headersSent);
-          // TODO: if using cache service
-          // save cache (send if not sent)
-          if (req.data) {
-            if (!res.headersSent) res.json(req.data);
-            return cache.save({
-              pluginName: body.params.appKey,
+
+          const foundCache = await cache.get({
+            pluginName: body.params.appKey,
+            key: cacheKey,
+          });
+          if (foundCache) {
+            // console.log('foundCache', cacheKey);
+            req.customBody.usedCache = cacheKey;
+            res.json(foundCache);
+          }
+          const realSend = res.json;
+          res.json = newData => { // new res.json
+            cache.save({
+              pluginName: req.pathParams.appKey,
               key: cacheKey,
-              value: req.data,
+              value: newData,
               ttl: 60 * 60 * 24, // one day
             });
-          }
+            // console.log('newData', cacheKey);
+            if (!res.headersSent) {
+              // console.log('send new data', cacheKey);
+              return realSend.apply(res, [newData]);
+            }
+          };
         }
         return next();
       } catch (err) {
         return next(err);
       }
     });
+    connect(app);
     app.use(middleware.mock());
     // global error Handling
     app.use((err, req, res, next) => {
@@ -246,7 +239,7 @@ module.exports = async ({
       return res.status((() => {
         if (!isNumber(err.status)) return 500;
         return Number(err.status);
-      })()).json({
+      })()).send({
         message: R.path(['response', 'data', 'errorMessage'], err) || err.message || 'Internal Error',
       });
     });
