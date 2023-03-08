@@ -1,4 +1,5 @@
 const express = require('express');
+const compression = require('compression');
 const createMiddleware = require('swagger-express-middleware');
 const { connector } = require('swagger-routes-express');
 const swaggerUi = require('swagger-ui-express');
@@ -140,6 +141,7 @@ module.exports = async ({
       middleware.parseRequest(),
       // middleware.validateRequest(),
     );
+    app.use(compression());
     const connect = connector(api, allSchema, {
       security: auth,
       notFound: (req, res) => res.sendStatus(404),
