@@ -237,12 +237,11 @@ module.exports = async ({
       if (process.env.CONSOLE_ERRORS || process.env.JEST_WORKER_ID) {
         console.error(R.path(['response', 'data'], err), err);
       }
-      console.log('hit hre');
       return res.status((() => {
         if (!isNumber(err.status)) return 500;
         return Number(err.status);
       })()).send({
-        message: R.path(['response', 'data', 'errorMessage'], err) || err.message || 'Internal Error',
+        message: typeof err === 'string' ? err : (R.path(['response', 'data', 'errorMessage'], err) || err.message || 'Internal Error'),
       });
     });
   });
