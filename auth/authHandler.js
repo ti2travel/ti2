@@ -11,7 +11,7 @@ const {
   },
 } = process;
 
-const invalid = (res, msg) => res.status(401).json({ error: msg || 'Unauthorized' });
+const invalid = (res, msg) => res.status(401).send({ error: msg || 'Unauthorized' });
 
 const getToken = ({ req }) => {
   if (

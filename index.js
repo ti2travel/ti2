@@ -15,7 +15,6 @@ const EventEmitter = require('eventemitter2');
 
 const cacheSettings = {
   '*': [
-    'tokenTemplate',
     'getAffiliateAgents',
     'getAffiliateDesks',
     'getPickupPoints',
@@ -209,12 +208,14 @@ module.exports = async ({
           }
           const realSend = res.json;
           res.json = newData => { // new res.json
-            cache.save({
-              pluginName: req.pathParams.appKey,
-              key: cacheKey,
-              value: newData,
-              ttl: 60 * 60 * 24, // one day
-            });
+            if (res.statusCode === 200) {
+              cache.save({
+                pluginName: req.pathParams.appKey,
+                key: cacheKey,
+                value: newData,
+                ttl: 60 * 60 * 24, // one day
+              });
+            }
             // console.log('newData', cacheKey);
             if (!res.headersSent) {
               // console.log('send new data', cacheKey);
