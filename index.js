@@ -12,6 +12,12 @@ const { Op } = require('sequelize');
 const R = require('ramda');
 const { v4: uuidv4 } = require('uuid');
 const EventEmitter = require('eventemitter2');
+const axios = require('axios');
+const curlirize = require('axios-curlirize');
+
+if (process.env.debug) {
+  curlirize(axios);
+}
 
 const cacheSettings = {
   '*': [
@@ -45,6 +51,14 @@ const rebuild = fn => obj =>
 
 const isNumber = value => !Number.isNaN(Number(value));
 
+const axiosSafeRequest = R.pick(['headers', 'method', 'url', 'data']);
+const axiosSafeResponse = response => {
+  const retVal = R.pick(['data', 'status', 'statusText', 'headers', 'request', 'config'], response);
+  retVal.request = axiosSafeRequest(retVal.request);
+  retVal.config = axiosSafeRequest(retVal.config);
+  return retVal;
+};
+
 module.exports = async ({
   apiDocs = true,
   plugins: pluginsParam = {},
@@ -66,7 +80,11 @@ module.exports = async ({
       const nuName = attr.replace(/_/g, '-').replace(`ti2-${pluginName}-`, '');
       params[nuName] = value;
     });
-    const pluginInstance = await new Plugin({ name: pluginName, events: ti2Events, ...params });
+    const pluginInstance = await new Plugin({
+      name: pluginName,
+      events: ti2Events,
+      ...params,
+    });
     return pluginInstance;
   });
   if (worker) {
@@ -184,6 +202,32 @@ module.exports = async ({
           responseStatusCode: res.statusCode,
         });
       });
+
+      const axiosPlugin = axios.create({ headers: { requestId: req.requestId } });
+      const pluginName = R.pathOr('ti2', ['params', 'appKey'], body);
+      const userId = R.pathOr(undefined, ['params', 'userId'], body);
+      axiosPlugin.interceptors.request.use(request => {
+        ti2Events.emit(`${pluginName}.axios.request`, { ...axiosSafeRequest(request), userId });
+        request.headers.common.requestId = req.requestId;
+        return request;
+      });
+      axiosPlugin.interceptors.response.use(response => {
+        ti2Events.emit(`${pluginName}.axios.response`, { ...axiosSafeResponse(response), userId });
+        return response;
+      });
+      req.axios = async (...args) => axiosPlugin(...args).catch(err => {
+        const errMsg = R.omit(['config'], err.toJSON());
+        console.log(`error in ${pluginName}`, args[0], errMsg);
+        if (ti2Events.events) {
+          ti2Events.events.emit(`${pluginName}.axios.error`, {
+            request: args[0],
+            err: errMsg,
+          });
+        }
+        throw R.pathOr(err, ['response', 'data', 'errorMessage'], err);
+      });
+      req.axios = axiosPlugin;
+
       next();
     });
 

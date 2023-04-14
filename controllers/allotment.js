@@ -4,6 +4,7 @@ const { UserAppKey } = require('../models/index');
 
 const queryAllotment = plugins => async (req, res, next) => {
   const {
+    axios,
     params: {
       appKey,
       hint,
@@ -25,6 +26,7 @@ const queryAllotment = plugins => async (req, res, next) => {
     const token = await userAppKeys.token;
     assert(app.queryAllotment, 'could not find the allotment method');
     const results = await app.queryAllotment({
+      axios,
       token,
       payload: query,
       requestId: req.requestId,
