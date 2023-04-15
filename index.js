@@ -204,7 +204,11 @@ module.exports = async ({
       });
 
       const axiosPlugin = axios.create({ headers: { requestId: req.requestId } });
-      const pluginName = R.pathOr('ti2', ['params', 'appKey'], body);
+      const pluginName = R.pathOr(
+        R.pathOr('ti2', ['params', 'app'], body),
+        ['params', 'appKey'],
+        body,
+      );
       const userId = R.pathOr(undefined, ['params', 'userId'], body);
       axiosPlugin.interceptors.request.use(request => {
         ti2Events.emit(`${pluginName}.axios.request`, { ...axiosSafeRequest(request), userId });
