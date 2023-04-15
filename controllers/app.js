@@ -167,6 +167,7 @@ const deleteAppToken = async (req, res, next) => {
 
 const validateAppToken = plugins => async (req, res, next) => {
   const {
+    axios,
     body: {
       tokenHint: hint,
     },
@@ -189,6 +190,7 @@ const validateAppToken = plugins => async (req, res, next) => {
     const token = await userAppKeys.token;
     assert(app.validateToken, `could not find the validateToken method for ${appKey}`);
     const valid = await app.validateToken({
+      axios,
       token,
       requestId: req.requestId,
     });

@@ -22,6 +22,7 @@ const typeDefsAndQueries = {
 
 const bookingsSearch = plugins => async (req, res, next) => {
   const {
+    axios,
     params: { appKey, userId, hint },
     body,
   } = req;
@@ -38,6 +39,7 @@ const bookingsSearch = plugins => async (req, res, next) => {
     const token = await userAppKeys.token;
     const search = (app.searchHotelBooking || app.searchBooking).bind(app);
     const results = await search({
+      axios,
       token,
       payload: body,
       typeDefsAndQueries,
@@ -51,6 +53,7 @@ const bookingsSearch = plugins => async (req, res, next) => {
 
 const bookingsCancel = plugins => async (req, res, next) => {
   const {
+    axios,
     params: { appKey, userId, hint },
     body,
   } = req;
@@ -67,6 +70,7 @@ const bookingsCancel = plugins => async (req, res, next) => {
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
     const results = await app.cancelBooking({
+      axios,
       token,
       payload: body,
       typeDefsAndQueries,
@@ -79,6 +83,7 @@ const bookingsCancel = plugins => async (req, res, next) => {
 };
 
 const $bookingsProductSearch = plugins => async ({
+  axios,
   appKey,
   userId,
   hint,
@@ -97,6 +102,7 @@ const $bookingsProductSearch = plugins => async ({
   assert(userAppKeys, 'could not find the app key');
   const token = await userAppKeys.token;
   const results = await app.searchProducts({
+    axios,
     token,
     payload,
     typeDefsAndQueries,
@@ -107,12 +113,18 @@ const $bookingsProductSearch = plugins => async ({
 
 const bookingsProductSearch = plugins => async (req, res, next) => {
   const {
+    axios,
     params,
     body: payload,
     requestId,
   } = req;
   try {
-    return res.json(await $bookingsProductSearch(plugins)({ ...params, payload, requestId }));
+    return res.json(await $bookingsProductSearch(plugins)({
+      axios,
+      ...params,
+      payload,
+      requestId,
+    }));
   } catch (err) {
     return next(err);
   }
@@ -120,6 +132,7 @@ const bookingsProductSearch = plugins => async (req, res, next) => {
 
 const bookingsAvailabilitySearch = plugins => async (req, res, next) => {
   const {
+    axios,
     params: { appKey, userId, hint },
     body: payload,
   } = req;
@@ -136,6 +149,7 @@ const bookingsAvailabilitySearch = plugins => async (req, res, next) => {
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
     const results = await app.searchAvailability({
+      axios,
       token,
       payload,
       typeDefsAndQueries,
@@ -148,6 +162,7 @@ const bookingsAvailabilitySearch = plugins => async (req, res, next) => {
 };
 
 const $bookingsAvailabilityCalendar = plugins => async ({
+  axios,
   appKey,
   userId,
   hint,
@@ -166,6 +181,7 @@ const $bookingsAvailabilityCalendar = plugins => async ({
   assert(userAppKeys, 'could not find the app key');
   const token = await userAppKeys.token;
   return app.availabilityCalendar({
+    axios,
     token,
     payload,
     typeDefsAndQueries,
@@ -175,12 +191,14 @@ const $bookingsAvailabilityCalendar = plugins => async ({
 
 const bookingsAvailabilityCalendar = plugins => async (req, res, next) => {
   const {
+    axios,
     params,
     body: payload,
     requestId,
   } = req;
   try {
     return res.json(await $bookingsAvailabilityCalendar(plugins)({
+      axios,
       ...params,
       payload,
       requestId,
@@ -192,6 +210,7 @@ const bookingsAvailabilityCalendar = plugins => async (req, res, next) => {
 
 const searchQuote = plugins => async (req, res, next) => {
   const {
+    axios,
     params: { appKey, userId, hint },
     body: payload,
   } = req;
@@ -209,6 +228,7 @@ const searchQuote = plugins => async (req, res, next) => {
     const token = await userAppKeys.token;
     assert(payload.id, 'the availability id is required');
     const results = await app.searchQuote({
+      axios,
       token,
       payload,
       typeDefsAndQueries,
@@ -222,6 +242,7 @@ const searchQuote = plugins => async (req, res, next) => {
 
 const createBooking = plugins => async (req, res, next) => {
   const {
+    axios,
     params: { appKey, userId, hint },
     body: payload,
   } = req;
@@ -239,6 +260,7 @@ const createBooking = plugins => async (req, res, next) => {
     const token = await userAppKeys.token;
     assert(payload.id, 'the quote id is required');
     const results = await app.createBooking({
+      axios,
       token,
       payload,
       typeDefsAndQueries,
@@ -252,6 +274,7 @@ const createBooking = plugins => async (req, res, next) => {
 
 const getAffiliateAgents = plugins => async (req, res, next) => {
   const {
+    axios,
     params: { appKey, userId, hint },
     body: payload,
   } = req;
@@ -269,6 +292,7 @@ const getAffiliateAgents = plugins => async (req, res, next) => {
     const token = await userAppKeys.token;
     assert(app.getAffiliateAgents, `getAffiliateAgents is not available for ${appKey}`);
     const results = await app.getAffiliateAgents({
+      axios,
       token,
       payload,
       requestId: req.requestId,
@@ -281,6 +305,7 @@ const getAffiliateAgents = plugins => async (req, res, next) => {
 
 const getAffiliateDesks = plugins => async (req, res, next) => {
   const {
+    axios,
     params: { appKey, userId, hint },
     body: payload,
   } = req;
@@ -298,6 +323,7 @@ const getAffiliateDesks = plugins => async (req, res, next) => {
     const token = await userAppKeys.token;
     assert(app.getAffiliateDesks, `getAffiliateDesks is not available for ${appKey}`);
     const results = await app.getAffiliateDesks({
+      axios,
       token,
       payload,
       requestId: req.requestId,
@@ -310,6 +336,7 @@ const getAffiliateDesks = plugins => async (req, res, next) => {
 
 const getPickupPoints = plugins => async (req, res, next) => {
   const {
+    axios,
     params: { appKey, userId, hint },
     body: payload,
   } = req;
@@ -327,6 +354,7 @@ const getPickupPoints = plugins => async (req, res, next) => {
     const token = await userAppKeys.token;
     assert(app.getPickupPoints, `getPickupPoints is not available for ${appKey}`);
     const results = await app.getPickupPoints({
+      axios,
       token,
       payload,
       typeDefsAndQueries,
