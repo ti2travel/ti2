@@ -210,6 +210,10 @@ module.exports = async ({
         body,
       );
       const userId = R.pathOr(undefined, ['params', 'userId'], body);
+      const plugin = plugins.find(({ name }) => name === pluginName);
+      const errorPathsAxiosErrors = R.pathOr(() => [], ['errorPathsAxiosErrors'], plugin)();
+      const errorPathsAxiosAny = R.pathOr(() => [], ['errorPathsAxiosAny'], plugin)();
+
       axiosPlugin.interceptors.request.use(request => {
         ti2Events.emit(`${pluginName}.axios.request`, { ...axiosSafeRequest(request), userId });
         request.headers.common.requestId = req.requestId;
@@ -217,18 +221,41 @@ module.exports = async ({
       });
       axiosPlugin.interceptors.response.use(response => {
         ti2Events.emit(`${pluginName}.axios.response`, { ...axiosSafeResponse(response), userId });
+        if (errorPathsAxiosAny.length > 0) {
+          const pathMatch = errorPathsAxiosAny.find(errorPath => R.path(errorPath, response));
+          if (pathMatch) {
+            const errMsg = R.path(pathMatch, response);
+            console.error(`error in ${pluginName}`, errMsg);
+            if (ti2Events.events) {
+              ti2Events.events.emit(`${pluginName}.axios.error`, {
+                response: axiosSafeResponse(response),
+                err: errMsg,
+              });
+            }
+            throw new Eror(errMsg);
+          }
+        }
         return response;
       });
       req.axios = async (...args) => axiosPlugin(...args).catch(err => {
-        const errMsg = R.omit(['config'], err.toJSON());
-        console.log(`error in ${pluginName}`, args[0], errMsg);
+        const errMsg = (() => {
+          const defaultErr = R.omit(['config'], err.toJSON()); // default error
+          if (errorPathsAxiosErrors.length > 0) {
+            const pathMatch = errorPathsAxiosErrors.find(errorPath => R.path(errorPath, err));
+            if (pathMatch) {
+              return R.path(pathMatch, err);
+            }
+          }
+          return defaultErr;
+        })();
+        console.error(`error in ${pluginName}`, args[0], errMsg);
         if (ti2Events.events) {
           ti2Events.events.emit(`${pluginName}.axios.error`, {
             request: args[0],
             err: errMsg,
           });
         }
-        throw R.pathOr(err, ['response', 'data', 'errorMessage'], err);
+        throw new Error(errMsg);
       });
       req.axios = axiosPlugin;
 
