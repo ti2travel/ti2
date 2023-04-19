@@ -257,7 +257,6 @@ module.exports = async ({
         }
         throw new Error(errMsg);
       });
-      req.axios = axiosPlugin;
 
       next();
     });
