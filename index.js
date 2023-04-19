@@ -225,7 +225,7 @@ module.exports = async ({
           const pathMatch = errorPathsAxiosAny.find(errorPath => R.path(errorPath, response));
           if (pathMatch) {
             const errMsg = R.path(pathMatch, response);
-            console.error(`error in ${pluginName}`, errMsg);
+            if (process.env.debug) console.error(`error in ${pluginName}`, errMsg);
             if (ti2Events.events) {
               ti2Events.events.emit(`${pluginName}.axios.error`, {
                 response: axiosSafeResponse(response),
@@ -248,7 +248,7 @@ module.exports = async ({
           }
           return defaultErr;
         })();
-        console.error(`error in ${pluginName}`, args[0], errMsg);
+        if (console.env.debug) console.error(`error in ${pluginName}`, args[0], errMsg);
         if (ti2Events.events) {
           ti2Events.events.emit(`${pluginName}.axios.error`, {
             request: args[0],
