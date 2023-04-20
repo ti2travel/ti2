@@ -40,6 +40,7 @@ const bookingsController = require('./controllers/bookings');
 const allotmentController = require('./controllers/allotment');
 const { Integration } = require('./models');
 const cache = require('./cache');
+const getErrorMessage = require('./lib/get-error-message.js');
 
 // src : https://github.com/ramda/ramda/issues/3137#issuecomment-1016012904
 const rebuild = fn => obj =>
@@ -210,21 +211,6 @@ module.exports = async ({
       const errorPathsAxiosErrors = R.pathOr(() => [], ['errorPathsAxiosErrors'], plugin)();
       const errorPathsAxiosAny = R.pathOr(() => [], ['errorPathsAxiosAny'], plugin)();
 
-      const getErrorMessage = ({ err, handlers = [], force = true }) => {
-        for (const handler of handlers) {
-          let errorMessage;
-          if (Array.isArray(handler)) {
-            errorMessage = R.path(handler, err);
-          } else if (typeof handler === 'function') {
-            errorMessage = handler(err);
-          }
-          if (errorMessage) {
-            return errorMessage;
-          }
-        }
-        if (force) return JSON.stringify({ ...err, config: undefined });
-      }
-
       axiosPlugin.interceptors.request.use(request => {
         ti2Events.emit(`${pluginName}.axios.request`, { ...axiosSafeRequest(request), userId });
         request.headers.common.requestId = req.requestId;
@@ -232,7 +218,7 @@ module.exports = async ({
       });
       axiosPlugin.interceptors.response.use(response => {
         ti2Events.emit(`${pluginName}.axios.response`, { ...axiosSafeResponse(response), userId });
-        const errMsg = getErrormessage({ err: response, handlers: errorPathsAxiosAny, force: false });
+        const errMsg = getErrorMessage({ err: response, handlers: errorPathsAxiosAny, force: false });
         if (errMsg) {
           if (process.env.debug) console.error(`error in ${pluginName}`, errMsg);
           if (ti2Events.events) {
@@ -241,7 +227,7 @@ module.exports = async ({
               err: errMsg,
             });
           }
-          throw new Eror(errMsg);
+          throw new Error(errMsg);
         }
         return response;
       });
@@ -266,9 +252,9 @@ module.exports = async ({
             err: errMsg,
           });
         }
-        throw new Error(errMsg);
+        return Promise.reject(errMsg);
       });
-
+      req.axios = axiosPlugin;
       next();
     });
 
