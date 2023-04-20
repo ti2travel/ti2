@@ -210,6 +210,21 @@ module.exports = async ({
       const errorPathsAxiosErrors = R.pathOr(() => [], ['errorPathsAxiosErrors'], plugin)();
       const errorPathsAxiosAny = R.pathOr(() => [], ['errorPathsAxiosAny'], plugin)();
 
+      const getErrorMessage = ({ err, handlers = [], force = true }) => {
+        for (const handler of handlers) {
+          let errorMessage;
+          if (Array.isArray(handler)) {
+            errorMessage = R.path(handler, err);
+          } else if (typeof handler === 'function') {
+            errorMessage = handler(err);
+          }
+          if (errorMessage) {
+            return errorMessage;
+          }
+        }
+        if (force) return JSON.stringify({ ...err, config: undefined });
+      }
+
       axiosPlugin.interceptors.request.use(request => {
         ti2Events.emit(`${pluginName}.axios.request`, { ...axiosSafeRequest(request), userId });
         request.headers.common.requestId = req.requestId;
@@ -217,19 +232,16 @@ module.exports = async ({
       });
       axiosPlugin.interceptors.response.use(response => {
         ti2Events.emit(`${pluginName}.axios.response`, { ...axiosSafeResponse(response), userId });
-        if (errorPathsAxiosAny.length > 0) {
-          const pathMatch = errorPathsAxiosAny.find(errorPath => R.path(errorPath, response));
-          if (pathMatch) {
-            const errMsg = R.path(pathMatch, response);
-            if (process.env.debug) console.error(`error in ${pluginName}`, errMsg);
-            if (ti2Events.events) {
-              ti2Events.events.emit(`${pluginName}.axios.error`, {
-                response: axiosSafeResponse(response),
-                err: errMsg,
-              });
-            }
-            throw new Eror(errMsg);
+        const errMsg = getErrormessage({ err: response, handlers: errorPathsAxiosAny, force: false });
+        if (errMsg) {
+          if (process.env.debug) console.error(`error in ${pluginName}`, errMsg);
+          if (ti2Events.events) {
+            ti2Events.events.emit(`${pluginName}.axios.error`, {
+              response: axiosSafeResponse(response),
+              err: errMsg,
+            });
           }
+          throw new Eror(errMsg);
         }
         return response;
       });
