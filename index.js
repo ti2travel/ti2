@@ -15,10 +15,6 @@ const EventEmitter = require('eventemitter2');
 const axios = require('axios');
 const curlirize = require('axios-curlirize');
 
-if (process.env.debug) {
-  curlirize(axios);
-}
-
 const cacheSettings = {
   '*': [
     'getAffiliateAgents',
@@ -237,6 +233,9 @@ module.exports = async ({
         }
         return response;
       });
+      if (process.env.debug) {
+        curlirize(axiosPlugin);
+      }
       req.axios = async (...args) => axiosPlugin(...args).catch(err => {
         const errMsg = (() => {
           const defaultErr = R.omit(['config'], err.toJSON()); // default error
@@ -248,7 +247,7 @@ module.exports = async ({
           }
           return defaultErr;
         })();
-        if (console.env.debug) console.error(`error in ${pluginName}`, args[0], errMsg);
+        if (process.env.debug) console.error(`error in ${pluginName}`, args[0], errMsg);
         if (ti2Events.events) {
           ti2Events.events.emit(`${pluginName}.axios.error`, {
             request: args[0],
@@ -310,7 +309,7 @@ module.exports = async ({
         return next(err);
       }
       if (process.env.CONSOLE_ERRORS || process.env.JEST_WORKER_ID) {
-        console.error(R.path(['response', 'data'], err), err);
+        console.error(R.path(['response', 'data'], err));
       }
       return res.status((() => {
         if (!isNumber(err.status)) return 500;

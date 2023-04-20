@@ -38,7 +38,7 @@ const typeDefs = `
     available: Boolean
     pricing: Pricing
     unitPricing: [Pricing]
-    offer: Offer
+    offer: [Offer]
     pickupAvailable: Boolean
     pickupRequired: Boolean
     pickupPoints: [PickupPoint]
