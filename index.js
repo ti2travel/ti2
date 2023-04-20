@@ -40,6 +40,7 @@ const bookingsController = require('./controllers/bookings');
 const allotmentController = require('./controllers/allotment');
 const { Integration } = require('./models');
 const cache = require('./cache');
+const getErrorMessage = require('./lib/get-error-message.js');
 
 // src : https://github.com/ramda/ramda/issues/3137#issuecomment-1016012904
 const rebuild = fn => obj =>
@@ -217,36 +218,20 @@ module.exports = async ({
       });
       axiosPlugin.interceptors.response.use(response => {
         ti2Events.emit(`${pluginName}.axios.response`, { ...axiosSafeResponse(response), userId });
-        if (errorPathsAxiosAny.length > 0) {
-          const pathMatch = errorPathsAxiosAny.find(errorPath => R.path(errorPath, response));
-          if (pathMatch) {
-            const errMsg = R.path(pathMatch, response);
-            if (process.env.debug) console.error(`error in ${pluginName}`, errMsg);
-            if (ti2Events.events) {
-              ti2Events.events.emit(`${pluginName}.axios.error`, {
-                response: axiosSafeResponse(response),
-                err: errMsg,
-              });
-            }
-            throw new Eror(errMsg);
+        const errMsg = getErrorMessage({ err: response, handlers: errorPathsAxiosAny, force: false });
+        if (errMsg) {
+          if (process.env.debug) console.error(`error in ${pluginName}`, errMsg);
+          if (ti2Events.events) {
+            ti2Events.events.emit(`${pluginName}.axios.error`, {
+              response: axiosSafeResponse(response),
+              err: errMsg,
+            });
           }
+          throw new Error(errMsg);
         }
         return response;
-      });
-      if (process.env.debug) {
-        curlirize(axiosPlugin);
-      }
-      req.axios = async (...args) => axiosPlugin(...args).catch(err => {
-        const errMsg = (() => {
-          const defaultErr = R.omit(['config'], err.toJSON()); // default error
-          if (errorPathsAxiosErrors.length > 0) {
-            const pathMatch = errorPathsAxiosErrors.find(errorPath => R.path(errorPath, err));
-            if (pathMatch) {
-              return R.path(pathMatch, err);
-            }
-          }
-          return defaultErr;
-        })();
+      }, err => {
+        const errMsg = getErrorMessage({ err, handlers: errorPathsAxiosErrors });
         if (process.env.debug) console.error(`error in ${pluginName}`, args[0], errMsg);
         if (ti2Events.events) {
           ti2Events.events.emit(`${pluginName}.axios.error`, {
@@ -254,9 +239,12 @@ module.exports = async ({
             err: errMsg,
           });
         }
-        throw new Error(errMsg);
+        return Promise.reject(errMsg);
       });
-
+      if (process.env.debug) {
+        curlirize(axiosPlugin);
+      }
+      req.axios = axiosPlugin;
       next();
     });
 
@@ -309,7 +297,7 @@ module.exports = async ({
         return next(err);
       }
       if (process.env.CONSOLE_ERRORS || process.env.JEST_WORKER_ID) {
-        console.error(R.path(['response', 'data'], err));
+        console.error(R.pathOr(err, ['response', 'data'], err));
       }
       return res.status((() => {
         if (!isNumber(err.status)) return 500;

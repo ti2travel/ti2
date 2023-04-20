@@ -1,6 +1,9 @@
 /* globals beforeAll describe it expect */
-
+const axios = require('axios');
+const MockAdapter = require('axios-mock-adapter');
 const chance = require('chance').Chance();
+
+
 const testUtils = require('../../test/utils');
 
 const { env: { adminKey } } = process;
@@ -26,6 +29,7 @@ describe('allotment', () => {
   let doApiGet;
   let doApiPost;
   let plugins;
+  let userToken;
   beforeAll(async () => {
     ({
       doApiDelete,
@@ -35,10 +39,8 @@ describe('allotment', () => {
     } = await testUtils({
       plugins: [appKey],
     }));
-  });
 
-  let userToken;
-  it('drop any existing user integration', async () => {
+    // drop any existing user integrations
     try {
       await doApiDelete({
         url: `/${appKey}/${userId}`,
@@ -48,16 +50,16 @@ describe('allotment', () => {
     } catch (err) {
       // console.debug(err);
     }
-  });
-  it('create the user', async () => {
+
+    // create the user
     ({ value: userToken } = await doApiPost({
       url: '/user',
       token: adminKey,
       payload: { userId },
     }));
     expect(userToken).toBeTruthy();
-  });
-  it('create the App+User setup', async () => {
+
+    // create the App+User setup
     const { userAppKeys } = await doApiGet({
       url: `/user/${userId}/apps`,
       token: userToken,
@@ -102,5 +104,33 @@ describe('allotment', () => {
     const call = plugins[0].queryAllotment.mock.calls[0][0];
     expect(call.payload).toEqual(payload);
     expect(call.token).toEqual(token);
+  });
+  it('should be able to receive an axios error', async () => {
+    let urlParamsError = new URLSearchParams({
+      ...payload,
+      keyPath: 'errorAxios',
+    }).toString();
+    const returnValue = await doApiGet({
+      url: `/allotment/${appKey}/${newIntegration.tokenHint}/${userId}?${urlParamsError}`,
+      token: userToken,
+      expectStatusCode: 500,
+    });
+    expect(returnValue.allotments).toBeFalsy();
+    expect(returnValue.message).toBe('ECONNREFUSED');
+  });
+  it('should be able to receive an error from a regular response', async () => {
+    const mock = new MockAdapter(axios);
+    mock.onGet('http://www.example.com').reply(200, { error: 'something went wrong' });
+    let urlParamsError = new URLSearchParams({
+      ...payload,
+      keyPath: 'errorGeneral',
+    }).toString();
+    const returnValue = await doApiGet({
+      url: `/allotment/${appKey}/${newIntegration.tokenHint}/${userId}?${urlParamsError}`,
+      token: userToken,
+      expectStatusCode: 500,
+    });
+    expect(returnValue.allotments).toBeFalsy();
+    expect(returnValue.message).toBe('something went wrong');
   });
 });
