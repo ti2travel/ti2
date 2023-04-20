@@ -61,6 +61,18 @@ class Plugin {
         description: 'Api Key',
       },
     }));
+    this.errorPathsAxiosErrors = jestPlugin.fn(() => ([
+      ['data', 'errorMessages', 0],
+      err => {
+        return R.path(['data', 'otherError'], err);
+      }
+    ]);
+    this.errorPathsAxiosAny = jestPlugin.fn(() => ([
+      ['data', 'errorMessages', 0],
+      err => {
+        return R.path(['data', 'otherError'], err);
+      }
+    ]);
 
     /**
      * Background and schedule Jos
