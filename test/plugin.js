@@ -60,7 +60,7 @@ class Plugin {
         payload,
       } = args;
       if (payload.keyPath === 'errorAxios') {
-        await axios.get('http://localhost:1235/');
+        await axios.get('http://www.example.com');
       }
       if (payload.keyPath === 'errorGeneral') {
         await axios.get('http://www.example.com');
@@ -75,7 +75,7 @@ class Plugin {
       },
     }));
     this.errorPathsAxiosErrors = jestPlugin.fn(() => ([
-      ['code'],
+      ['response', 'data', 'what'],
     ]));
     this.errorPathsAxiosAny = jestPlugin.fn(() => ([
       err => {

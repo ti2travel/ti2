@@ -106,7 +106,10 @@ describe('allotment', () => {
     expect(call.token).toEqual(token);
   });
   it('should be able to receive an axios error', async () => {
+    const mock = new MockAdapter(axios);
+    mock.onGet('http://www.example.com').reply(500, { what: 'nothing here' });
     let urlParamsError = new URLSearchParams({
+
       ...payload,
       keyPath: 'errorAxios',
     }).toString();
@@ -116,7 +119,7 @@ describe('allotment', () => {
       expectStatusCode: 500,
     });
     expect(returnValue.allotments).toBeFalsy();
-    expect(returnValue.message).toBe('ECONNREFUSED');
+    expect(returnValue.message).toBe('nothing here');
   });
   it('should be able to receive an error from a regular response', async () => {
     const mock = new MockAdapter(axios);
