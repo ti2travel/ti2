@@ -223,7 +223,9 @@ module.exports = async ({
           if (process.env.debug) console.error(`error in ${pluginName}`, errMsg);
           if (ti2Events.events) {
             ti2Events.events.emit(`${pluginName}.axios.error`, {
+              userId,
               response: axiosSafeResponse(response),
+              requestId: req.requestId,
               err: errMsg,
             });
           }
@@ -232,11 +234,14 @@ module.exports = async ({
         return response;
       }, err => {
         const errMsg = getErrorMessage({ err, handlers: errorPathsAxiosErrors });
-        if (process.env.debug) console.error(`error in ${pluginName}`, args[0], errMsg);
+        if (process.env.debug) console.error(`error in ${pluginName}`, errMsg);
         if (ti2Events.events) {
           ti2Events.events.emit(`${pluginName}.axios.error`, {
-            request: args[0],
+            userId,
+            requestId: req.requestId,
             err: errMsg,
+            ...(err.request ? { request: axiosSafeRequest(err.request) } : {}),
+            ...(err.response ? { response: axiosSafeRequest(err.response) } : {}),
           });
         }
         return Promise.reject(errMsg);
