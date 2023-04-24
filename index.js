@@ -20,7 +20,7 @@ const cacheSettings = {
     'getAffiliateAgents',
     'getAffiliateDesks',
     'getPickupPoints',
-    'bookingsProductSearch',
+    // 'bookingsProductSearch',
   ],
   ventrata: [],
   fareharbor: [],
