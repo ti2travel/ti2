@@ -365,6 +365,37 @@ const getPickupPoints = plugins => async (req, res, next) => {
   }
 };
 
+const getCreateBookingFields = plugins => async (req, res, next) => {
+  const {
+    axios,
+    params: { appKey, userId, hint },
+    body: payload,
+  } = req;
+  try {
+    const app = plugins.find(({ name }) => name === appKey);
+    // const app = load(appKey);
+    const userAppKeys = (await UserAppKey.findOne({
+      where: {
+        userId,
+        integrationId: appKey,
+        ...(hint ? { hint } : {}),
+      },
+    }));
+    assert(userAppKeys, 'could not find the app key');
+    const token = await userAppKeys.token;
+    assert(app.getCreateBookingFields, `getCreateBookingFields is not available for ${appKey}`);
+    const results = await app.getCreateBookingFields({
+      axios,
+      token,
+      payload,
+      typeDefsAndQueries,
+    });
+    return res.json(results);
+  } catch (err) {
+    return next(err);
+  }
+};
+
 module.exports = plugins => ({
   bookingsSearch: bookingsSearch(plugins),
   bookingsCancel: bookingsCancel(plugins),
@@ -378,4 +409,5 @@ module.exports = plugins => ({
   getAffiliateAgents: getAffiliateAgents(plugins),
   getAffiliateDesks: getAffiliateDesks(plugins),
   getPickupPoints: getPickupPoints(plugins),
+  getCreateBookingFields: getCreateBookingFields(plugins),
 });

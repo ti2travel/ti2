@@ -1936,6 +1936,78 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnyValue'
+  /bookings/{appKey}/{userId}/custom-fields:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Gets all custom fields for creating a booking
+      operationId: getCreateBookingFields
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to get the resource for (defaults to first token found)
+          required: true
+          example: 'fareharbor'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: fields
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fields:
+                    type: array
+  /bookings/{appKey}/{userId}/{hint}/custom-fields:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Gets all custom fields for creating a booking
+      operationId: getCreateBookingFields
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to get the resource for the token using the hint
+          required: true
+          example: 'xola'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'xola-helloworld'
+          schema:
+            type: string
+      responses:
+        '200':
+          description: fields
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fields:
+                    type: array
+  
   /allotment/{appKey}/{userId}:
     get:
       security:
