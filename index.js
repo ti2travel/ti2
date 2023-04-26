@@ -298,11 +298,11 @@ module.exports = async ({
     app.use(middleware.mock());
     // global error Handling
     app.use((err, req, res, next) => {
-      if (res.headersSent) {
-        return next(err);
-      }
       if (process.env.CONSOLE_ERRORS || process.env.JEST_WORKER_ID) {
         console.error(R.pathOr(err, ['response', 'data'], err));
+      }
+      if (res.headersSent) {
+        return next(err);
       }
       return res.status((() => {
         if (!isNumber(err.status)) return 500;
