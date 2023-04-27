@@ -21,6 +21,7 @@ const cacheSettings = {
     'getAffiliateDesks',
     'getPickupPoints',
     'bookingsProductSearch',
+    'getCreateBookingFields',
   ],
   ventrata: [],
   fareharbor: [],
@@ -274,7 +275,7 @@ module.exports = async ({
           }
           const realSend = res.json;
           res.json = newData => { // new res.json
-            if (res.statusCode === 200) {
+            if (res.statusCode === 200 || res.statusCode === 304) {
               cache.save({
                 pluginName: req.pathParams.appKey,
                 key: cacheKey,
