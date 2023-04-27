@@ -200,6 +200,37 @@ const validateAppToken = plugins => async (req, res, next) => {
   }
 };
 
+const getAffiliates = plugins => async (req, res, next) => {
+  const {
+    axios,
+    params: { appKey, userId, hint },
+    body: payload,
+  } = req;
+  try {
+    const app = plugins.find(({ name }) => name === appKey);
+    assert(app, `could not find the app ${appKey}`);
+    const userAppKeys = await sqldb.UserAppKey.findOne({
+      where: {
+        userId,
+        integrationId: appKey,
+        ...(hint ? { hint } : {}),
+      },
+    });
+    assert(userAppKeys, 'could not find the app key');
+    const token = await userAppKeys.token;
+    assert(app.getAffiliates, `could not find the getAffiliates method for ${appKey}`);
+    const retVal = await app.getAffiliates({
+      axios,
+      token,
+      requestId: req.requestId,
+      payload,
+    });
+    return res.json(retVal);
+  } catch (err) {
+    return next(err);
+  }
+};
+
 const listAppTokens = async (req, res, next) => {
   const { params: { app: integrationId } } = req;
   try {
@@ -428,4 +459,5 @@ module.exports = plugins => ({
   runAppJob,
   tokenTemplate,
   validateAppToken: validateAppToken(plugins),
+  getAffiliates: getAffiliates(plugins),
 });
