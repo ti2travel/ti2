@@ -12,18 +12,18 @@ const typeDefs = `
     unitName: String
   }
   type Price {
-    original: Int
-    retail: Int
-    net: Int
+    original: Float
+    retail: Float
+    net: Float
     currencyPrecision: Int
     currency: String
   }
   type Agent {
-    id: Int
+    id: String
     name: String
   }
   type Desk {
-    id: Int
+    id: String
     name: String
   }
   type PickupPoint {

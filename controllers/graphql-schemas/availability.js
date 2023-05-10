@@ -5,9 +5,9 @@ const typeDefs = `
   }
   type Pricing {
     unitId: ID
-    original: Int
-    retail: Int
-    net: Int
+    original: Float
+    retail: Float
+    net: Float
     currencyPrecision: Int
   }
   type Offer {

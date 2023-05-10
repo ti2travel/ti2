@@ -5,8 +5,8 @@ const typeDefs = `
     maxAge: Int
   }
   type Pricing {
-    original: Int
-    retail: Int
+    original: Float
+    retail: Float
     currency: String
     currencyPrecision: Int
   }
