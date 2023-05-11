@@ -11,12 +11,13 @@ const save = async ({
   value,
   ttl = defaultTTL,
 }) => {
-  const key = `${pluginName}:${keyParam}`;
-  const keyType = typeof value === 'string';
-  await cache.set(key, JSON.stringify({
-    keyType,
-    value: keyType === 'string' ? value : JSON.stringify(value),
-  }));
+  const key = `${pluginName}:${(() => {
+    if (typeof keyParam !== 'string') {
+      return hash(keyParam);
+    }
+    return keyParam;
+  })()}`;
+  await cache.set(key, JSON.stringify(value));
   await cache.expire(key, ttl);
 };
 
@@ -24,14 +25,15 @@ const get = async ({
   pluginName,
   key: keyParam,
 }) => {
-  const key = `${pluginName}:${keyParam}`;
+  const key = `${pluginName}:${(() => {
+    if (typeof keyParam !== 'string') {
+      return hash(keyParam);
+    }
+    return keyParam;
+  })()}`;
   const storeVal = await cache.get(key);
   if (!storeVal) return storeVal;
-  const { keyType, value } = JSON.parse(storeVal);
-  if (keyType === 'string') {
-    return value;
-  }
-  return JSON.parse(value);
+  return JSON.parse(storeVal);
 };
 
 const getOrExec = async ({
@@ -41,7 +43,15 @@ const getOrExec = async ({
   fn,
   fnParams,
 }) => {
-  const key = keyParam || hash({ fn, fnParams });
+  const key = (() => {
+    if (!keyParam) {
+      return hash({ fn, fnParams });
+    }
+    if (typeof keyParam !== 'string') {
+      return hash(keyParam);
+    }
+    return keyParam;
+  })();
   let value = await get({ pluginName, key });
   if (value !== null) return value;
   value = await fn(...fnParams);
@@ -60,7 +70,15 @@ const drop = async ({
   fn,
   fnParams,
 }) => {
-  let key = keyParam || hash({ fn, fnParams });
+  const key = `${pluginName}:${(() => {
+    if (!keyParam) {
+      return hash({ fn, fnParams });
+    }
+    if (typeof keyParam !== 'string') {
+      return hash(keyParam);
+    }
+    return keyParam;
+  })()}`;
   key = `${pluginName}:${key}`;
   await cache.del(key);
 };
