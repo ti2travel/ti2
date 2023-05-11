@@ -43,7 +43,7 @@ const getOrExec = async ({
   fn,
   fnParams,
 }) => {
-  const key = `${pluginName}:${(() => {
+  const key = (() => {
     if (!keyParam) {
       return hash({ fn, fnParams });
     }
@@ -51,7 +51,7 @@ const getOrExec = async ({
       return hash(keyParam);
     }
     return keyParam;
-  })()}`;
+  })();
   let value = await get({ pluginName, key });
   if (value !== null) return value;
   value = await fn(...fnParams);
