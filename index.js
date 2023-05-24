@@ -79,8 +79,14 @@ module.exports = async ({
       params[nuName] = value;
     });
     const pluginInstance = await new Plugin({
-      name: pluginName,
+      cache: {
+        drop: args => cache.getOrExec({ ...args, pluginName }),
+        get: args => cache.getOrExec({ ...args, pluginName }),
+        getOrExec: args => cache.getOrExec({ ...args, pluginName }),
+        save: args => cache.getOrExec({ ...args, pluginName }),
+      },
       events: ti2Events,
+      name: pluginName,
       ...params,
     });
     return pluginInstance;
