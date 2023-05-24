@@ -38,7 +38,7 @@ const typeDefs = `
     available: Boolean
     pricing: Pricing
     unitPricing: [Pricing]
-    offer: [Offer]
+    offers: [Offer]
     pickupAvailable: Boolean
     pickupRequired: Boolean
     pickupPoints: [PickupPoint]
@@ -74,7 +74,7 @@ const query = `query getAvailability ($productId: ID, $optionId: ID, $currency: 
   unitPricing {
     ...pricingFields
   }
-  offer {
+  offers {
     offerId
     title
     description
