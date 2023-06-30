@@ -179,6 +179,7 @@ const $bookingsAvailabilityCalendar = plugins => async ({
     },
   }));
   assert(userAppKeys, 'could not find the app key');
+  assert(app.availabilityCalendar, `availabilityCalendar is not available for ${appKey}`);
   const token = await userAppKeys.token;
   return app.availabilityCalendar({
     axios,

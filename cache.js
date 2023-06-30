@@ -42,6 +42,7 @@ const getOrExec = async ({
   ttl,
   fn,
   fnParams,
+  forceRefresh,
 }) => {
   const key = (() => {
     if (!keyParam) {
@@ -52,8 +53,11 @@ const getOrExec = async ({
     }
     return keyParam;
   })();
-  let value = await get({ pluginName, key });
-  if (value !== null) return value;
+  let value;
+  if (!forceRefresh) {
+    value = await get({ pluginName, key });
+    if (value !== null) return value;
+  }
   value = await fn(...fnParams);
   await save({
     pluginName,
@@ -70,7 +74,7 @@ const drop = async ({
   fn,
   fnParams,
 }) => {
-  const key = `${pluginName}:${(() => {
+  let key = `${pluginName}:${(() => {
     if (!keyParam) {
       return hash({ fn, fnParams });
     }

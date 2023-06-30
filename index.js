@@ -80,10 +80,10 @@ module.exports = async ({
     });
     const pluginInstance = await new Plugin({
       cache: {
-        drop: args => cache.getOrExec({ ...args, pluginName }),
-        get: args => cache.getOrExec({ ...args, pluginName }),
+        drop: args => cache.drop({ ...args, pluginName }),
+        get: args => cache.get({ ...args, pluginName }),
         getOrExec: args => cache.getOrExec({ ...args, pluginName }),
-        save: args => cache.getOrExec({ ...args, pluginName }),
+        save: args => cache.save({ ...args, pluginName }),
       },
       events: ti2Events,
       name: pluginName,
