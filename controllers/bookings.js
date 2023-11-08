@@ -370,6 +370,7 @@ const getCreateBookingFields = plugins => async (req, res, next) => {
   const {
     axios,
     params: { appKey, userId, hint },
+    query,
     body: payload,
   } = req;
   try {
@@ -389,6 +390,7 @@ const getCreateBookingFields = plugins => async (req, res, next) => {
       axios,
       token,
       payload,
+      query,
       typeDefsAndQueries,
     });
     return res.json(results);
