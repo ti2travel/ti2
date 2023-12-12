@@ -385,7 +385,13 @@ const getCreateBookingFields = plugins => async (req, res, next) => {
     }));
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
-    assert(app.getCreateBookingFields, `getCreateBookingFields is not available for ${appKey}`);
+    if (!app.getCreateBookingFields) {
+      console.warn(`getCreateBookingFields is not available for ${appKey}`);
+      return ({
+        fields: [],
+        customFields: [],
+      });
+    }
     const results = await app.getCreateBookingFields({
       axios,
       token,
