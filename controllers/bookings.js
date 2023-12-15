@@ -107,6 +107,7 @@ const $bookingsProductSearch = plugins => async ({
     payload,
     typeDefsAndQueries,
     requestId,
+    userId,
   });
   return results;
 };
@@ -125,6 +126,38 @@ const bookingsProductSearch = plugins => async (req, res, next) => {
       payload,
       requestId,
     }));
+  } catch (err) {
+    return next(err);
+  }
+};
+
+const getProductPackages = plugins => async (req, res, next) => {
+  const {
+    axios,
+    params: { appKey, userId, hint },
+    body: payload,
+  } = req;
+  try {
+    const app = plugins.find(({ name }) => name === appKey);
+    // const app = load(appKey);
+    const userAppKeys = (await UserAppKey.findOne({
+      where: {
+        userId,
+        integrationId: appKey,
+        ...(hint ? { hint } : {}),
+      },
+    }));
+    assert(userAppKeys, 'could not find the app key');
+    assert(app.getProductPackages, `getProductPackages is not available for ${appKey}`);
+    const token = await userAppKeys.token;
+    const results = await app.getProductPackages({
+      axios,
+      token,
+      payload,
+      typeDefsAndQueries,
+      requestId: req.requestId,
+    });
+    return res.json(results);
   } catch (err) {
     return next(err);
   }
@@ -404,6 +437,7 @@ module.exports = plugins => ({
   bookingsCancel: bookingsCancel(plugins),
   $bookingsProductSearch,
   bookingsProductSearch: bookingsProductSearch(plugins),
+  getProductPackages: getProductPackages(plugins),
   bookingsAvailabilitySearch: bookingsAvailabilitySearch(plugins),
   $bookingsAvailabilityCalendar,
   bookingsAvailabilityCalendar: bookingsAvailabilityCalendar(plugins),
