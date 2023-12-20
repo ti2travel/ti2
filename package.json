@@ -1,6 +1,6 @@
 {
   "name": "ti2",
-  "version": "1.0.72",
+  "version": "1.0.73",
   "description": "Tourist Industry Exchange (TI2)",
   "main": "index.js",
   "scripts": {
