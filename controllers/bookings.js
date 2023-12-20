@@ -227,7 +227,6 @@ const searchQuote = plugins => async (req, res, next) => {
     }));
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
-    assert(payload.id, 'the availability id is required');
     const results = await app.searchQuote({
       axios,
       token,
