@@ -50,6 +50,8 @@ const UserAppKey = db.define('UserAppKey', {
   token: {
     type: Sequelize.VIRTUAL,
     async get() {
+      if (!this.getDataValue('appKey')) return {};
+      if (!decrypt(this.getDataValue('appKey'))) return {};
       const sqldb = require('./index');
       const userIntegrationSettings = await sqldb.UserIntegrationSettings.findOne({
         where: { userId: this.getDataValue('userId'), integrationId: this.getDataValue('integrationId') },
