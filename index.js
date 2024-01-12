@@ -262,7 +262,9 @@ module.exports = async ({
 
     app.use(async (req, res, next) => {
       try {
-        const currentPlugin = plugins.find(p => p.name === req.pathParams.appKey);
+        const currentPlugin = req.pathParams
+          ? plugins.find(p => p.name === req.pathParams.appKey)
+          : null;
         const cachingOperations = [
           ...cacheSettings['*'],
           ...(currentPlugin ? R.pathOr([], [currentPlugin.name], cacheSettings) : []),
