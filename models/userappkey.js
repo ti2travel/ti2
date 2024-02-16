@@ -60,7 +60,7 @@ const UserAppKey = db.define('UserAppKey', {
       return {
         ...R.pathOr({}, ['settings'], userIntegrationSettings),
         ...removeEmptyAttributes(appKey),
-        configuration: this.getDataValue('configuration'),
+        ...(this.getDataValue('configuration') ? { configuration: this.getDataValue('configuration') } : {}),
       };
     },
   },
