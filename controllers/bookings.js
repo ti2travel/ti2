@@ -101,9 +101,13 @@ const $bookingsProductSearch = plugins => async ({
   }));
   assert(userAppKeys, 'could not find the app key');
   const token = await userAppKeys.token;
+  const configuration = userAppKeys.getDataValue('configuration');
   const results = await app.searchProducts({
     axios,
-    token,
+    token: {
+      ...token,
+      configuration,
+    },
     payload,
     typeDefsAndQueries,
     requestId,
