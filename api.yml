@@ -680,6 +680,43 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Message'
+    put:
+      tags:
+        - app
+        - user
+      summary: Should update a user+appToken configuration
+      security:
+        - bearerAuth: ['admin', 'app', 'user']
+      operationId: updateAppToken
+      parameters:
+        - name: app
+          in: path
+          description: app name to read the userId for (must match app token)
+          example: 'expedia'
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: user to read the app token for
+          example: '536830b6ed19afa44a000002'
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: The User+App configuration to update
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserAppDelete'
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
   /{app}/{userId}/{hint}/token:
     get:
       tags:

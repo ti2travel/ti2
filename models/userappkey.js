@@ -60,8 +60,13 @@ const UserAppKey = db.define('UserAppKey', {
       return {
         ...R.pathOr({}, ['settings'], userIntegrationSettings),
         ...removeEmptyAttributes(appKey),
+        configuration: this.getDataValue('configuration'),
       };
     },
+  },
+  configuration: {
+    type: Sequelize.JSON,
+    allowNull: true,
   },
 }, {});
 UserAppKey.associate = models => {

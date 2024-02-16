@@ -141,6 +141,33 @@ const createAppToken = async (req, res, next) => {
   }
 };
 
+const updateAppToken = async (req, res, next) => {
+  const {
+    body: {
+      configuration,
+      hint,
+    },
+    params: {
+      app: integrationId,
+      userId,
+    },
+  } = req;
+  // check if the user exists
+  const userRecord = await sqldb.User.findOne({ where: { userId } });
+  if (!userRecord) return next({ status: 404, message: 'User does not exists' });
+  const retVal = await sqldb.UserAppKey.update({
+    configuration,
+  }, {
+    where: {
+      integrationId,
+      userId,
+      hint,
+    },
+    raw: true,
+  });
+  return res.json({ message: `${hint} updated ` });
+};
+
 const deleteAppToken = async (req, res, next) => {
   const {
     body: {
@@ -449,6 +476,7 @@ module.exports = plugins => ({
   getAppToken,
   createAppSettings,
   getAppSettings,
+  updateAppToken,
   deleteAppToken,
   deleteAppSettings,
   getAppScheduledJobs,
