@@ -12,7 +12,9 @@ module.exports = {
   up: async () => {
     // encrypt all data
     try {
-      const existingTokens = await sqldb.UserAppKey.findAll();
+      const existingTokens = await sqldb.UserAppKey.findAll({
+        attributes: ['id', 'appKey', 'userId', 'integrationId', 'hint', 'createdAt', 'updatedAt'],
+      });
       const valuesToUpdate = [];
       for (const currentToken of existingTokens) {
         const decodedToken = JSON.stringify(R.omit(
@@ -30,7 +32,10 @@ module.exports = {
         });
       }
       for (const { id, appToken } of valuesToUpdate) {
-        const currentToken = await sqldb.UserAppKey.findOne({ where: { id } });
+        const currentToken = await sqldb.UserAppKey.findOne({
+          where: { id },
+          attributes: ['id', 'appKey', 'userId', 'integrationId', 'hint', 'createdAt', 'updatedAt'],
+        });
         currentToken.setDataValue('appKey', appToken);
         await currentToken.save();
       }

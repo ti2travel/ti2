@@ -155,7 +155,7 @@ const updateAppToken = async (req, res, next) => {
   // check if the user exists
   const userRecord = await sqldb.User.findOne({ where: { userId } });
   if (!userRecord) return next({ status: 404, message: 'User does not exists' });
-  const retVal = await sqldb.UserAppKey.update({
+  await sqldb.UserAppKey.update({
     configuration,
   }, {
     where: {
