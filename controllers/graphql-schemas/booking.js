@@ -42,6 +42,7 @@ const typeDefs = `
   type Query {
     id: ID
     orderId: ID
+    orderReference: String
     bookingId: ID
     supplierBookingId: ID
     status: String
