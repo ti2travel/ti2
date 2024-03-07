@@ -77,6 +77,7 @@ const typeDefs = `
 const query = `{
   id
   orderId
+  orderReference
   bookingId
   supplierBookingId
   status
