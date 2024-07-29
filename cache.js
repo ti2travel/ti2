@@ -9,6 +9,7 @@ const save = async ({
   pluginName,
   key: keyParam,
   value,
+  skipTTL,
   ttl = defaultTTL,
 }) => {
   const key = `${pluginName}:${(() => {
@@ -18,7 +19,9 @@ const save = async ({
     return keyParam;
   })()}`;
   await cache.set(key, JSON.stringify(value));
-  await cache.expire(key, ttl);
+  if (!skipTTL) {
+    await cache.expire(key, ttl);
+  }
 };
 
 const get = async ({

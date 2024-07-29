@@ -37,6 +37,7 @@ const bookingsSearch = plugins => async (req, res, next) => {
     });
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
+    assert(app.searchHotelBooking || app.searchBooking, `searchHotelBooking or searchBooking is not available for ${appKey}`);
     const search = (app.searchHotelBooking || app.searchBooking).bind(app);
     const results = await search({
       axios,
