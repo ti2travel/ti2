@@ -1,6 +1,8 @@
 const Redis = require('ioredis');
 const hash = require('object-hash');
 
+const { addJob } = require('./worker/queue');
+
 const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
 const cache = new Redis(`${REDIS_URL}/2`);
 const defaultTTL = 60 * 60; // 1 hour
@@ -18,7 +20,11 @@ const save = async ({
     return keyParam;
   })()}`;
   await cache.set(key, JSON.stringify(value));
-  await cache.expire(key, ttl);
+  await cache.set(`${key}:timestamp`, `${Date.now()}`);
+  if (!skipTTL) {
+    await cache.expire(key, ttl);
+    await cache.expire(`${key}:timestamp`, ttl);
+  }
 };
 
 const get = async ({
@@ -42,6 +48,7 @@ const getOrExec = async ({
   ttl,
   fn,
   fnParams,
+  alwaysCache = false,
   forceRefresh,
 }) => {
   const key = (() => {
@@ -53,6 +60,19 @@ const getOrExec = async ({
     }
     return keyParam;
   })();
+  const getTimestamp = await cache.get(`${pluginName}:${key}:timestamp`);
+  const isTooOld = getTimestamp && Date.now() - parseInt(getTimestamp, 10) > ttl * 1000;
+  if (isTooOld) {
+    // send function to a job queue
+    const isRunning = await cache.get(`${pluginName}:${key}:job`);
+    if (!isRunning) {
+      // TODO: make sure adding the correct payload to addJob
+      const jobPayload = {};
+      await addJob(jobPayload, {});
+      await cache.set(`${pluginName}:${key}:job`, '1');
+      await cache.expire(`${pluginName}:${key}:job`, 60);
+    }
+  }
   let value;
   if (!forceRefresh) {
     value = await get({ pluginName, key });
@@ -64,6 +84,7 @@ const getOrExec = async ({
     key,
     value,
     ttl,
+    skipTTL: alwaysCache,
   });
   return value;
 };
