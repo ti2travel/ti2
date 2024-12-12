@@ -54,7 +54,36 @@ class Plugin {
     });
     this.searchQuote = jestPlugin.fn(() => ({ quote: [{ id: chance.guid() }] }));
     this.createBooking = jestPlugin.fn(() => {});
-    this.queryAllotment = jestPlugin.fn(async (args) => {
+    this.searchItineraries = jestPlugin.fn(() => ({ bookings: [] }));
+    this.searchProductsForItinerary = jestPlugin.fn(() => ({ products: [] }));
+    this.searchAvailabilityForItinerary = jestPlugin.fn(({
+      token,
+      payload: {
+        optionId,
+        startDate,
+        paxConfigs,
+      },
+    }) => {
+      expect(token).toBeTruthy();
+      expect(optionId).toBeTruthy();
+      expect(startDate).toBeTruthy();
+      expect(paxConfigs).toBeTruthy();
+      return { bookable: true, rates: [{ rateId: 'Default' }] };
+    });
+    this.getCreateItineraryFields = jestPlugin.fn(() => ({
+      customFields: [],
+    }));
+    this.addServiceToItinerary = jestPlugin.fn(() => ({
+      message: '',
+      booking: {
+        id: chance.guid(),
+        reference: chance.guid(),
+        linePrice: chance.guid(),
+        lineId: chance.guid(),
+      },
+    }));
+
+    this.queryAllotment = jestPlugin.fn(async args => {
       const {
         axios,
         payload,
@@ -65,7 +94,7 @@ class Plugin {
       if (payload.keyPath === 'errorGeneral') {
         await axios.get('http://www.example.com');
       }
-      return { allotments: [] }
+      return { allotments: [] };
     });
     this.tokenTemplate = jestPlugin.fn(() => ({
       apiKey: {
@@ -443,7 +472,7 @@ class Plugin {
    * @returns {object} retVal - the return object
    * @returns {Availability[]} retVal.availability - Array of availability objects
    */
-  availabilityCalndar() {
+  availabilityCalendar() {
     // return (args);
   }
 
@@ -480,6 +509,214 @@ class Plugin {
   createBooking() {}
 
   /**
+   * @typedef {Object} Passenger
+   * @property {string} firstName - Passenger first name
+   * @property {string} lastName - Passenger last name
+   * @property {PassengerType} passengerType - Passenger type
+   * @property {number} [age] - Passenger age
+   * @property {string} [dob] - Date of birth (YYYY-MM-DD)
+   * @property {string} [personId] - Unique identifier for the passenger
+   */
+
+  /**
+   * @typedef {('Single'|'Double'|'Twin'|'Triple'|'Quad'|'Other')} RoomType
+   */
+
+  /**
+   * @typedef {('Adult'|'Child'|'Infant')} PassengerType
+   */
+
+  /**
+   * @typedef {Object} PaxConfig - At least one of adults, children or infants must be provided
+   * @property {RoomType} [roomType] - Room type
+   * @property {number} [adults] - Number of adults
+   * @property {number} [children] - Number of children
+   * @property {number} [infants] - Number of infants
+   * @property {Array<Passenger>} [passengers] - List of passengers for this pax config
+   */
+
+  /**
+   * @typedef {Object} PUDOInfo
+   * @property {string} [time] - Travel time
+   * @property {string} [location] - Location details
+   * @property {string} [flightDetails] - Flight information
+   */
+
+
+  // ItineraryProduct Related Types
+  /**
+   * @typedef {Object} ItineraryProductUnit
+   * @property {RoomType|PassengerType} unitId - Unit identifier for Accommodation products, allowed values: 'Single', 'Double', 'Twin', 'Triple', 'Quad'; for Activity products, allowed values: 'Adult', 'Child', 'Infant'
+   * @property {string} unitName - Unit name, can be the same as unitId
+   * @property {ItineraryUnitRestriction} restrictions - Unit restrictions
+   */
+
+  /**
+   * @typedef {Object} ItineraryUnitRestriction
+   * @property {boolean} allowed - Whether the unit is available
+   * @property {number} [minAge] - Minimum age requirement
+   * @property {number} [maxAge] - Maximum age requirement
+   */
+
+  /**
+   * @typedef {Object} ItineraryProductOption
+   * @property {string} optionId - Option identifier, this identifier should be unique in a sense that it should be able to represent the option and the product. For example, if in your system the option identifier are 1, 2, 3, say the productId is '123', the optionId you provided to us should be something like '123-1' or '123-2' etc.
+   * @property {string} optionName - Option name
+   * @property {number} [lastUpdateTimestamp] - Last update time
+   * @property {string} serviceType - Type of service, one of 'Accommodation', 'Activity', 'Transfer'
+   * @property {Array<Extra>} extras - Extras allowed for this product option
+   * @property {Array<ItineraryProductUnit>} units - Available units
+   * @property {Object} restrictions - Aggregated restrictions of each unit for this product option
+   * @property {boolean} [restrictions.roomTypeRequired] - Whether room type is required, if it's required, our IA tool will check if the roomType in the paxConfigs matches the roomType allowed in the option
+   * @property {ItineraryUnitRestriction} [restrictions.Adult] - restrictions for adult
+   * @property {ItineraryUnitRestriction} [restrictions.Child] - restrictions for child
+   * @property {ItineraryUnitRestriction} [restrictions.Infant] - restrictions for infant
+   * @property {ItineraryUnitRestriction} [restrictions.Single] - restrictions for Single room type
+   * @property {ItineraryUnitRestriction} [restrictions.Double] - restrictions for Double room type
+   * @property {ItineraryUnitRestriction} [restrictions.Twin] - restrictions for Twin room type
+   * @property {ItineraryUnitRestriction} [restrictions.Triple] - restrictions for Triple room type
+   * @property {ItineraryUnitRestriction} [restrictions.Quad] - restrictions for Quad room type
+   */
+
+  /**
+   * @typedef {Object} ItineraryProduct - An itinerary product contains two levels: product, option. For accommodation products, the product is the hotel, the option is the room name (Deluxe Room, Ocean View Room, etc). For activity products, the product is the Tour Company, the option is the activity type (e.g. Full Day, Half Day, etc). Specific data examples will be provided in the tutorial page.
+   * @property {string} productId - ItineraryProduct identifier
+   * @property {string} productName - ItineraryProduct name
+   * @property {Array<string>} [serviceTypes] - Types of services offered: ['Accommodation', 'Activity', 'Transfer']
+   * @property {Array<ItineraryProductOption>} options - Available options
+   */
+
+  // Booking Related Types
+  /**
+   * @typedef {Object} CustomFieldValue
+   * @property {string} id - Custom Field identifier
+   * @property {string} value - Field value
+   */
+
+  /**
+   * @typedef {Object} Extra
+   * @property {string} id - Extra identifier
+   * @property {string} name - Extra name
+   */
+
+  /**
+   * @typedef {Object} ItineraryServiceLine
+   * @property {string} serviceLineId - Service line identifier
+   * @property {string} optionId - Option identifier
+   * @property {string} optionName - Option name
+   * @property {string} startDate - Start date (YYYY-MM-DD)
+   * @property {Array<PaxConfig>} paxConfigs - List of pax configs for this service line
+   * @property {Array<Passenger>} paxList - List of passengers for this service line
+   */
+
+  /**
+   * @typedef {Object} ItineraryBooking
+   * @property {string} bookingId - Unique booking identifier
+   * @property {string} name - Booking name
+   * @property {string} bookingStatus - Booking status
+   * @property {string} ref - Booking reference
+   * @property {string} agentRef - external booking reference
+   * @property {string} totalPrice - Total price of the booking
+   * @property {string} travelDate - Start Date of travel (YYYY-MM-DD)
+   * @property {string} enteredDate - Date of booking (YYYY-MM-DD)
+   * @property {ItineraryServiceLine[]} serviceLines - Booked service lines
+  */
+
+  /**
+   * @typedef {('yes-no'|'short'|'long'|'count'|'extended-option')} CustomFieldTypes
+  /**
+   * @typedef {Object} CreateItineraryCustomField
+   * @property {string} id - Custom Field identifier
+   * @property {string} label - Custom Field label
+   * @property {CustomFieldTypes} type - Custom Field type
+   * @property {boolean} [isPerService] - Whether the custom field is per service, or per entire booking/quote
+   * @property {Array<Object>} [options] - Options if the type is extended-option
+   * @property {Object} options.value - Option value
+   * @property {Object} options.label - Option label
+   */
+
+  /**
+   * Search for bookable products
+   * @async
+   * @param {Object} args
+   * @param {Object} args.token - Authentication token
+   * @param {object} args.payload - Search criteria
+   * @param {string} [args.payload.productId] - Optional specific product to search for
+   * @param {string} [args.payload.optionId] - Optional specific product option to search for
+   * @param {string} [args.payload.searchInput] - Optional text search across all fields
+   * @param {boolean} [args.payload.forceRefresh] - Optional flag to bypass cache
+   * @returns {object} retVal - the return object.
+   * @returns {Array<ItineraryProduct>} retVal.products - An array of products spec objects.
+   */
+  searchProductsForItinerary() {}
+
+  /**
+   * @typedef {Object} SearchAvailabilityForItineraryResponse
+   * @property {boolean} bookable - Whether the product is bookable
+   * @property {Array} [rates] - If there are multiple rates, they will be returned in this array
+   * @property {string} rates[].rateId - It's ok if you don't use such a thing as rateId in your internal system, but you can use it to package important information so we can make a booking. For example, you can do jwt.encode({ foo: 'bar' }, secret) and send it to us here, and later when we make a booking, we send the rateId to you so you can decode it and get the foo: 'bar' information.
+   * @property {string} [rates[].externalRateText] - Combined rate description
+   */
+  /**
+   * Search for product availability
+   * @async
+   * @param {Object} args
+   * @param {Object} args.token - Authentication token
+   * @param {object} args.payload - Search criteria
+   * @param {string} args.payload.optionId - ItineraryProduct option ID
+   * @param {string} args.payload.startDate - YYYY-MM-DD format
+   * @param {Array<PaxConfig>} args.payload.paxConfigs - Required for room-based products
+   * @param {number} [args.payload.chargeUnitQuantity=1] - Number of units to book
+   * @returns {SearchAvailabilityForItineraryResponse}
+   */
+  searchAvailabilityForItinerary() {}
+
+  /**
+   * @typedef {Object} AddServiceToItineraryResponse
+   * @property {string} message - Error message
+   * @property {object} booking - Booking object
+   * @property {string} booking.id - Booking identifier from your system
+   * @property {string} booking.reference - Reference number from your system
+   * @property {string} booking.linePrice - Price of the booking line
+   * @property {string} booking.lineId - Line identifier from your system
+  */
+  /**
+   * Create an itinerary
+   * @async
+   * @param {Object} args
+   * @param {Object} args.token - Authentication token
+   * @param {object} args.payload - Booking/Quote details
+   * @param {string} args.payload.QB - 'Q' for quote, 'B' for booking
+   * @param {string} args.payload.quoteName - Name of the booking/quote
+   * @param {string} [args.payload.quoteId] - identifier of the booking/quote, if one is provided, we are expecting the service line to be inserted to an existing booking/quote
+   * @param {string} [args.payload.lineId] - identifier of the service line in the booking/quote, if one is provided, we are expecting an existing service line to be updated
+   * @param {string} [args.payload.rateId] - Rate identifier, we are sending 'Default' if no rates are provided by the check availability call
+   * @param {string} args.payload.optionId - Option identifier of the service line
+   * @param {string} args.payload.startDate - Start date always in (YYYY-MM-DD) format
+   * @param {string} [args.payload.reference] - Reference number from external system
+   * @param {Array<PaxConfig>} args.payload.paxConfigs - Passenger configurations
+   * @param {Array<Object>} [args.payload.extras] - Additional extras
+   * @param {Extra} args.payload.extras.selectedExtra - Selected extra
+   * @param {number} args.payload.extras.quantity - quantity
+   * @param {PUDOInfo} [args.payload.puInfo] - Pickup information
+   * @param {PUDOInfo} [args.payload.doInfo] - Dropoff information
+   * @param {string} [args.payload.notes] - Additional notes
+   * @param {Array<CustomFieldValue>} [args.payload.customFieldValues] - Custom field values
+   * @returns {AddServiceToItineraryResponse}
+   */
+  addServiceToItinerary() {}
+
+  /**
+   * Some additional fields available for the addServiceToItinerary call
+   * @async
+   * @param {Object} args
+   * @param {Object} args.token - Authentication token
+   * @returns {object} retVal - the return object.
+   * @returns {Array<CreateItineraryCustomField>} retVal.customFields - An array of custom fields spec objects.
+   */
+  getCreateItineraryFields() {}
+
+  /**
    * Allotment Object
   /**
    * @typedef {Object} Allotment
@@ -495,6 +732,23 @@ class Plugin {
    * @property {boolean} request - Indicates whether requests are allowed for the allotment, based on the day inventory.
    * @property {string[]} keyPaths - An array of key paths generated by combining supplier code and product codes.
    */
+
+  /**
+   * Search for itineraries
+   * @async
+   * @param {Object} args
+   * @param {Object} args.token - Authentication token
+   * @param {object} args.payload - Search criteria
+   * @param {string} args.payload.purchaseDateStart - Start date for purchase search (YYYY-MM-DD)
+   * @param {string} args.payload.purchaseDateEnd - End date for purchase search (YYYY-MM-DD)
+   * @param {string} args.payload.travelDateStart - Start date for travel search (YYYY-MM-DD)
+   * @param {string} args.payload.travelDateEnd - End date for travel search (YYYY-MM-DD)
+   * @param {string} args.payload.name - Search by customer name
+   * @param {string} args.payload.bookingId - Search by booking ID
+   * @returns {object} retVal - the return object.
+   * @returns {Array<ItineraryBooking>} retVal.bookings - An array of itinerary bookings matching search criteria.
+   */
+  searchItineraries() {}
 
   /**
    * Query Allotment

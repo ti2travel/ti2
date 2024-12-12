@@ -466,7 +466,7 @@ const getAppToken = async (req, res, next) => {
     },
   });
   if (!userAppKey) {
-    return next({ status: 404, message: 'User integratio is not found' });
+    return next({ status: 404, message: `User integratio is not found for ${integrationId}:${userId}:${hint}` });
   }
   return res.json({ token: await userAppKey.token });
 };
