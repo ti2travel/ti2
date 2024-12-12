@@ -44,7 +44,7 @@ const bookingsSearch = plugins => async (req, res, next) => {
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
     assert(app.searchItineraries || app.searchHotelBooking || app.searchBooking, `searchItineraries or searchHotelBooking or searchBooking is not available for ${appKey}`);
-    const search = (app.searchItineraries || app.searchHotelBooking || app.searchBooking).bind(app);
+    const search = (app.searchHotelBooking || app.searchBooking || app.searchItineraries).bind(app);
     const results = await search({
       axios,
       token,
@@ -108,7 +108,7 @@ const $bookingsProductSearch = plugins => async ({
   }));
   assert(userAppKeys, 'could not find the app key');
   const token = await userAppKeys.token;
-  const func = app.searchProductsForItinerary.bind(app) || app.searchProducts.bind(app);
+  const func = (app.searchProducts || app.searchProductsForItinerary).bind(app);
   const results = await func({
     axios,
     token,
@@ -189,7 +189,7 @@ const bookingsAvailabilitySearch = plugins => async (req, res, next) => {
     }));
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
-    const func = app.searchAvailabilityForItinerary.bind(app) || app.searchAvailability.bind(app);
+    const func = (app.searchAvailability || app.searchAvailabilityForItinerary).bind(app);
     const results = await func({
       axios,
       token,
@@ -300,7 +300,7 @@ const createBooking = plugins => async (req, res, next) => {
     }));
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
-    const func = app.addServiceToItinerary.bind(app) || app.createBooking.bind(app);
+    const func = (app.createBooking || app.addServiceToItinerary).bind(app);
     const results = await func({
       axios,
       token,
@@ -427,7 +427,7 @@ const getCreateBookingFields = plugins => async (req, res, next) => {
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
     assert(app.getCreateBookingFields || app.getCreateItineraryFields, `getCreateBookingFields or getCreateItineraryFields is not available for ${appKey}`);
-    const func = app.getCreateItineraryFields.bind(app) || app.getCreateBookingFields.bind(app);
+    const func = (app.getCreateItineraryFields || app.getCreateBookingFields).bind(app);
     const results = await func({
       axios,
       token,
