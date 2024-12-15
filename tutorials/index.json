@@ -4,5 +4,8 @@
     },
     "plugin-development": {
         "title": "Plugin Development"
+    },
+    "itinerary-assist-plugin-dev": {
+        "title": "Itinerary Assist Plugin Tutorial"
     }
 }

@@ -33,29 +33,36 @@ Plugins are the connectores to other systems and/or features you intent to use; 
 
 ### Plugin Library
 
-| Methods | [Ventrata](https://github.com/TourConnect/ti2-ventrata) | [TravelGateX](https://github.com/TourConnect/ti2-travelgate) | [Didgigo](https://github.com/TourConnect/ti2-didgigo) | [TourConnect](https://github.com/TourConnect/ti2-tourconnect)
-| ---- | -------- | ---------- | ---- | ---- |
+| Methods | FareHarbor | PeekPro| Zaui | Xola |[Ventrata](https://github.com/TourConnect/ti2-ventrata) | [TravelGateX](https://github.com/TourConnect/ti2-travelgate) | [Didgigo](https://github.com/TourConnect/ti2-didgigo) | [TourConnect](https://github.com/TourConnect/ti2-tourconnect) | TourPlan |
+| ---- | -------- | ---------- | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
 |**Base**|
-|validateToken|||&check;|&check;|
-|copyMedia||||&check;|
+|validateToken|&check;|&check;|&check;|&check;|&check;|&check;|&check;|&check;|&check;|
+|tokenTemplate|&check;|&check;|&check;|&check;|&check;|&check;|&check;|&check;|&check;|
 |**Content**|
-|getProfile|||&check;|&check;|
-|updateProfile||||&check;|
-|getLocations|||&check;|&check;|
-|getLocation|||&check;|&check;|
-|createLocation|||&check;|&check;|
-|updateLocation|||&check;|&check;|
-|getProducts|||&check;|&check;|
-|getProduct|||&check;|&check;|
-|createProduct|||&check;|&check;|
-|updateProduct|||&check;|&check;|
+|copyMedia||||||||&check;|
+|getProfile|||||||&check;|&check;|
+|updateProfile||||||||&check;|
+|getLocations|||||||&check;|&check;|
+|getLocation|||||||&check;|&check;|
+|createLocation|||||||&check;|&check;|
+|updateLocation|||||||&check;|&check;|
+|getProducts|||||||&check;|&check;|
+|getProduct|||||||&check;|&check;|
+|createProduct|||||||&check;|&check;|
+|updateProduct|||||||&check;|&check;|
 |**Bookings**|
-|searchProducts|&check;|&check;|
-|searchBooking|&check;|&check;|
-|searchAvailability|&check;|&check;|
-|searchQuote|&check;|&check;|
-|createBooking|&check;|&check;|
-|cancelBooking|&check;|&check;|
+|searchProducts|&check;|&check;|&check;|&check;|&check;|&check;|
+|searchBooking|&check;|&check;|&check;|&check;|&check;|&check;|
+|searchAvailability|&check;|&check;|&check;|&check;|&check;|&check;|
+|searchQuote|&check;|&check;|&check;|&check;|&check;|&check;|
+|createBooking|&check;|&check;|&check;|&check;|&check;|&check;|
+|cancelBooking|&check;|&check;|&check;|&check;|&check;|&check;|
+|searchProductsForItinerary|||||||||&check;|
+|searchAvailabilityForItinerary|||||||||&check;|
+|addServiceToItinerary|||||||||&check;|
+|getCreateItineraryFields|||||||||&check;|
+|searchItineraries|||||||||&check;|
+|queryAllotment|||||||||&check;|
 
 ## Contributing
 

@@ -270,7 +270,8 @@ module.exports = async ({
         ];
         const body = req.customBody;
         if (cachingOperations.indexOf(body.operationId) > -1) {
-          const cacheKey = hash(R.omit(['requestId', 'date'], body));
+          const cacheBody = R.omit(['requestId', 'date'], body);
+          const cacheKey = hash(cacheBody);
           req.cacheKey = cacheKey;
           const foundCache = await cache.get({
             pluginName: body.params.appKey,

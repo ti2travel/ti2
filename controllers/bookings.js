@@ -6,6 +6,8 @@ const { typeDefs: availTypeDefs, query: availQuery } = require('./graphql-schema
 const { typeDefs: bookingTypeDefs, query: bookingQuery } = require('./graphql-schemas/booking');
 const { typeDefs: rateTypeDefs, query: rateQuery } = require('./graphql-schemas/rate');
 const { typeDefs: pickupTypeDefs, query: pickupQuery } = require('./graphql-schemas/pickup-point');
+const { typeDefs: itineraryProductTypeDefs, query: itineraryProductQuery } = require('./graphql-schemas/itinerary-product');
+const { typeDefs: itineraryBookingTypeDefs, query: itineraryBookingQuery } = require('./graphql-schemas/itinerary-booking');
 
 const typeDefsAndQueries = {
   productTypeDefs,
@@ -18,6 +20,10 @@ const typeDefsAndQueries = {
   rateQuery,
   pickupTypeDefs,
   pickupQuery,
+  itineraryProductTypeDefs,
+  itineraryProductQuery,
+  itineraryBookingTypeDefs,
+  itineraryBookingQuery,
 };
 
 const bookingsSearch = plugins => async (req, res, next) => {
@@ -37,8 +43,8 @@ const bookingsSearch = plugins => async (req, res, next) => {
     });
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
-    assert(app.searchHotelBooking || app.searchBooking, `searchHotelBooking or searchBooking is not available for ${appKey}`);
-    const search = (app.searchHotelBooking || app.searchBooking).bind(app);
+    assert(app.searchItineraries || app.searchHotelBooking || app.searchBooking, `searchItineraries or searchHotelBooking or searchBooking is not available for ${appKey}`);
+    const search = (app.searchHotelBooking || app.searchBooking || app.searchItineraries).bind(app);
     const results = await search({
       axios,
       token,
@@ -102,7 +108,8 @@ const $bookingsProductSearch = plugins => async ({
   }));
   assert(userAppKeys, 'could not find the app key');
   const token = await userAppKeys.token;
-  const results = await app.searchProducts({
+  const func = (app.searchProducts || app.searchProductsForItinerary).bind(app);
+  const results = await func({
     axios,
     token,
     payload,
@@ -182,7 +189,8 @@ const bookingsAvailabilitySearch = plugins => async (req, res, next) => {
     }));
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
-    const results = await app.searchAvailability({
+    const func = (app.searchAvailability || app.searchAvailabilityForItinerary).bind(app);
+    const results = await func({
       axios,
       token,
       payload,
@@ -292,8 +300,8 @@ const createBooking = plugins => async (req, res, next) => {
     }));
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
-    assert(payload.id, 'the quote id is required');
-    const results = await app.createBooking({
+    const func = (app.createBooking || app.addServiceToItinerary).bind(app);
+    const results = await func({
       axios,
       token,
       payload,
@@ -418,8 +426,9 @@ const getCreateBookingFields = plugins => async (req, res, next) => {
     }));
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
-    assert(app.getCreateBookingFields, `getCreateBookingFields is not available for ${appKey}`);
-    const results = await app.getCreateBookingFields({
+    assert(app.getCreateBookingFields || app.getCreateItineraryFields, `getCreateBookingFields or getCreateItineraryFields is not available for ${appKey}`);
+    const func = (app.getCreateItineraryFields || app.getCreateBookingFields).bind(app);
+    const results = await func({
       axios,
       token,
       payload,
