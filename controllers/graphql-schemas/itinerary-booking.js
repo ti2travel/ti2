@@ -21,6 +21,8 @@ const typeDefs = `
     optionId: ID!
     optionName: String!
     startDate: String!
+    supplierName: String
+    supplierId: String
     paxList: [Passenger]
     paxConfigs: [PaxConfig]
   }
@@ -51,6 +53,8 @@ const query = `{
     serviceLineId
     optionId
     optionName
+    supplierName
+    supplierId
     startDate
     paxConfigs {
       roomType

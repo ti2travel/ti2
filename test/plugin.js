@@ -604,6 +604,8 @@ class Plugin {
    * @property {string} serviceLineId - Service line identifier
    * @property {string} optionId - Option identifier
    * @property {string} optionName - Option name
+   * @property {string} [supplierName] - Supplier name
+   * @property {string} [supplierId] - Supplier id
    * @property {string} startDate - Start date (YYYY-MM-DD)
    * @property {Array<PaxConfig>} paxConfigs - List of pax configs for this service line
    * @property {Array<Passenger>} paxList - List of passengers for this service line
