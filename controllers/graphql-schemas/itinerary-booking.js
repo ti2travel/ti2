@@ -18,8 +18,10 @@ const typeDefs = `
 
   type ServiceLine {
     serviceLineId: ID!
-    optionId: ID!
-    optionName: String!
+    optionId: String!
+    optionName: String
+    linePrice: String
+    quantity: Int
     startDate: String!
     supplierName: String
     supplierId: String
@@ -36,6 +38,7 @@ const typeDefs = `
     totalPrice: String!
     travelDate: String!
     enteredDate: String!
+    canEdit: Boolean!
     serviceLines: [ServiceLine]!
   }
 `;
@@ -49,10 +52,14 @@ const query = `{
   totalPrice
   travelDate
   enteredDate
+  canEdit
   serviceLines {
     serviceLineId
+    linePrice
+    quantity
     optionId
     optionName
+    supplierId
     supplierName
     supplierId
     startDate

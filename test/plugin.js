@@ -606,6 +606,8 @@ class Plugin {
    * @property {string} optionName - Option name
    * @property {string} [supplierName] - Supplier name
    * @property {string} [supplierId] - Supplier id
+   * @property {string} [linePrice] - Line price
+   * @property {string} [quantity] - Quantity
    * @property {string} startDate - Start date (YYYY-MM-DD)
    * @property {Array<PaxConfig>} paxConfigs - List of pax configs for this service line
    * @property {Array<Passenger>} paxList - List of passengers for this service line
@@ -621,6 +623,7 @@ class Plugin {
    * @property {string} totalPrice - Total price of the booking
    * @property {string} travelDate - Start Date of travel (YYYY-MM-DD)
    * @property {string} enteredDate - Date of booking (YYYY-MM-DD)
+   * @property {boolean} canEdit - Whether the booking can be edited
    * @property {ItineraryServiceLine[]} serviceLines - Booked service lines
   */
 
