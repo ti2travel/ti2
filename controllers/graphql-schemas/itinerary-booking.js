@@ -1,7 +1,7 @@
 const typeDefs = `
   type Passenger {
-    firstName: String!
-    lastName: String!
+    firstName: String
+    lastName: String
     passengerType: String!
     age: Int
     dob: String
