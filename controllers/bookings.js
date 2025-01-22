@@ -99,6 +99,9 @@ const $bookingsProductSearch = plugins => async ({
 }) => {
   const app = plugins.find(({ name }) => name === appKey);
   // const app = load(appKey);
+  assert(userId, 'userId is required');
+  assert(appKey, 'appKey is required');
+  assert(app.searchProducts || app.searchProductsForItinerary, `searchProducts or searchProductsForItinerary is not available for ${appKey}`);
   const userAppKeys = (await UserAppKey.findOne({
     where: {
       userId,
