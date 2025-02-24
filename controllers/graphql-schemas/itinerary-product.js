@@ -37,6 +37,7 @@ const typeDefs = `
   type ProductOption {
     optionId: ID!
     optionName: String!
+    comment: String
     lastUpdateTimestamp: Int
     serviceType: String
     extras: [Extra]
@@ -63,6 +64,7 @@ const query = `{
   options {
     optionId
     optionName
+    comment
     lastUpdateTimestamp
     serviceType
     extras {

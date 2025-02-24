@@ -75,6 +75,7 @@ No, we don't have a specific test scenarios, but we recommend you to cover the f
         {
           "extras": [],
           "lastUpdateTimestamp": 1586595549,
+          "comment": "This is a comment",
           "optionId": "106784",
           "optionName": "Bed and English Breakfast-Executive Room",
           "restrictions": {
@@ -161,6 +162,7 @@ No, we don't have a specific test scenarios, but we recommend you to cover the f
         {
           "extras": [],
           "lastUpdateTimestamp": 1700750093,
+          "comment": "This is a comment",
           "optionId": "LONTRDAVIDSHDWBVC",
           "optionName": "Half-Day Warner Bros Studios (6-Hours)-FIT- V- Class (1-5 Pax)",
           "restrictions": {
@@ -385,6 +387,7 @@ No, we don't have a specific test scenarios, but we recommend you to cover the f
         },
       ],
       "totalPrice": "187795",
+      "currency": "USD",
       "travelDate": "2025-08-13",
     },
   ],

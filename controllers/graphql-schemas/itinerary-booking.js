@@ -36,6 +36,7 @@ const typeDefs = `
     ref: String!
     agentRef: String
     totalPrice: String!
+    currency: String!
     travelDate: String!
     enteredDate: String!
     canEdit: Boolean!
@@ -50,6 +51,7 @@ const query = `{
   ref
   agentRef
   totalPrice
+  currency
   travelDate
   enteredDate
   canEdit
