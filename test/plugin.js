@@ -562,6 +562,7 @@ class Plugin {
    * @typedef {Object} ItineraryProductOption
    * @property {string} optionId - Option identifier, this identifier should be unique in a sense that it should be able to represent the option and the product. For example, if in your system the option identifier are 1, 2, 3, say the productId is '123', the optionId you provided to us should be something like '123-1' or '123-2' etc.
    * @property {string} optionName - Option name
+   * @property {string} comment - Option comment
    * @property {number} [lastUpdateTimestamp] - Last update time
    * @property {string} serviceType - Type of service, one of 'Accommodation', 'Activity', 'Transfer'
    * @property {Array<Extra>} extras - Extras allowed for this product option
@@ -621,6 +622,7 @@ class Plugin {
    * @property {string} ref - Booking reference
    * @property {string} agentRef - external booking reference
    * @property {string} totalPrice - Total price of the booking
+   * @property {string} currency - Currency of the booking
    * @property {string} travelDate - Start Date of travel (YYYY-MM-DD)
    * @property {string} enteredDate - Date of booking (YYYY-MM-DD)
    * @property {boolean} canEdit - Whether the booking can be edited
