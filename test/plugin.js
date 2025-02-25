@@ -35,7 +35,28 @@ class Plugin {
     this.createLocation = jestPlugin.fn(() => ({ locationId: chance.guid() }));
     this.updateLocation = jestPlugin.fn(() => true);
     this.searchBooking = jestPlugin.fn(() => ({ bookings: [] }));
-    this.searchProducts = jestPlugin.fn(() => ({ bookings: [], products: [] }));
+    this.searchProducts = jestPlugin.fn(() => {
+      return {
+        products: [{
+          productId: '123',
+          productName: 'Bonza Bike Tours',
+          options: [{
+            optionId: '123',
+            optionName: 'Sydney Harbour Bridge Climb',
+          }],
+        }, {
+          productId: '234',
+          productName: 'Davids',
+          options: [{
+            optionId: '2346',
+            optionName: 'Transfer from Sydney Airport to Hilton Hotel',
+          }, {
+            optionId: '2345',
+            optionName: 'Transfer from Sydney Harbor Bridge to Hilton Hotel',
+          }],
+        }],
+      };
+    });
     this.searchAvailability = jestPlugin.fn(({
       token,
       payload: {

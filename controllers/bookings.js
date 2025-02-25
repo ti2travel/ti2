@@ -1,5 +1,7 @@
 const assert = require('assert');
-
+const hash = require('object-hash');
+const cache = require('../cache');
+const R = require('ramda');
 const { UserAppKey } = require('../models/index');
 const { typeDefs: productTypeDefs, query: productQuery } = require('./graphql-schemas/product');
 const { typeDefs: availTypeDefs, query: availQuery } = require('./graphql-schemas/availability');
@@ -89,6 +91,31 @@ const bookingsCancel = plugins => async (req, res, next) => {
   }
 };
 
+const $searchProductList = (products, searchInput) => {
+  if (!(searchInput && searchInput.trim())) {
+    return products;
+  }
+  const getFullSearchStr = (product, option) => `${
+    R.path(['productName'], product) || ''
+  } ${R.path(['optionName'], option) || ''
+  } ${R.path(['optionId'], option) || ''
+  } ${R.path(['supplierId'], product) || ''}`;
+  const inputValueLower = searchInput.trim().toLowerCase();
+  const parts = inputValueLower.split(' ').filter(Boolean); // Filter out any empty strings just in case
+  const pwFilteredOptions = products.map(product => {
+    const filteredOptions = R.pathOr([], ['options'], product).filter(option => {
+      const fullSearchStr = getFullSearchStr(product, option).toLowerCase();
+      return parts.every(part => fullSearchStr.includes(part));
+    });
+    return {
+      ...product,
+      options: filteredOptions,
+    };
+  });
+  const filteredProducts = pwFilteredOptions.filter(product => product.options.length > 0);
+  return filteredProducts;
+};
+
 const $bookingsProductSearch = plugins => async ({
   axios,
   appKey,
@@ -112,15 +139,63 @@ const $bookingsProductSearch = plugins => async ({
   assert(userAppKeys, 'could not find the app key');
   const token = await userAppKeys.token;
   const func = (app.searchProducts || app.searchProductsForItinerary).bind(app);
-  const results = await func({
+  // NOTE: this is intend to cache the entire product list
+  const cacheKey = hash({
+    appKey,
+    userId,
+    hint,
+    operationId: 'bookingsProductSearch',
+  });
+  if (payload.forceRefresh) {
+    // remove the cache
+    await cache.drop({
+      pluginName: appKey,
+      key: cacheKey,
+    });
+  }
+  const cacheValue = await cache.get({
+    pluginName: appKey,
+    key: cacheKey,
+  });
+  // console.log('cacheValue', cacheValue);
+  if (cacheValue && cacheValue.products) {
+    const searchResults = $searchProductList(cacheValue.products, payload.searchInput);
+    return {
+      ...cacheValue,
+      products: searchResults,
+      // this is for sending the product filters specifically being used by pyfilematch
+      ...(token.configuration || {}),
+    };
+  }
+  const doNotCallPluginForProducts = token.doNotCallPluginForProducts
+    || R.path(['cacheSettings', 'bookingsProductSearch', 'doNotCall'], app);
+  if (doNotCallPluginForProducts && !payload.forceRefresh) {
+    return { products: [] };
+  }
+  const funcResults = await func({
     axios,
     token,
-    payload,
+    payload: R.omit(['searchInput'], payload),
     typeDefsAndQueries,
     requestId,
     userId,
   });
-  return results;
+  // save cache if products are found
+  if (funcResults && funcResults.products && funcResults.products.length > 0) {
+    await cache.save({
+      pluginName: appKey,
+      key: cacheKey,
+      value: funcResults,
+      ttl: token.ttlForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'ttl'], app) || 60 * 60 * 24, // 1 day
+      skipTTL: Boolean(doNotCallPluginForProducts),
+    });
+  }
+  const searchResults = $searchProductList(funcResults.products, payload.searchInput);
+  return {
+    ...funcResults,
+    products: searchResults,
+    ...(token.configuration || {}),
+  };
 };
 
 const bookingsProductSearch = plugins => async (req, res, next) => {

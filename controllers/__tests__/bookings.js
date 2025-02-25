@@ -1,11 +1,12 @@
-/* globals beforeAll describe it expect */
+/* globals beforeAll describe it expect jest beforeEach */
 
 const chance = require('chance').Chance();
 const testUtils = require('../../test/utils');
+const cache = require('../../cache');
 
 const { env: { adminKey } } = process;
 
-describe('user: booking search', () => {
+describe('user: bookings controller', () => {
   const newApp = {
     name: 'travelgate',
     packageName: 'ti2-travelgate',
@@ -35,6 +36,16 @@ describe('user: booking search', () => {
     } = await testUtils({
       plugins: [newApp.name],
     }));
+
+    // drop all cache keys, clean slate
+    const cacheKeys = await cache.keys();
+    cacheKeys.forEach(key => cache.drop({
+      pluginName: key.split(':')[0],
+      key: key.split(':')[1],
+    }));
+  });
+  beforeEach(async () => {
+    jest.clearAllMocks();
   });
 
   let userToken;
@@ -77,7 +88,8 @@ describe('user: booking search', () => {
       url: `/user/${userId}/apps`,
       token: userToken,
     });
-    if (!userAppKeys.map(e => e.integrationId).includes(newApp.name)) {
+    if (!userAppKeys.find(e => e.hint === newIntegration.tokenHint
+        && e.integrationId === newApp.name)) {
       // relation does not exits
       const { value } = await doApiPost({
         url: `/${appKey}/${userId}`,
@@ -92,7 +104,7 @@ describe('user: booking search', () => {
       bookingId: '', supplierBookingId: '', name: '',
     };
     const { bookings } = await doApiPost({
-      url: `/bookings/${appKey}/${userId}/search`,
+      url: `/bookings/${appKey}/${userId}/testingToken/search`,
       token: userToken,
       payload,
     });
@@ -105,21 +117,104 @@ describe('user: booking search', () => {
     // expect(retVal.bookings.length > 0).toBeTruthy();
   });
 
-  it('should be able to search a for a booking product', async () => {
-    const payload = {};
-    const { products } = await doApiPost({
-      url: `/products/${appKey}/${userId}/search`,
-      token: userToken,
-      payload,
+  describe('searchProducts', () => {
+    it('should be able to get booking products: no cache, forceRefresh', async () => {
+      const payload = {
+        forceRefresh: true,
+      };
+      const { products } = await doApiPost({
+        url: `/products/${appKey}/${userId}/testingToken/search`,
+        token: userToken,
+        payload,
+      });
+      expect(plugins[0].searchProducts).toHaveBeenCalled();
+      expect(Array.isArray(products)).toBeTruthy();
+      expect(products.length).toBe(2);
+      expect(products[0].options.length).toBe(1);
+      expect(products[1].options.length).toBe(2);
+      expect(plugins[0].searchProducts.mock.calls[0][0].payload).toEqual(payload);
+      expect(plugins[0].searchProducts.mock.calls[0][0].token).toEqual(token);
     });
-    expect(plugins[0].searchProducts).toHaveBeenCalled();
-    expect(Array.isArray(products)).toBeTruthy();
-    expect(plugins[0].searchProducts.mock.calls[0][0].payload).toEqual(payload);
-    expect(plugins[0].searchProducts.mock.calls[0][0].token).toEqual(token);
-
-    // expect(Array.isArray(retVal.bookings)).toBeTruthy();
-    // expect(retVal.bookings.length > 0).toBeTruthy();
+    it('should be able to get booking products: using cache', async () => {
+      const payload = {};
+      const { products } = await doApiPost({
+        url: `/products/${appKey}/${userId}/testingToken/search`,
+        token: userToken,
+        payload,
+      });
+      expect(plugins[0].searchProducts).not.toHaveBeenCalled();
+      expect(Array.isArray(products)).toBeTruthy();
+      expect(products.length).toBe(2);
+      expect(products[0].options.length).toBe(1);
+      expect(products[1].options.length).toBe(2);
+    });
+    it('should be able to get booking products with searchInput', async () => {
+      const payload = {
+        searchInput: 'Transfer from Sydney Harbor to Hilton Hotel',
+      };
+      const { products } = await doApiPost({
+        url: `/products/${appKey}/${userId}/testingToken/search`,
+        token: userToken,
+        payload,
+      });
+      expect(plugins[0].searchProducts).not.toHaveBeenCalled();
+      expect(Array.isArray(products)).toBeTruthy();
+      expect(products.length).toBe(1);
+      expect(products[0].productName).toBe('Davids');
+      expect(products[0].options.length).toBe(1);
+      expect(products[0].options[0].optionName).toBe('Transfer from Sydney Harbor Bridge to Hilton Hotel');
+    });
+    it('should be able to process doNotCallPluginForProducts in token', async () => {
+      const { userAppKeys } = await doApiGet({
+        url: `/user/${userId}/apps`,
+        token: userToken,
+      });
+      let newnewIntegration = userAppKeys.find(e => e.hint === 'hint_for_doNotCallPluginForProducts'
+        && e.integrationId === newApp.name);
+      if (!newnewIntegration) {
+        const newIntegrationContent = {
+          endpoint: 'https://api.travelgatex.com',
+          apiKey: chance.guid(),
+          client: 'tourconnect',
+          doNotCallPluginForProducts: true,
+        };
+        // create a new user token with the new content
+        newnewIntegration = await doApiPost({
+          url: `/travelgate/${userId}`,
+          token: adminKey,
+          payload: {
+            token: newIntegrationContent,
+            tokenHint: 'hint_for_doNotCallPluginForProducts',
+          },
+        });
+      }
+      expect(newnewIntegration).toBeTruthy();
+      // first time call, no cache expect no plugin call and empty products
+      let products;
+      await doApiPost({
+        url: `/products/${appKey}/${userId}/hint_for_doNotCallPluginForProducts/search`,
+        token: userToken,
+        payload: {},
+      }).then(({ products: p }) => {
+        products = p;
+      });
+      expect(plugins[0].searchProducts).not.toHaveBeenCalled();
+      expect(Array.isArray(products)).toBeTruthy();
+      expect(products.length).toBe(0);
+      // second time call, forceRefresh and still expect plugin call
+      await doApiPost({
+        url: `/products/${appKey}/${userId}/hint_for_doNotCallPluginForProducts/search`,
+        token: userToken,
+        payload: { forceRefresh: true },
+      }).then(({ products: p }) => {
+        products = p;
+      });
+      expect(plugins[0].searchProducts).toHaveBeenCalled();
+      expect(Array.isArray(products)).toBeTruthy();
+      expect(products.length).toBe(2);
+    });
   });
+
   it('should be able to search for availabiility', async () => {
     const payload = {
       travelDateStart: '12/30/2025',
@@ -132,7 +227,7 @@ describe('user: booking search', () => {
       nationality: 'ES',
     };
     const { availability } = await doApiPost({
-      url: `/bookings/${appKey}/${userId}/availability`,
+      url: `/bookings/${appKey}/${userId}/testingToken/availability`,
       token: userToken,
       payload,
     });
@@ -154,7 +249,7 @@ describe('user: booking search', () => {
       nationality: 'ES',
     };
     const { quote } = await doApiPost({
-      url: `/bookings/${appKey}/${userId}/quote`,
+      url: `/bookings/${appKey}/${userId}/testingToken/quote`,
       token: userToken,
       payload,
     });
@@ -168,7 +263,7 @@ describe('user: booking search', () => {
       id: chance.guid(),
     };
     await doApiPost({
-      url: `/bookings/${appKey}/${userId}/booking`,
+      url: `/bookings/${appKey}/${userId}/testingToken/booking`,
       token: userToken,
       payload,
     });
