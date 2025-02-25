@@ -157,9 +157,9 @@ const $bookingsProductSearch = plugins => async ({
     pluginName: appKey,
     key: cacheKey,
   });
-  // console.log('cacheValue', cacheValue);
   if (cacheValue && cacheValue.products) {
     const searchResults = $searchProductList(cacheValue.products, payload.searchInput);
+    console.log(`${appKey}/${userId}/${hint}: found cache and returning cached products: ${searchResults.length}`);
     return {
       ...cacheValue,
       products: searchResults,
@@ -170,8 +170,10 @@ const $bookingsProductSearch = plugins => async ({
   const doNotCallPluginForProducts = token.doNotCallPluginForProducts
     || R.path(['cacheSettings', 'bookingsProductSearch', 'doNotCall'], app);
   if (doNotCallPluginForProducts && !payload.forceRefresh) {
+    console.log(`${appKey}/${userId}/${hint}: no cache found but not calling the plugin because doNotCallPluginForProducts is true and forceRefresh is false`);
     return { products: [] };
   }
+  console.log(`${appKey}/${userId}/${hint}: no cache found(forceRefresh: ${payload.forceRefresh}) and calling func`);
   const funcResults = await func({
     axios,
     token,
@@ -182,11 +184,14 @@ const $bookingsProductSearch = plugins => async ({
   });
   // save cache if products are found
   if (funcResults && funcResults.products && funcResults.products.length > 0) {
+    // 25 hours, just to have some buffer
+    const ttl = token.ttlForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'ttl'], app) || 60 * 60 * 25;
+    console.log(`${appKey}/${userId}/${hint}: saving cache of ${funcResults.products.length} products for (ttl:${ttl})`);
     await cache.save({
       pluginName: appKey,
       key: cacheKey,
       value: funcResults,
-      ttl: token.ttlForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'ttl'], app) || 60 * 60 * 24, // 1 day
+      ttl,
       skipTTL: Boolean(doNotCallPluginForProducts),
     });
   }
