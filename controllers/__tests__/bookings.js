@@ -1,6 +1,7 @@
 /* globals beforeAll describe it expect jest beforeEach */
 
 const chance = require('chance').Chance();
+const hash = require('object-hash');
 const testUtils = require('../../test/utils');
 const cache = require('../../cache');
 
@@ -118,7 +119,31 @@ describe('user: bookings controller', () => {
   });
 
   describe('searchProducts', () => {
+    it('should be able to get bookings products for most users without special setup: no cache', async () => {
+      const payload = {};
+      const { products } = await doApiPost({
+        url: `/products/${appKey}/${userId}/testingToken/search`,
+        token: userToken,
+        payload,
+      });
+      expect(plugins[0].searchProducts).toHaveBeenCalled();
+      expect(Array.isArray(products)).toBeTruthy();
+      expect(products.length).toBe(2);
+      expect(products[0].options.length).toBe(1);
+      expect(products[1].options.length).toBe(2);
+    });
     it('should be able to get booking products: no cache, forceRefresh', async () => {
+      // NOTE: we need to remove the cache first
+      const cacheKey = hash({
+        appKey,
+        userId,
+        hint: 'testingToken',
+        operationId: 'bookingsProductSearch',
+      });
+      await cache.drop({
+        pluginName: appKey,
+        key: cacheKey,
+      });
       const payload = {
         forceRefresh: true,
       };
