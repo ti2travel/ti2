@@ -44,7 +44,23 @@ const tokenTemplate = async (req, res, next) => {
       },
     });
     template = R.map(safeRegExp, template);
-    return res.json({ template });
+    return res.json({
+      template: {
+        ...template,
+        // ttlProducts and doNotCallPluginForProducts are being used at ti2 level
+        // hence we should just by default allow them for all ti2 plugins
+        ttlForProducts: {
+          type: 'number',
+          regExp: /.+/,
+          default: 60 * 60 * 24, // 1 day
+        },
+        doNotCallPluginForProducts: {
+          type: 'boolean',
+          regExp: /.+/,
+          default: false,
+        },
+      },
+    });
   } catch (err) {
     return next(err);
   }
