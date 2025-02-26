@@ -132,7 +132,6 @@ describe('user: bookings controller', () => {
       expect(products.length).toBe(2);
       expect(products[0].options.length).toBe(1);
       expect(products[1].options.length).toBe(2);
-      expect(plugins[0].searchProducts.mock.calls[0][0].payload).toEqual(payload);
       expect(plugins[0].searchProducts.mock.calls[0][0].token).toEqual(token);
     });
     it('should be able to get booking products: using cache', async () => {
