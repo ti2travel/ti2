@@ -91,8 +91,10 @@ const bookingsCancel = plugins => async (req, res, next) => {
   }
 };
 
-const $searchProductList = (products, searchInput) => {
-  if (!(searchInput && searchInput.trim())) {
+const $searchProductList = (products, searchInput = '', optionId = '') => {
+  // NOTE: optionId could be a string or an array of strings
+  // NOTE: searchInput should not appear at the same time as optionId
+  if (!(searchInput && searchInput.trim()) && !(optionId && optionId.length)) {
     return products;
   }
   const getFullSearchStr = (product, option) => `${
@@ -104,6 +106,10 @@ const $searchProductList = (products, searchInput) => {
   const parts = inputValueLower.split(' ').filter(Boolean); // Filter out any empty strings just in case
   const pwFilteredOptions = products.map(product => {
     const filteredOptions = R.pathOr([], ['options'], product).filter(option => {
+      if (optionId && optionId.length) {
+        const optionIdArr = R.is(Array, optionId) ? optionId : [optionId];
+        return optionIdArr.includes(R.path(['optionId'], option));
+      }
       const fullSearchStr = getFullSearchStr(product, option).toLowerCase();
       return parts.every(part => fullSearchStr.includes(part));
     });
@@ -121,7 +127,12 @@ const $bookingsProductSearch = plugins => async ({
   appKey,
   userId,
   hint,
-  payload,
+  payload: {
+    searchInput,
+    optionId,
+    forceRefresh,
+    ...restPayload
+  },
   requestId,
 }) => {
   const app = plugins.find(({ name }) => name === appKey);
@@ -146,7 +157,7 @@ const $bookingsProductSearch = plugins => async ({
     hint,
     operationId: 'bookingsProductSearch',
   });
-  if (payload.forceRefresh) {
+  if (forceRefresh) {
     // remove the cache
     await cache.drop({
       pluginName: appKey,
@@ -158,7 +169,7 @@ const $bookingsProductSearch = plugins => async ({
     key: cacheKey,
   });
   if (cacheValue && cacheValue.products) {
-    const searchResults = $searchProductList(cacheValue.products, payload.searchInput);
+    const searchResults = $searchProductList(cacheValue.products, searchInput, optionId);
     console.log(`${appKey}/${userId}/${hint}: found cache and returning cached products: ${searchResults.length}`);
     return {
       ...cacheValue,
@@ -169,15 +180,15 @@ const $bookingsProductSearch = plugins => async ({
   }
   const doNotCallPluginForProducts = token.doNotCallPluginForProducts
     || R.path(['cacheSettings', 'bookingsProductSearch', 'doNotCall'], app);
-  if (doNotCallPluginForProducts && !payload.forceRefresh) {
+  if (doNotCallPluginForProducts && !forceRefresh) {
     console.log(`${appKey}/${userId}/${hint}: no cache found but not calling the plugin because doNotCallPluginForProducts is true and forceRefresh is false`);
     return { products: [] };
   }
-  console.log(`${appKey}/${userId}/${hint}: no cache found(forceRefresh: ${payload.forceRefresh}) and calling func`);
+  console.log(`${appKey}/${userId}/${hint}: no cache found(forceRefresh: ${forceRefresh}) and calling func`);
   const funcResults = await func({
     axios,
     token,
-    payload: R.omit(['searchInput'], payload),
+    payload: restPayload,
     typeDefsAndQueries,
     requestId,
     userId,
@@ -195,7 +206,7 @@ const $bookingsProductSearch = plugins => async ({
       skipTTL: Boolean(doNotCallPluginForProducts),
     });
   }
-  const searchResults = $searchProductList(funcResults.products, payload.searchInput);
+  const searchResults = $searchProductList(R.pathOr([], ['products'], funcResults), searchInput, optionId);
   return {
     ...funcResults,
     products: searchResults,
