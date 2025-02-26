@@ -6,9 +6,12 @@ const { UserAppKey } = require('../models');
 const userAppList = async (req, res, next) => {
   const { params: { userId } } = req;
   try {
-    const userAppKeys = (await UserAppKey.findAll({ where: { userId } }))
-      .map(userAppKey => userAppKey.dataValues);
-    return res.json({ userAppKeys: userAppKeys.map(userAppKey => omit(['appKey', 'id'], userAppKey)) });
+    const userAppKeys = await UserAppKey.findAll({
+      where: { userId },
+      raw: true,
+      attributes: ['integrationId', 'userId', 'hint', 'createdAt', 'updatedAt'],
+    })
+    return res.json({ userAppKeys });
   } catch (err) {
     return next(err);
   }

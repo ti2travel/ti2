@@ -9,6 +9,7 @@ const save = async ({
   pluginName,
   key: keyParam,
   value,
+  skipTTL,
   ttl = defaultTTL,
 }) => {
   const key = `${pluginName}:${(() => {
@@ -17,8 +18,11 @@ const save = async ({
     }
     return keyParam;
   })()}`;
+  // console.log('saving key', key);
   await cache.set(key, JSON.stringify(value));
-  await cache.expire(key, ttl);
+  if (!skipTTL) {
+    await cache.expire(key, ttl);
+  }
 };
 
 const get = async ({
@@ -74,7 +78,7 @@ const drop = async ({
   fn,
   fnParams,
 }) => {
-  let key = `${pluginName}:${(() => {
+  const key = `${pluginName}:${(() => {
     if (!keyParam) {
       return hash({ fn, fnParams });
     }
@@ -83,9 +87,11 @@ const drop = async ({
     }
     return keyParam;
   })()}`;
-  key = `${pluginName}:${key}`;
+  // console.log('dropping key', key);
   await cache.del(key);
 };
+
+const keys = async () => cache.keys('*');
 
 module.exports = {
   cache,
@@ -93,4 +99,5 @@ module.exports = {
   getOrExec,
   drop,
   get,
+  keys,
 };

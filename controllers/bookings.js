@@ -1,11 +1,15 @@
 const assert = require('assert');
-
+const hash = require('object-hash');
+const cache = require('../cache');
+const R = require('ramda');
 const { UserAppKey } = require('../models/index');
 const { typeDefs: productTypeDefs, query: productQuery } = require('./graphql-schemas/product');
 const { typeDefs: availTypeDefs, query: availQuery } = require('./graphql-schemas/availability');
 const { typeDefs: bookingTypeDefs, query: bookingQuery } = require('./graphql-schemas/booking');
 const { typeDefs: rateTypeDefs, query: rateQuery } = require('./graphql-schemas/rate');
 const { typeDefs: pickupTypeDefs, query: pickupQuery } = require('./graphql-schemas/pickup-point');
+const { typeDefs: itineraryProductTypeDefs, query: itineraryProductQuery } = require('./graphql-schemas/itinerary-product');
+const { typeDefs: itineraryBookingTypeDefs, query: itineraryBookingQuery } = require('./graphql-schemas/itinerary-booking');
 
 const typeDefsAndQueries = {
   productTypeDefs,
@@ -18,6 +22,10 @@ const typeDefsAndQueries = {
   rateQuery,
   pickupTypeDefs,
   pickupQuery,
+  itineraryProductTypeDefs,
+  itineraryProductQuery,
+  itineraryBookingTypeDefs,
+  itineraryBookingQuery,
 };
 
 const bookingsSearch = plugins => async (req, res, next) => {
@@ -37,7 +45,8 @@ const bookingsSearch = plugins => async (req, res, next) => {
     });
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
-    const search = (app.searchHotelBooking || app.searchBooking).bind(app);
+    assert(app.searchItineraries || app.searchHotelBooking || app.searchBooking, `searchItineraries or searchHotelBooking or searchBooking is not available for ${appKey}`);
+    const search = (app.searchHotelBooking || app.searchBooking || app.searchItineraries).bind(app);
     const results = await search({
       axios,
       token,
@@ -82,16 +91,55 @@ const bookingsCancel = plugins => async (req, res, next) => {
   }
 };
 
+const $searchProductList = (products, searchInput = '', optionId = '') => {
+  // NOTE: optionId could be a string or an array of strings
+  // NOTE: searchInput should not appear at the same time as optionId
+  if (!(searchInput && searchInput.trim()) && !(optionId && optionId.length)) {
+    return products;
+  }
+  const getFullSearchStr = (product, option) => `${
+    R.path(['productName'], product) || ''
+  } ${R.path(['optionName'], option) || ''
+  } ${R.path(['optionId'], option) || ''
+  } ${R.path(['supplierId'], product) || ''}`;
+  const inputValueLower = searchInput.trim().toLowerCase();
+  const parts = inputValueLower.split(' ').filter(Boolean); // Filter out any empty strings just in case
+  const pwFilteredOptions = products.map(product => {
+    const filteredOptions = R.pathOr([], ['options'], product).filter(option => {
+      if (optionId && optionId.length) {
+        const optionIdArr = R.is(Array, optionId) ? optionId : [optionId];
+        return optionIdArr.includes(R.path(['optionId'], option));
+      }
+      const fullSearchStr = getFullSearchStr(product, option).toLowerCase();
+      return parts.every(part => fullSearchStr.includes(part));
+    });
+    return {
+      ...product,
+      options: filteredOptions,
+    };
+  });
+  const filteredProducts = pwFilteredOptions.filter(product => product.options.length > 0);
+  return filteredProducts;
+};
+
 const $bookingsProductSearch = plugins => async ({
   axios,
   appKey,
   userId,
   hint,
-  payload,
+  payload: {
+    searchInput,
+    optionId,
+    forceRefresh,
+    ...restPayload
+  },
   requestId,
 }) => {
   const app = plugins.find(({ name }) => name === appKey);
   // const app = load(appKey);
+  assert(userId, 'userId is required');
+  assert(appKey, 'appKey is required');
+  assert(app.searchProducts || app.searchProductsForItinerary, `searchProducts or searchProductsForItinerary is not available for ${appKey}`);
   const userAppKeys = (await UserAppKey.findOne({
     where: {
       userId,
@@ -101,15 +149,69 @@ const $bookingsProductSearch = plugins => async ({
   }));
   assert(userAppKeys, 'could not find the app key');
   const token = await userAppKeys.token;
-  const results = await app.searchProducts({
+  const func = (app.searchProducts || app.searchProductsForItinerary).bind(app);
+  // NOTE: this is intend to cache the entire product list
+  const cacheKey = hash({
+    appKey,
+    userId,
+    hint,
+    operationId: 'bookingsProductSearch',
+  });
+  if (forceRefresh) {
+    // remove the cache
+    await cache.drop({
+      pluginName: appKey,
+      key: cacheKey,
+    });
+  }
+  const cacheValue = await cache.get({
+    pluginName: appKey,
+    key: cacheKey,
+  });
+  if (cacheValue && cacheValue.products) {
+    const searchResults = $searchProductList(cacheValue.products, searchInput, optionId);
+    console.log(`${appKey}/${userId}/${hint}: found cache and returning cached products: ${searchResults.length}`);
+    return {
+      ...cacheValue,
+      products: searchResults,
+      // this is for sending the product filters specifically being used by pyfilematch
+      ...(token.configuration || {}),
+    };
+  }
+  const doNotCallPluginForProducts = token.doNotCallPluginForProducts
+    || R.path(['cacheSettings', 'bookingsProductSearch', 'doNotCall'], app);
+  if (doNotCallPluginForProducts && !forceRefresh) {
+    console.log(`${appKey}/${userId}/${hint}: no cache found but not calling the plugin because doNotCallPluginForProducts is true and forceRefresh is false`);
+    return { products: [] };
+  }
+  console.log(`${appKey}/${userId}/${hint}: no cache found(forceRefresh: ${forceRefresh}) and calling func`);
+  const funcResults = await func({
     axios,
     token,
-    payload,
+    payload: restPayload,
     typeDefsAndQueries,
     requestId,
     userId,
   });
-  return results;
+  // save cache if products are found
+  if (funcResults && funcResults.products && funcResults.products.length > 0) {
+    // 25 hours, just to have some buffer
+    const ttl = token.ttlForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'ttl'], app) || 60 * 60 * 25;
+    console.log(`${appKey}/${userId}/${hint}: saving cache of ${funcResults.products.length} products for (ttl:${ttl})`);
+    await cache.save({
+      pluginName: appKey,
+      key: cacheKey,
+      value: funcResults,
+      ttl,
+      skipTTL: Boolean(doNotCallPluginForProducts),
+    });
+  }
+  const searchResults = $searchProductList(R.pathOr([], ['products'], funcResults), searchInput, optionId);
+  return {
+    ...funcResults,
+    products: searchResults,
+    ...(token.configuration || {}),
+  };
 };
 
 const bookingsProductSearch = plugins => async (req, res, next) => {
@@ -181,7 +283,8 @@ const bookingsAvailabilitySearch = plugins => async (req, res, next) => {
     }));
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
-    const results = await app.searchAvailability({
+    const func = (app.searchAvailability || app.searchAvailabilityForItinerary).bind(app);
+    const results = await func({
       axios,
       token,
       payload,
@@ -291,8 +394,8 @@ const createBooking = plugins => async (req, res, next) => {
     }));
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
-    assert(payload.id, 'the quote id is required');
-    const results = await app.createBooking({
+    const func = (app.createBooking || app.addServiceToItinerary).bind(app);
+    const results = await func({
       axios,
       token,
       payload,
@@ -417,8 +520,9 @@ const getCreateBookingFields = plugins => async (req, res, next) => {
     }));
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
-    assert(app.getCreateBookingFields, `getCreateBookingFields is not available for ${appKey}`);
-    const results = await app.getCreateBookingFields({
+    assert(app.getCreateBookingFields || app.getCreateItineraryFields, `getCreateBookingFields or getCreateItineraryFields is not available for ${appKey}`);
+    const func = (app.getCreateItineraryFields || app.getCreateBookingFields).bind(app);
+    const results = await func({
       axios,
       token,
       payload,

@@ -2,6 +2,21 @@
 
 Plugins can extend the functionality of Ti2 and/or provide access to other platforms; you should use one of the following methods to provide a stadandarized way to access other systems; if you want to implement new functionality that is not encompassed on the available methods you are more than welcome to add new methods and contribute to the Ti2 codebase.
 
+
+## Steps to develop a plugin
+  1. Contact us to get access to the ti2-<your plugin name> repository.
+      - We will create a skeleton repository for you and add you as a contributor.
+  2. Clone the repository and start developing your plugin.
+  3. Follow respective tutorials to develop your plugin.
+      - [A Plugin for Itinerary Assist AI]{@tutorial itinerary-assist-plugin-dev}
+  4. Make sure to add tests for your plugin. For more information, refer to the [Testing Suite](#testing-suite) section.
+  5. Contact us to deploy your plugin to our hosted staging instance.
+      - Please let us know any environment variables that are required for your plugin to work. For more information, refer to the [Environment variables](#environment-variables) section.
+      - We will provide you with tokens and endpoints to test your plugin.
+  6. Test your plugin against our staging instance.
+  7. Contact us once you have tested your plugin and it's working as expected.
+      - We will deploy your plugin to our production instance.
+
 ## Available Methods
 
 We are using a set of standardized methods to maintain compatibility; the following methods are available, more can be supported but should be a added to the TI2 spec first to maximize it's compatibility.
@@ -24,10 +39,15 @@ We are using a set of standardized methods to maintain compatibility; the follow
 * [searchAvailability]{@link Plugin#searchAvailability}
 * [searchQuote]{@link Plugin#searchQuote}
 * [createBooking]{@link Plugin#createBooking}
-
+* [searchProductsForItinerary]{@link Plugin#searchProductsForItinerary}
+* [searchAvailabilityForItinerary]{@link Plugin#searchAvailabilityForItinerary}
+* [addServiceToItinerary]{@link Plugin#addServiceToItinerary}
+* [getCreateItineraryFields]{@link Plugin#getCreateItineraryFields}
+* [searchItineraries]{@link Plugin#searchItineraries}
+* [queryAllotment]{@link Plugin#queryAllotment}
 ---
 
-## Environment variables
+## <a id="environment-variables"></a> Environment variables
 
 Plugin environment keys are passed down from the hosting ti2 instance when they are generated, this is the preferred way to access environment keys from the plugins, such values are not design to hold client / user's API keys or specific data, they are to be stored in the database via the AppKey collection.
 
@@ -40,6 +60,8 @@ ti2_tourconnect_apiUrl=http://backend:8080
 
 ## Codebase setup
 
+**##Skip this section if you are using the skeleton repository.##**
+
 You can review some of the plugins previously developed and use them as a guide, plugin methods are encourage to include tests and to return results with the same format; however, the returned values can include additional information, currently Ti2 is expected to run on node version 12.22.8; we suggest you use the same for your codebase.
 
 
@@ -50,6 +72,8 @@ $ node init .
 ```
 
 ## Entry file / constructor
+
+**##Skip this section if you are using the skeleton repository.##**
 
 The plugin is expected to have an index.js file that exports a Plugin Class like so:
 
@@ -79,6 +103,8 @@ The plugin named ti2-ventrata would receive acceptLanguage variable and it's val
 
 ## Method calling
 
+**##Skip this section if you are using the skeleton repository.##**
+
 On the previous example code we are declaring a validateToken method; we are normally expected to receive two parameters one is token and the second one payload.
 
 ```javascript
@@ -104,7 +130,7 @@ module.exports = Plugin;
 
 The token parameter should store all the settings for the current configured end user; on these example we are defaulting this settings to the ones configured to the pluging when it was instanced; so if the user settings do not include an apiUrl it will fall back to the environment variable on the running server.
 
-## Testing Suite
+## <a id="testing-suite"></a> Testing Suite
 
 The plugin should contain a test file, for the following example assumes we will be using jest as the testing platform.
 
@@ -163,6 +189,8 @@ After setting up a [Ti2 instance]{@tutorial setup-your-instance} you can add you
 
 ## Extending the base API
 
+**##Typically not needed##**
+
 Ti2 uses the [Swagger API specification](https://swagger.io/specification/) standard to define it's own methods, you can review the basic methods [here](https://ti2-staging.tourconnect.com/api-docs/); these methods can be extended using the same format; this allows any plugin to extend the base API endpoints that are linked to any plugin method (part of the basic methods or new ones).
 
 All the extender methods would be availble under the /\[plugin name] namespace, i.e.: /ti2-greatPlugin/ping.
@@ -211,6 +239,8 @@ paths:
 ```
 
 ## Database Migrations (plugin's own database tables)
+
+**##Typically not needed##**
 
 Ti2 uses [Sequelize v6.13](https://sequelize.org/v6) which is the database ORM we ecourage you to use, you can add your own tables via migrations that should be placed under a migrations folder on the root of the plugin folder.
 

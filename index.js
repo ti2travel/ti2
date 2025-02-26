@@ -20,11 +20,9 @@ const cacheSettings = {
     'getAffiliateAgents',
     'getAffiliateDesks',
     'getPickupPoints',
-    'bookingsProductSearch',
+    // 'bookingsProductSearch',
     'getCreateBookingFields',
   ],
-  ventrata: [],
-  fareharbor: [],
 };
 const ti2Events = new EventEmitter({ captureRejections: true, wildcard: true });
 ti2Events.on('event error', console.error);
@@ -265,13 +263,34 @@ module.exports = async ({
         const currentPlugin = req.pathParams
           ? plugins.find(p => p.name === req.pathParams.appKey)
           : null;
+        /*
+          currentPlugin = {
+            cacheSettings: {
+              getAffiliateDesks: {
+                ttl: 60 * 60 * 24, // one day
+              },
+              getPickupPoints: {
+                ttl: 60 * 60 * 24, // one day
+                // we will do middleware caching for getPickupPoints
+                cacheInMiddleware: true,
+              },
+            },
+          }
+        */
+        const pluginCacheSettings = R.pathOr({}, ['cacheSettings'], currentPlugin);
+        // Filter plugin cache settings to only include those with cacheInMiddleware: true
+        const filteredPluginCacheSettings = R.pickBy(
+          value => R.pathOr(false, ['cacheInMiddleware'], value),
+          pluginCacheSettings,
+        );
         const cachingOperations = [
           ...cacheSettings['*'],
-          ...(currentPlugin ? R.pathOr([], [currentPlugin.name], cacheSettings) : []),
+          ...(currentPlugin ? R.keys(filteredPluginCacheSettings) : []),
         ];
         const body = req.customBody;
         if (cachingOperations.indexOf(body.operationId) > -1) {
-          const cacheKey = hash(R.omit(['requestId', 'date'], body));
+          const cacheBody = R.omit(['requestId', 'date'], body);
+          const cacheKey = hash(cacheBody);
           req.cacheKey = cacheKey;
           const foundCache = await cache.get({
             pluginName: body.params.appKey,
@@ -288,6 +307,7 @@ module.exports = async ({
                 pluginName: req.pathParams.appKey,
                 key: cacheKey,
                 value: newData,
+                skipTTL: R.path([body.operationId, 'skipTTL'], filteredPluginCacheSettings),
                 ttl: 60 * 60 * 24, // one day
               });
             }
