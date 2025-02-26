@@ -102,7 +102,7 @@ const $searchProductList = (products, searchInput = '', optionId = '') => {
   } ${R.path(['optionName'], option) || ''
   } ${R.path(['optionId'], option) || ''
   } ${R.path(['supplierId'], product) || ''}`;
-  const inputValueLower = searchInput.trim().toLowerCase();
+  const inputValueLower = (searchInput || '').trim().toLowerCase();
   const parts = inputValueLower.split(' ').filter(Boolean); // Filter out any empty strings just in case
   const pwFilteredOptions = products.map(product => {
     const filteredOptions = R.pathOr([], ['options'], product).filter(option => {
