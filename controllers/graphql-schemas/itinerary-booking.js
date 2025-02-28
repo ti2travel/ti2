@@ -32,7 +32,7 @@ const typeDefs = `
   type Query {
     bookingId: ID!
     name: String!
-    bookingStatus: String!
+    bookingStatus: String
     ref: String!
     agentRef: String
     totalPrice: String!
