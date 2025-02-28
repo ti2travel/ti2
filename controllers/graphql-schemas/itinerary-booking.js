@@ -35,7 +35,6 @@ const typeDefs = `
     bookingStatus: String!
     ref: String!
     agentRef: String
-    currency: String!
     totalPrice: String!
     currency: String!
     travelDate: String!
@@ -51,7 +50,6 @@ const query = `{
   bookingStatus
   ref
   agentRef
-  currency
   totalPrice
   currency
   travelDate
