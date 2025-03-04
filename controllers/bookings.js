@@ -193,18 +193,28 @@ const $bookingsProductSearch = plugins => async ({
     requestId,
     userId,
   });
-  // save cache if products are found
+  // save cache if products are found and cache doesn't already exist
   if (funcResults && funcResults.products && funcResults.products.length > 0) {
     // 25 hours, just to have some buffer
     const ttl = token.ttlForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'ttl'], app) || 60 * 60 * 25;
-    console.log(`${appKey}/${userId}/${hint}: saving cache of ${funcResults.products.length} products for (ttl:${ttl})`);
-    await cache.save({
+    // Check if cache exists before saving
+    const existingCache = await cache.get({
       pluginName: appKey,
       key: cacheKey,
-      value: funcResults,
-      ttl,
-      skipTTL: Boolean(doNotCallPluginForProducts),
     });
+    
+    if (!existingCache) {
+      console.log(`${appKey}/${userId}/${hint}: saving cache of ${funcResults.products.length} products for (ttl:${ttl})`);
+      await cache.save({
+        pluginName: appKey,
+        key: cacheKey,
+        value: funcResults,
+        ttl,
+        skipTTL: Boolean(doNotCallPluginForProducts),
+      });
+    } else {
+      console.log(`${appKey}/${userId}/${hint}: cache already exists, skipping save`);
+    }
   }
   const searchResults = $searchProductList(R.pathOr([], ['products'], funcResults), searchInput, optionId);
   return {
