@@ -11,6 +11,7 @@ const save = async ({
   value,
   skipTTL,
   ttl = defaultTTL,
+  nx = false,
 }) => {
   const key = `${pluginName}:${(() => {
     if (typeof keyParam !== 'string') {
@@ -18,11 +19,17 @@ const save = async ({
     }
     return keyParam;
   })()}`;
-  // console.log('saving key', key);
-  await cache.set(key, JSON.stringify(value));
-  if (!skipTTL) {
-    await cache.expire(key, ttl);
+  const params = [];
+  if (nx) {
+    params.push('NX');
   }
+  if (!skipTTL) {
+    params.push('EX', ttl);
+  }
+  // console.log('saving key', key);
+  // Use SET with NX option for atomic operation
+  const result = await cache.set(key, JSON.stringify(value), ...params);
+  return result === 'OK';
 };
 
 const get = async ({

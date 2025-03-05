@@ -1,7 +1,7 @@
 const assert = require('assert');
 const hash = require('object-hash');
-const cache = require('../cache');
 const R = require('ramda');
+const cache = require('../cache');
 const { UserAppKey } = require('../models/index');
 const { typeDefs: productTypeDefs, query: productQuery } = require('./graphql-schemas/product');
 const { typeDefs: availTypeDefs, query: availQuery } = require('./graphql-schemas/availability');
@@ -204,6 +204,7 @@ const $bookingsProductSearch = plugins => async ({
     key: `${cacheKey}:lock`,
     value: true,
     ttl: 120,
+    nx: true,
   });
   const funcResults = await func({
     axios,
