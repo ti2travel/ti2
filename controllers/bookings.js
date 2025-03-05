@@ -204,7 +204,6 @@ const $bookingsProductSearch = plugins => async ({
     key: `${cacheKey}:lock`,
     value: true,
     ttl: 120,
-    nx: true,
   });
   const funcResults = await func({
     axios,
