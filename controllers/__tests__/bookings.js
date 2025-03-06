@@ -237,6 +237,126 @@ describe('user: bookings controller', () => {
       expect(Array.isArray(products)).toBeTruthy();
       expect(products.length).toBe(2);
     });
+
+    describe('cache TTR and lock mechanism', () => {
+      const shortTTRToken = {
+        endpoint: 'https://api.travelgatex.com',
+        apiKey: chance.guid(),
+        client: 'tourconnect',
+        ttlForProducts: 2, // 2 seconds TTR
+      };
+
+      beforeEach(async () => {
+        // Clear any existing integration
+        try {
+          await doApiDelete({
+            url: `/${appKey}/${userId}`,
+            token: adminKey,
+            payload: { tokenHint: 'ttr-test' },
+          });
+        } catch (err) {
+          console.debug(err);
+        }
+
+        // Create new integration with short TTR
+        await doApiPost({
+          url: `/${appKey}/${userId}`,
+          token: adminKey,
+          payload: {
+            token: shortTTRToken,
+            tokenHint: 'ttr-test',
+          },
+        });
+
+        // Clear mock calls
+        jest.clearAllMocks();
+      });
+
+      it('should use cache within TTR period', async () => {
+        // First call should hit the plugin
+        await doApiPost({
+          url: `/products/${appKey}/${userId}/ttr-test/search`,
+          token: userToken,
+          payload: {},
+        });
+        expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
+
+        // Second immediate call should use cache
+        await doApiPost({
+          url: `/products/${appKey}/${userId}/ttr-test/search`,
+          token: userToken,
+          payload: {},
+        });
+        expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1); // Still 1, used cache
+      });
+
+      it('should refresh cache after TTR expires', async () => {
+        // Wait for TTR to expire (2 seconds + buffer) so the cache from previous test is stale
+        await new Promise(resolve => {
+          setTimeout(resolve, 2100);
+        });
+
+        // First call to populate cache
+        await doApiPost({
+          url: `/products/${appKey}/${userId}/ttr-test/search`,
+          token: userToken,
+          payload: {},
+        });
+        expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
+
+        // Wait for TTR to expire (2 seconds + buffer)
+        await new Promise(resolve => {
+          setTimeout(resolve, 2100);
+        });
+
+        // Call after TTR expired should hit the plugin again
+        await doApiPost({
+          url: `/products/${appKey}/${userId}/ttr-test/search`,
+          token: userToken,
+          payload: {},
+        });
+        expect(plugins[0].searchProducts).toHaveBeenCalledTimes(2);
+      });
+
+      it('should use lock mechanism to prevent concurrent calls', async () => {
+        // Wait for TTR to expire (2 seconds + buffer) so the cache from previous test is stale
+        await new Promise(resolve => {
+          setTimeout(resolve, 2100);
+        });
+
+        // Make multiple requests with slight delays to simulate real-world concurrent requests
+        const makeRequest = () => doApiPost({
+          url: `/products/${appKey}/${userId}/ttr-test/search`,
+          token: userToken,
+          payload: {},
+        });
+
+        // Start first request
+        const request1 = makeRequest();
+        // Start second request after 10ms
+        await new Promise(resolve => {
+          setTimeout(resolve, 10);
+        });
+        const request2 = makeRequest();
+        // Start third request after another 10ms
+        await new Promise(resolve => {
+          setTimeout(resolve, 10);
+        });
+        const request3 = makeRequest();
+
+        // Wait for all requests to complete
+        const results = await Promise.all([request1, request2, request3]);
+
+        // All requests should return valid products
+        results.forEach(({ products }) => {
+          expect(Array.isArray(products)).toBeTruthy();
+          expect(products.length).toBe(2); // Based on existing test expectations
+        });
+
+        // Plugin should only be called once due to lock mechanism
+        expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 
   it('should be able to search for availabiility', async () => {
