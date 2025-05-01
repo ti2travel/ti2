@@ -631,6 +631,7 @@ class Plugin {
    * @property {string} [linePrice] - Line price
    * @property {string} [quantity] - Quantity
    * @property {string} startDate - Start date (YYYY-MM-DD)
+   * @property {string} status - Status
    * @property {Array<PaxConfig>} paxConfigs - List of pax configs for this service line
    * @property {Array<Passenger>} paxList - List of passengers for this service line
    */

@@ -384,6 +384,7 @@ No, we don't have a specific test scenarios, but we recommend you to cover the f
           ],
           "serviceLineId": "745684",
           "startDate": "2025-08-13",
+          "status": "OK"
         },
       ],
       "totalPrice": "187795",

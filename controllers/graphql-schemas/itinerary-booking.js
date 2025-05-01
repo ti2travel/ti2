@@ -27,6 +27,7 @@ const typeDefs = `
     supplierId: String
     paxList: [Passenger]
     paxConfigs: [PaxConfig]
+    status: String
   }
 
   type Query {
@@ -65,6 +66,7 @@ const query = `{
     supplierName
     supplierId
     startDate
+    status
     paxConfigs {
       roomType
       adults
