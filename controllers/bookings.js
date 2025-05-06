@@ -254,13 +254,15 @@ const bookingsProductSearch = plugins => async (req, res, next) => {
     body: payload,
     requestId,
   } = req;
+
   try {
-    return res.json(await $bookingsProductSearch(plugins)({
+    const result = await $bookingsProductSearch(plugins)({
       axios,
       ...params,
       payload,
       requestId,
-    }));
+    });
+    return res.json(result);
   } catch (err) {
     return next(err);
   }
