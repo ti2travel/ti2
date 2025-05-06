@@ -14,6 +14,7 @@ const { v4: uuidv4 } = require('uuid');
 const EventEmitter = require('eventemitter2');
 const axios = require('axios');
 const curlirize = require('axios-curlirize');
+const { addJob } = require('./worker/queue');
 
 const cacheSettings = {
   '*': [
@@ -277,6 +278,23 @@ module.exports = async ({
             },
           }
         */
+       // check if the operation is supposed to be ran in the backgroundd
+        const backgroundJob = R.pathOr(
+          false, ['backgroundJob'], req.customBody,
+        );
+       if (backgroundJob) {
+        const job = await addJob({
+          type: 'api',
+          method: req.method,
+          url: req.url,
+          headers: req.headers,
+          payload: {
+            ...req.customBody,
+            requestId: req.requestId,
+          },
+        });
+        return res.json({ jobId: job.id });
+       }
         const pluginCacheSettings = R.pathOr({}, ['cacheSettings'], currentPlugin);
         // Filter plugin cache settings to only include those with cacheInMiddleware: true
         const filteredPluginCacheSettings = R.pickBy(
