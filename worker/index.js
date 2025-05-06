@@ -92,22 +92,15 @@ const worker = ({ plugins: pluginsParam }) => (id, disconnect) => {
     if (type === 'callback') {
       const {
         callbackUrl,
-        operationId,
-        operationPayload,
-        operationResult,
-        integrationId,
-        hint
+        request,
+        result,
       } = payload;
 
       console.log(`job ${jobId} > sending callback to ${callbackUrl}`);
       await require('../lib/callback').sendCallback({
         callbackUrl,
-        operationId,
-        payload: operationPayload,
-        result: operationResult,
-        userId,
-        integrationId,
-        hint
+        request,
+        result,
       });
       return { success: true };
     }
