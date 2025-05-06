@@ -59,13 +59,14 @@ const axiosSafeResponse = response => {
 module.exports = async ({
   apiDocs = true,
   plugins: pluginsParam = {},
+  pluginsInstantiated = false,
   port: portParam,
   startServer = true,
   worker = false,
 }) => {
   const port = portParam || process.env.PORT || 10010;
   // create the plugin instances
-  const plugins = await bb.map(Object.entries(pluginsParam), async ([pluginName, Plugin]) => {
+  const plugins = pluginsInstantiated || await bb.map(Object.entries(pluginsParam), async ([pluginName, Plugin]) => {
     // pass all env variables
     const pluginEnv = pickBy(
       (_val, key) => key.substring(0, `ti2_${pluginName}`.length)
@@ -278,7 +279,7 @@ module.exports = async ({
             },
           }
         */
-       // check if the operation is supposed to be ran in the backgroundd
+       // check if the operation is supposed to be ran in the background
         const backgroundJob = R.pathOr(
           false, ['backgroundJob'], req.body,
         );
