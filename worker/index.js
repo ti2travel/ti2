@@ -1,13 +1,9 @@
 const throng = require('throng');
 require('util').inspect.defaultOptions.depth = null;
 const R = require('ramda');
-
 const { queue, saveResult } = require('./queue');
-const http = require('http');
-const axios = require('axios');
 
 const workers = process.env.WEB_CONCURRENCY || 2;
-
 const maxJobsPerWorker = process.env.MAX_JOBS_PER_WORKER || 1;
 
 const worker = ({ plugins: pluginsParam }) => (id, disconnect) => {
@@ -45,6 +41,8 @@ const worker = ({ plugins: pluginsParam }) => (id, disconnect) => {
       } = params;
 
       let code, result, server;
+      const http = require('http');
+      const axios = require('axios');
       try {
         const app = await require('../index')({
           pluginsInstantiated: pluginsParam,
