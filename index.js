@@ -296,6 +296,27 @@ module.exports = async ({
         });
         return res.json({ jobId: job });
        }
+       // intercept res.json
+        const callbackUrl = R.pathOr(
+          false, ['callbackUrl'], req.body);
+        if (callbackUrl) {
+          // send callback
+          const originalJson = res.json;
+          res.json = function (data) {
+            const callbackBody = {
+              callbackUrl,
+              request: body,
+              result: data,
+            };
+            addJob({
+              type: 'callback',
+              payload: callbackBody,
+            }).then(jobId => {
+              console.debug('created callback job', jobId);
+            });
+            return originalJson.call(this, data);
+          };
+        }
         const pluginCacheSettings = R.pathOr({}, ['cacheSettings'], currentPlugin);
         // Filter plugin cache settings to only include those with cacheInMiddleware: true
         const filteredPluginCacheSettings = R.pickBy(
