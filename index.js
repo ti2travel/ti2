@@ -289,7 +289,7 @@ module.exports = async ({
           url: req.url,
           headers: req.headers,
           payload: {
-            ...req.customBody,
+            ...req.body,
             requestId: req.requestId,
           },
         });
