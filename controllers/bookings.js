@@ -255,7 +255,6 @@ const bookingsProductSearch = plugins => async (req, res, next) => {
     body: payload,
     requestId,
   } = req;
-
   try {
     const result = await $bookingsProductSearch(plugins)({
       axios,
@@ -263,21 +262,6 @@ const bookingsProductSearch = plugins => async (req, res, next) => {
       payload,
       requestId,
     });
-
-    if (payload.callbackUrl) {
-      await addJob({
-        type: 'callback',
-        userId: params.userId,
-        payload: {
-          callbackUrl: query.callbackUrl,
-          operationId: 'bookingsProductSearch',
-          operationPayload: payload,
-          operationResult: result,
-          integrationId: params.appKey,
-          hint: params.hint
-        }
-      });
-    }
 
     return res.json(result);
   } catch (err) {
