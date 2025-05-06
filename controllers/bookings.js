@@ -3,6 +3,7 @@ const hash = require('object-hash');
 const R = require('ramda');
 const cache = require('../cache');
 const { UserAppKey } = require('../models/index');
+const { addJob } = require('../worker/queue');
 const { typeDefs: productTypeDefs, query: productQuery } = require('./graphql-schemas/product');
 const { typeDefs: availTypeDefs, query: availQuery } = require('./graphql-schemas/availability');
 const { typeDefs: bookingTypeDefs, query: bookingQuery } = require('./graphql-schemas/booking');
@@ -262,6 +263,22 @@ const bookingsProductSearch = plugins => async (req, res, next) => {
       payload,
       requestId,
     });
+
+    if (payload.callbackUrl) {
+      await addJob({
+        type: 'callback',
+        userId: params.userId,
+        payload: {
+          callbackUrl: query.callbackUrl,
+          operationId: 'bookingsProductSearch',
+          operationPayload: payload,
+          operationResult: result,
+          integrationId: params.appKey,
+          hint: params.hint
+        }
+      });
+    }
+
     return res.json(result);
   } catch (err) {
     return next(err);
