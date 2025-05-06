@@ -3,7 +3,6 @@ const hash = require('object-hash');
 const R = require('ramda');
 const cache = require('../cache');
 const { UserAppKey } = require('../models/index');
-const { addJob } = require('../worker/queue');
 const { typeDefs: productTypeDefs, query: productQuery } = require('./graphql-schemas/product');
 const { typeDefs: availTypeDefs, query: availQuery } = require('./graphql-schemas/availability');
 const { typeDefs: bookingTypeDefs, query: bookingQuery } = require('./graphql-schemas/booking');
@@ -256,14 +255,12 @@ const bookingsProductSearch = plugins => async (req, res, next) => {
     requestId,
   } = req;
   try {
-    const result = await $bookingsProductSearch(plugins)({
+    return res.json(await $bookingsProductSearch(plugins)({
       axios,
       ...params,
       payload,
       requestId,
-    });
-
-    return res.json(result);
+    }));
   } catch (err) {
     return next(err);
   }
