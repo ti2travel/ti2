@@ -280,7 +280,7 @@ module.exports = async ({
         */
        // check if the operation is supposed to be ran in the backgroundd
         const backgroundJob = R.pathOr(
-          false, ['backgroundJob'], req.customBody,
+          false, ['backgroundJob'], req.body,
         );
        if (backgroundJob) {
         const job = await addJob({
@@ -293,7 +293,7 @@ module.exports = async ({
             requestId: req.requestId,
           },
         });
-        return res.json({ jobId: job.id });
+        return res.json({ jobId: job });
        }
         const pluginCacheSettings = R.pathOr({}, ['cacheSettings'], currentPlugin);
         // Filter plugin cache settings to only include those with cacheInMiddleware: true
