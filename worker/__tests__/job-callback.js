@@ -8,6 +8,20 @@ jest.mock('axios', () => ({
   post: jest.fn().mockResolvedValue({ status: 200 })
 }));
 
+// Mock the database operations to avoid connection issues
+jest.mock('../../models', () => {
+  const mockIntegration = {
+    findOne: jest.fn().mockResolvedValue(null)
+  };
+  
+  return {
+    Integration: mockIntegration,
+    sequelize: {
+      close: jest.fn().mockResolvedValue(true)
+    }
+  };
+});
+
 describe('worker: Callback job handling', () => {
   beforeAll(async () => {
     // Clean up any existing jobs before running tests

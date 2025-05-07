@@ -3,6 +3,20 @@
 // Import queue module directly to avoid reference issues
 const queueModule = require('../queue');
 
+// Mock the database operations to avoid connection issues
+jest.mock('../../models', () => {
+  const mockIntegration = {
+    findOne: jest.fn().mockResolvedValue(null)
+  };
+  
+  return {
+    Integration: mockIntegration,
+    sequelize: {
+      close: jest.fn().mockResolvedValue(true)
+    }
+  };
+});
+
 describe('worker: API job handling', () => {
   beforeAll(async () => {
     // Clean up any existing jobs before running tests
@@ -17,6 +31,7 @@ describe('worker: API job handling', () => {
     await queueModule.queue.clean(0, 'completed');
     await queueModule.queue.clean(0, 'failed');
   });
+  
   it('should create a job of type "api" for the /ping endpoint', async () => {
     // Create a job to call the /ping endpoint
     const jobData = {
