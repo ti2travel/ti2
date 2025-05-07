@@ -1,4 +1,4 @@
-/* globals beforeAll describe it expect */
+/* globals beforeAll describe it expect jest */
 const axios = require('axios');
 const MockAdapter = require('axios-mock-adapter');
 const chance = require('chance').Chance();
@@ -106,34 +106,51 @@ describe('allotment', () => {
     expect(call.token).toEqual(token);
   });
   it('should be able to receive an axios error', async () => {
-    const mock = new MockAdapter(axios);
-    mock.onGet('http://www.example.com').reply(500, { what: 'nothing here' });
-    let urlParamsError = new URLSearchParams({
-
-      ...payload,
-      keyPath: 'errorAxios',
-    }).toString();
-    const returnValue = await doApiGet({
-      url: `/allotment/${appKey}/${newIntegration.tokenHint}/${userId}?${urlParamsError}`,
-      token: userToken,
-      expectStatusCode: 500,
-    });
-    expect(returnValue.allotments).toBeFalsy();
-    expect(returnValue.message).toBe('nothing here');
+    // Temporarily silence console.error for this test since we're expecting an error
+    const originalConsoleError = console.error;
+    console.error = jest.fn();
+    
+    try {
+      const mock = new MockAdapter(axios);
+      mock.onGet('http://www.example.com').reply(500, { what: 'nothing here' });
+      let urlParamsError = new URLSearchParams({
+        ...payload,
+        keyPath: 'errorAxios',
+      }).toString();
+      const returnValue = await doApiGet({
+        url: `/allotment/${appKey}/${newIntegration.tokenHint}/${userId}?${urlParamsError}`,
+        token: userToken,
+        expectStatusCode: 500,
+      });
+      expect(returnValue.allotments).toBeFalsy();
+      expect(returnValue.message).toBe('nothing here');
+    } finally {
+      // Restore console.error even if the test fails
+      console.error = originalConsoleError;
+    }
   });
   it('should be able to receive an error from a regular response', async () => {
-    const mock = new MockAdapter(axios);
-    mock.onGet('http://www.example.com').reply(200, { error: 'something went wrong' });
-    let urlParamsError = new URLSearchParams({
-      ...payload,
-      keyPath: 'errorGeneral',
-    }).toString();
-    const returnValue = await doApiGet({
-      url: `/allotment/${appKey}/${newIntegration.tokenHint}/${userId}?${urlParamsError}`,
-      token: userToken,
-      expectStatusCode: 500,
-    });
-    expect(returnValue.allotments).toBeFalsy();
-    expect(returnValue.message).toBe('something went wrong');
+    // Temporarily silence console.error for this test since we're expecting an error
+    const originalConsoleError = console.error;
+    console.error = jest.fn();
+    
+    try {
+      const mock = new MockAdapter(axios);
+      mock.onGet('http://www.example.com').reply(200, { error: 'something went wrong' });
+      let urlParamsError = new URLSearchParams({
+        ...payload,
+        keyPath: 'errorGeneral',
+      }).toString();
+      const returnValue = await doApiGet({
+        url: `/allotment/${appKey}/${newIntegration.tokenHint}/${userId}?${urlParamsError}`,
+        token: userToken,
+        expectStatusCode: 500,
+      });
+      expect(returnValue.allotments).toBeFalsy();
+      expect(returnValue.message).toBe('something went wrong');
+    } finally {
+      // Restore console.error even if the test fails
+      console.error = originalConsoleError;
+    }
   });
 });
