@@ -73,8 +73,8 @@ const worker = ({ plugins: pluginsParam }) => (id, disconnect) => {
         // Handle errors during app init or axios request
         console.error(`Worker internal request error for job ${jobId}:`, error.message);
         // If axios error has response, use its status
-        code = error.response?.status || 500;
-        result = error.response?.data || { message: error.message };
+        code = R.pathOr(500, ['response', 'status'], error);
+        result = R.pathOr({ message: error.message }, ['response', 'data'], error);
       } finally {
         // Ensure server is closed if it was created
         if (server) {
