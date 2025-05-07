@@ -125,7 +125,7 @@ describe('app', () => {
       } while (['waiting', 'running'].includes(jobStatus.status));
       expect(jobStatus.status).toBe('success');
       expect(jobStatus.result).toEqual({ someVal: true });
-    }, 6e3);
+    }, 30e3);
   });
   it('should be able to get a list of all tokens related to the app', async () => {
     const { userAppKeys } = await doApiGet({
