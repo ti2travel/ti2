@@ -9,20 +9,6 @@ jest.mock('axios', () => ({
 }));
 
 describe('worker: Callback job handling', () => {
-  beforeAll(async () => {
-    // Clean up any existing jobs before running tests
-    await queueModule.queue.empty();
-    await queueModule.queue.clean(0, 'completed');
-    await queueModule.queue.clean(0, 'failed');
-  });
-  
-  afterAll(async () => {
-    // Clean up any remaining jobs after tests
-    await queueModule.queue.empty();
-    await queueModule.queue.clean(0, 'completed');
-    await queueModule.queue.clean(0, 'failed');
-  });
-
   it('should create a job of type "callback" with the correct structure', async () => {
     // Create a job to send a callback
     const callbackData = {

@@ -4,20 +4,6 @@
 const queueModule = require('../queue');
 
 describe('worker: API job handling', () => {
-  beforeAll(async () => {
-    // Clean up any existing jobs before running tests
-    await queueModule.queue.empty();
-    await queueModule.queue.clean(0, 'completed');
-    await queueModule.queue.clean(0, 'failed');
-  });
-  
-  afterAll(async () => {
-    // Clean up any remaining jobs after tests
-    await queueModule.queue.empty();
-    await queueModule.queue.clean(0, 'completed');
-    await queueModule.queue.clean(0, 'failed');
-  });
-  
   it('should create a job of type "api" for the /ping endpoint', async () => {
     // Create a job to call the /ping endpoint
     const jobData = {
