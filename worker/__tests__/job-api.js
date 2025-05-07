@@ -3,20 +3,6 @@
 // Import queue module directly to avoid reference issues
 const queueModule = require('../queue');
 
-// Mock the database operations to avoid connection issues
-jest.mock('../../models', () => {
-  const mockIntegration = {
-    findOne: jest.fn().mockResolvedValue(null)
-  };
-  
-  return {
-    Integration: mockIntegration,
-    sequelize: {
-      close: jest.fn().mockResolvedValue(true)
-    }
-  };
-});
-
 describe('worker: API job handling', () => {
   beforeAll(async () => {
     // Clean up any existing jobs before running tests
