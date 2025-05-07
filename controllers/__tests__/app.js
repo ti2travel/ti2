@@ -122,7 +122,7 @@ describe('app', () => {
           payload: {},
         });
         await global.sleep(1e3);
-      } while (['waiting', 'running'].includes(jobStatus.status));
+      } while (['waiting', 'active'].includes(jobStatus.status));
       expect(jobStatus.status).toBe('success');
       expect(jobStatus.result).toEqual({ someVal: true });
     }, 30e3);
