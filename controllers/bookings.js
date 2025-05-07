@@ -156,7 +156,6 @@ const $bookingsProductSearch = plugins => async ({
     hint,
     operationId: 'bookingsProductSearch',
   });
-  // TODO: remove debugging console.logs after no related issues reported for a while
   // Check cache first if not forcing refresh
   const cacheValue = forceRefresh ? null : await cache.get({
     pluginName: appKey,
@@ -180,12 +179,10 @@ const $bookingsProductSearch = plugins => async ({
     pluginName: appKey,
     key: `${cacheKey}:lock`,
   });
-  console.log(`${appKey}/${userId}/${hint}: lastUpdated: ${lastUpdated}, ttr: ${ttr}, isStale: ${isStale}, hasLock: ${hasLock}, foundCache: ${!!cacheValue}`);
   // when there is a lock (meaning another request is already fetching the products)
   // return stale cache during this short window
   if (cacheValue && cacheValue.products && (hasLock || !isStale)) {
     const searchResults = $searchProductList(cacheValue.products, searchInput, optionId);
-    console.log(`${appKey}/${userId}/${hint}: returning cached products: ${searchResults.length}`);
     return {
       ...cacheValue,
       products: searchResults,
@@ -194,10 +191,8 @@ const $bookingsProductSearch = plugins => async ({
     };
   }
   if (doNotCallPluginForProducts && !forceRefresh) {
-    console.log(`${appKey}/${userId}/${hint}:not calling the plugin because doNotCallPluginForProducts is true and forceRefresh is false`);
     return { products: [] };
   }
-  console.log(`${appKey}/${userId}/${hint}: (forceRefresh: ${forceRefresh}) so calling func to get fresh products`);
   // create a lock with 2 minute TTL
   await cache.save({
     pluginName: appKey,
@@ -215,7 +210,6 @@ const $bookingsProductSearch = plugins => async ({
   });
   // save cache if products are found
   if (funcResults && funcResults.products && funcResults.products.length > 0) {
-    console.log(`${appKey}/${userId}/${hint}: saving cache of ${funcResults.products.length} products`);
     // I initially wanted to let the cache live forever
     // but just in case user left TC or something, we don't want to keep the cache forever
     // so we set the TTL to 30 days, within 30 days,
