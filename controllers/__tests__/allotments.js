@@ -3,7 +3,6 @@ const axios = require('axios');
 const MockAdapter = require('axios-mock-adapter');
 const chance = require('chance').Chance();
 
-
 const testUtils = require('../../test/utils');
 
 const { env: { adminKey } } = process;
@@ -15,7 +14,8 @@ describe('allotment', () => {
     adminEmail: 'engineering+tourplantest@tourconnect.com',
   };
   const appKey = newApp.name;
-  const userId = '551394be5ac58e5c76000019';
+  // Generate a random userId for better test isolation
+  const userId = `test-user-${chance.guid()}`;
   const token = {
     endpoint: 'https://someendpoint.com',
     username: chance.guid(),
@@ -25,14 +25,12 @@ describe('allotment', () => {
     tokenHint: 'testingToken',
     token,
   };
-  let doApiDelete;
   let doApiGet;
   let doApiPost;
   let plugins;
   let userToken;
   beforeAll(async () => {
     ({
-      doApiDelete,
       doApiGet,
       doApiPost,
       plugins,
@@ -40,18 +38,22 @@ describe('allotment', () => {
       plugins: [appKey],
     }));
 
-    // drop any existing user integrations
-    try {
-      await doApiDelete({
-        url: `/${appKey}/${userId}`,
-        token: adminKey,
-        payload: { tokenHint: newIntegration.tokenHint },
-      });
-    } catch (err) {
-      // console.debug(err);
-    }
+    // Using random user IDs, so no need to drop existing integrations
+    // create the user - handle case where random user doesn't exist yet
+    ({ value: userToken } = await doApiPost({
+      url: '/user',
+      token: adminKey,
+      payload: { userId },
+    }));
+    // If we get a 'User does not exist' error, that's expected with random userIds
+    // Create the user first, then get the token
+    await doApiPost({
+      url: '/user',
+      token: adminKey,
+      payload: { userId, email: `${userId}@example.com` },
+    });
 
-    // create the user
+    // Now get the token
     ({ value: userToken } = await doApiPost({
       url: '/user',
       token: adminKey,
@@ -59,20 +61,13 @@ describe('allotment', () => {
     }));
     expect(userToken).toBeTruthy();
 
-    // create the App+User setup
-    const { userAppKeys } = await doApiGet({
-      url: `/user/${userId}/apps`,
+    // create the App+User relation
+    const { value } = await doApiPost({
+      url: `/${appKey}/${userId}`,
       token: userToken,
+      payload: newIntegration,
     });
-    if (!userAppKeys.map(e => e.integrationId).includes(appKey)) {
-      // relation does not exits
-      const { value } = await doApiPost({
-        url: `/${appKey}/${userId}`,
-        token: userToken,
-        payload: newIntegration,
-      });
-      expect(value).toBeTruthy();
-    }
+    expect(value).toBeTruthy();
   });
   const payload = {
     dateFormat: 'DD-MM-YYYY',
