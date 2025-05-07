@@ -45,20 +45,6 @@ describe('allotment', () => {
       token: adminKey,
       payload: { userId },
     }));
-    // If we get a 'User does not exist' error, that's expected with random userIds
-    // Create the user first, then get the token
-    await doApiPost({
-      url: '/user',
-      token: adminKey,
-      payload: { userId, email: `${userId}@example.com` },
-    });
-
-    // Now get the token
-    ({ value: userToken } = await doApiPost({
-      url: '/user',
-      token: adminKey,
-      payload: { userId },
-    }));
     expect(userToken).toBeTruthy();
 
     // create the App+User relation
