@@ -9,7 +9,7 @@ const { env: { adminKey } } = process;
 
 describe('user: bookings controller', () => {
   const newApp = {
-    name: `travelgate`,
+    name: 'travelgate',
     packageName: 'ti2-travelgate',
     adminEmail: 'engineering+travelgate@tourconnect.com',
   };
