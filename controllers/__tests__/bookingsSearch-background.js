@@ -5,12 +5,12 @@ const testUtils = require('../../test/utils');
 
 describe('user: bookings controller - productSearch background job', () => {
   const newApp = {
-    name: 'travelgate',
+    name: `travelgate-${chance.guid()}`,
     packageName: 'ti2-travelgate',
     adminEmail: 'engineering+travelgate@tourconnect.com',
   };
   const appKey = newApp.name;
-  const userId = '551394be5ac58e5c76000019';
+  const userId = `testUser-${chance.guid()}`;
   const token = {
     endpoint: 'https://api.travelgatex.com',
     apiKey: chance.guid(),
@@ -39,23 +39,13 @@ describe('user: bookings controller - productSearch background job', () => {
     }));
     
     const { env: { adminKey } } = process;
-
+    // create the user
+    await doApiPost({
+      url: '/user',
+      token: adminKey,
+      payload: { userId, email: `${userId}@example.com` },
+    });
     // Clean slate - Drop potential existing app/user integration
-    try {
-      await doApiDelete({
-        url: `/${appKey}/${userId}`,
-        token: adminKey,
-        payload: { tokenHint },
-      });
-    } catch (err) { /* Ignore if not found */ }
-    try {
-      await doApiDelete({
-        url: `/app/${appKey}`,
-        token: adminKey,
-      });
-    } catch (err) { /* Ignore if not found */ }
-
-    // Create the test app
     await doApiPost({
       url: '/app',
       token: adminKey,
