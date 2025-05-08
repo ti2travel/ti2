@@ -53,11 +53,11 @@ describe('worker: API job handling', () => {
     // Verify the worker code includes handling for API jobs
     expect(workerCode).toContain('if (type === \'api\')'); 
     
-    // Verify it uses supertest instead of a full blown server
-    expect(workerCode).toContain('const request = require(\'supertest\')');
+    // Verify it creates a temporary HTTP server
+    expect(workerCode).toContain('server = http.createServer(app)'); 
     
-    // Verify it makes a direct request to the app
-    expect(workerCode).toContain('const reqMethod = request(app)'); 
+    // Verify it makes a request to the specified URL
+    expect(workerCode).toContain('url: `${baseURL}${url}`'); 
     
     // Verify it returns the expected result structure
     expect(workerCode).toContain('code,');

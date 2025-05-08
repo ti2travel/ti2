@@ -40,58 +40,54 @@ const worker = ({ plugins: pluginsParam }) => (id, disconnect) => {
         headers,
       } = params;
 
-      let code, result;
+      let code, result, server;
+      const http = require('http');
+      const axios = require('axios');
       try {
-        // Require supertest only when needed to avoid memory leaks
-        const request = require('supertest');
-        
         const app = await require('../index')({
           pluginsInstantiated: pluginsParam,
           startServer: false,
           worker: false,
         });
 
-        console.log(`Worker processing API job ${jobId} for ${url}`);
-        
-        // Use supertest to make the request directly to the app
-        const reqMethod = request(app)[method.toLowerCase()];
-        if (!reqMethod) {
-          throw new Error(`Unsupported HTTP method: ${method}`);
-        }
-        
-        // Set up the request with headers and payload
-        let req = reqMethod(url);
-        
-        // Add headers
-        if (headers) {
-          Object.entries(R.omit(['content-length'], headers)).forEach(([key, value]) => {
-            req = req.set(key, value);
-          });
-        }
-        
-        // Add payload for non-GET requests
-        if (method.toUpperCase() !== 'GET' && payload) {
-          req = req.send(R.omit(['backgroundJob'], payload));
-        }
-        
-        // Execute the request
-        const response = await req;
-        
+        // Manually start server on random port
+        server = http.createServer(app);
+        await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); 
+        const { address, port } = server.address();
+        const baseURL = `http://${address}:${port}`;
+        console.log(`Worker internal server for job ${jobId} listening on: ${baseURL}`);
+
+        // Use axios to make the request
+        const response = await axios({
+          method: method.toLowerCase(),
+          url: `${baseURL}${url}`,
+          data: R.omit(['backgroundJob'], payload),
+          headers: R.omit(['content-length'], headers),
+          validateStatus: () => true, // Prevent axios from throwing on non-2xx status
+        });
+
         code = response.status;
-        result = response.body;
-        console.log(`Worker API job ${jobId} completed with code ${code}`);
+        result = response.data;
+        console.log(`Worker internal request for job ${jobId} completed with code ${code}`);
       } catch (error) {
-        // Handle errors during app init or supertest request
-        console.error(`Worker API job error for ${jobId}:`, error.message);
-        code = 500;
-        result = { message: error.message };
+        // Handle errors during app init or axios request
+        console.error(`Worker internal request error for job ${jobId}:`, error.message);
+        // If axios error has response, use its status
+        code = R.pathOr(500, ['response', 'status'], error);
+        result = R.pathOr({ message: error.message }, ['response', 'data'], error);
+      } finally {
+        // Ensure server is closed if it was created
+        if (server) {
+          await new Promise(resolve => server.close(resolve));
+          console.log(`Worker internal server for job ${jobId} closed.`);
+        }
       }
-      
+
       return {
         code,
         result,
         success: code >= 200 && code < 300,
-      };
+       };
     }
     if (type === 'callback') {
       const {
