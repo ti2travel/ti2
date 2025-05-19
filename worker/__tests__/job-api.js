@@ -4,7 +4,6 @@ require('../../test/utils');
 // Mock throng to directly execute the worker function
 jest.mock('throng', () => jest.fn(config => {
   if (typeof config.worker === 'function') {
-    console.log('Mocked throng: Executing worker function provided in config.');
     // Provide dummy id and disconnect function, similar to how throng would call it
     config.worker('test-worker-id', jest.fn()); 
   } else {
@@ -69,7 +68,7 @@ describe('worker: API job handling', () => {
   let actualJobHandler;
 
   beforeAll(async () => {
-    console.log('Setting up test environment...');
+    // Setting up test environment
     
     const testUtilsResult = await require('../../test/utils')({
       plugins: ['mockPlugin'],
@@ -82,7 +81,6 @@ describe('worker: API job handling', () => {
     serverUrl = 'http://127.0.0.1:3000'; // This might be for constructing expected URLs
     
     axios.mockImplementation(config => {
-      console.log('Mocked axios called with config:', config);
       // This mock is for the internal axios call made by the worker
       if (config.url && config.url.includes('/products/testAppKey/testUserId/testTokenHint/search')) {
         return Promise.resolve({ status: 200, data: { success: true, message: 'Mocked internal success' } });
@@ -101,30 +99,26 @@ describe('worker: API job handling', () => {
         throw new Error('queue.process mock called without a handler function');
       }
       const queueName = typeof args[0] === 'string' ? args[0] : 'default';
-      console.log(`Mocked queue.process for queue "${queueName}" called by actual worker. Capturing handler.`);
       actualJobHandler = handlerCallback;
     });
     
-    console.log('Initializing actual worker module...');
+    // Initializing actual worker module
     actualWorkerModule({ plugins }); // Initialize the actual worker, it should call the mocked queue.process
-    console.log('Actual worker module initialized.');
+    // Actual worker module initialized
     
-    console.log('Test environment setup complete');
+    // Test environment setup complete
   });
 
   afterAll(() => {
-    console.log('Cleaning up test environment...');
     jest.clearAllMocks();
     actualJobHandler = null; // Clear captured handler
   });
 
   afterAll(() => {
-    console.log('Cleaning up test environment...');
     jest.clearAllMocks();
   });
 
   it('should create a job of type "api" for the product search endpoint and send it to the API server', async () => {
-    console.log('Starting test...');
     
     // 1. Test that we can create a job
     const jobData = {
@@ -135,9 +129,8 @@ describe('worker: API job handling', () => {
       payload: { backgroundJob: true },
     };
     
-    console.log('Adding job to queue...');
+    // Adding job to queue...
     const jobId = await addJob(jobData);
-    console.log('Job added with ID:', jobId);
     
     // Basic assertions
     expect(jobId).toBeTruthy();
@@ -147,7 +140,7 @@ describe('worker: API job handling', () => {
     expect(addJob).toHaveBeenCalledWith(jobData);
     
     // Simulate job processing by invoking the captured handler
-    console.log('Simulating job processing with captured handler...');
+   // Simulating job processing with captured handler...
     if (!actualJobHandler) {
       throw new Error('Job handler was not captured from queue.process. Worker might not have initialized queue processing correctly.');
     }
@@ -160,7 +153,7 @@ describe('worker: API job handling', () => {
       update: jest.fn(),
     };
     await actualJobHandler(mockJob);
-    console.log('Job processing simulation complete.');
+    // Job processing simulation complete.
     
     // Verify queue.process was called (to capture the handler)
     expect(queue.process).toHaveBeenCalled();
@@ -177,7 +170,5 @@ describe('worker: API job handling', () => {
         }),
       })
     );
-    
-    console.log('Test completed successfully');
   });
 });
