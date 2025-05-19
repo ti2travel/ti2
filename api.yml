@@ -386,6 +386,23 @@ components:
         settings:
           type: object
           description: an object with the app+user seettings
+  parameters:
+    CallbackUrl:
+      name: callbackUrl
+      in: query
+      description: Callback URL for asynchronous operations
+      required: false
+      schema:
+        type: string
+        format: url
+    BackgroundJob:
+      name: backgroundJob
+      in: query
+      description: Whether to run the job in the background
+      required: false
+      schema:
+        type: boolean
+        default: false
 paths:
   /ping:
     get:
@@ -1401,8 +1418,6 @@ paths:
           required: true
           schema:
             type: string
-        - $ref: '#/components/parameters/CallbackUrl'
-        - $ref: '#/components/parameters/BackgroundJob'
       requestBody:
         description: both app details
         required:  true
@@ -1446,8 +1461,6 @@ paths:
           example: 'travelgate-australia'
           schema:
             type: string
-        - $ref: '#/components/parameters/CallbackUrl'
-        - $ref: '#/components/parameters/BackgroundJob'
       requestBody:
         description: booking search parameters
         required:  true
