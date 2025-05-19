@@ -219,6 +219,14 @@ const $bookingsProductSearch = plugins => async ({
       value: funcResults,
       ttl: monthInSeconds,
     });
+    app.events.emit('bookingsProductSearch:cache:save', {
+      cacheKey,
+      userId,
+      hint,
+      operationId: 'bookingsProductSearch',
+      requestId,
+      pluginName: app.name,
+    });
   }
   // release the lock
   await app.cache.drop({
