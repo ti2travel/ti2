@@ -41,15 +41,13 @@ components:
           type: object
           description: The job app parameters
           required: true
-          example: '{
-            "method": "dailyReport"
-          }'
+          example:
+            method: dailyReport
         jobParams:
           type: object
           description: Additional bull job params
-          example: '{
-            "delay": "5000"
-          }'
+          example:
+            delay: 5000
     JobStatus:
       type: object
       properties:
