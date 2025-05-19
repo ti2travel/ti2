@@ -1,8 +1,7 @@
-/* globals beforeAll describe it expect */
+/* globals beforeAll describe it expect jest */
 const axios = require('axios');
 const MockAdapter = require('axios-mock-adapter');
 const chance = require('chance').Chance();
-
 
 const testUtils = require('../../test/utils');
 
@@ -15,7 +14,8 @@ describe('allotment', () => {
     adminEmail: 'engineering+tourplantest@tourconnect.com',
   };
   const appKey = newApp.name;
-  const userId = '551394be5ac58e5c76000019';
+  // Generate a random userId for better test isolation
+  const userId = `test-user-${chance.guid()}`;
   const token = {
     endpoint: 'https://someendpoint.com',
     username: chance.guid(),
@@ -25,14 +25,12 @@ describe('allotment', () => {
     tokenHint: 'testingToken',
     token,
   };
-  let doApiDelete;
   let doApiGet;
   let doApiPost;
   let plugins;
   let userToken;
   beforeAll(async () => {
     ({
-      doApiDelete,
       doApiGet,
       doApiPost,
       plugins,
@@ -40,18 +38,8 @@ describe('allotment', () => {
       plugins: [appKey],
     }));
 
-    // drop any existing user integrations
-    try {
-      await doApiDelete({
-        url: `/${appKey}/${userId}`,
-        token: adminKey,
-        payload: { tokenHint: newIntegration.tokenHint },
-      });
-    } catch (err) {
-      // console.debug(err);
-    }
-
-    // create the user
+    // Using random user IDs, so no need to drop existing integrations
+    // create the user - handle case where random user doesn't exist yet
     ({ value: userToken } = await doApiPost({
       url: '/user',
       token: adminKey,
@@ -59,20 +47,13 @@ describe('allotment', () => {
     }));
     expect(userToken).toBeTruthy();
 
-    // create the App+User setup
-    const { userAppKeys } = await doApiGet({
-      url: `/user/${userId}/apps`,
+    // create the App+User relation
+    const { value } = await doApiPost({
+      url: `/${appKey}/${userId}`,
       token: userToken,
+      payload: newIntegration,
     });
-    if (!userAppKeys.map(e => e.integrationId).includes(appKey)) {
-      // relation does not exits
-      const { value } = await doApiPost({
-        url: `/${appKey}/${userId}`,
-        token: userToken,
-        payload: newIntegration,
-      });
-      expect(value).toBeTruthy();
-    }
+    expect(value).toBeTruthy();
   });
   const payload = {
     dateFormat: 'DD-MM-YYYY',
@@ -106,10 +87,13 @@ describe('allotment', () => {
     expect(call.token).toEqual(token);
   });
   it('should be able to receive an axios error', async () => {
+    // Temporarily silence console.error for this test since we're expecting an error
+    const originalConsoleError = console.error;
+    console.error = jest.fn();
+    
     const mock = new MockAdapter(axios);
     mock.onGet('http://www.example.com').reply(500, { what: 'nothing here' });
     let urlParamsError = new URLSearchParams({
-
       ...payload,
       keyPath: 'errorAxios',
     }).toString();
@@ -120,8 +104,14 @@ describe('allotment', () => {
     });
     expect(returnValue.allotments).toBeFalsy();
     expect(returnValue.message).toBe('nothing here');
+    // Restore console.error even if the test fails
+    console.error = originalConsoleError;
   });
   it('should be able to receive an error from a regular response', async () => {
+    // Temporarily silence console.error for this test since we're expecting an error
+    const originalConsoleError = console.error;
+    console.error = jest.fn();
+
     const mock = new MockAdapter(axios);
     mock.onGet('http://www.example.com').reply(200, { error: 'something went wrong' });
     let urlParamsError = new URLSearchParams({
@@ -135,5 +125,7 @@ describe('allotment', () => {
     });
     expect(returnValue.allotments).toBeFalsy();
     expect(returnValue.message).toBe('something went wrong');
+    // Restore console.error even if the test fails
+    console.error = originalConsoleError;
   });
 });

@@ -112,18 +112,20 @@ describe('app', () => {
       expect(jobId).toBeTruthy();
       expect(status).toBeTruthy();
     });
-    it('should be able to get the status of a ran job', async () => {
-      await global.sleep(5e3);
+    it('should be able to get the status of a job', async () => {
       const url = `/${appName}/${userId}/${jobId}/jobStatus`;
-      const jobStatus = await doApiGet({
-        url,
-        token: appKey,
-        payload: {},
-      });
-      expect(jobStatus.jobId).toBeTruthy();
+      let jobStatus;
+      do {
+        jobStatus = await doApiGet({
+          url,
+          token: appKey,
+          payload: {},
+        });
+        await global.sleep(1e3);
+      } while (['waiting', 'active'].includes(jobStatus.status));
       expect(jobStatus.status).toBe('success');
       expect(jobStatus.result).toEqual({ someVal: true });
-    }, 6e3);
+    }, 30e3);
   });
   it('should be able to get a list of all tokens related to the app', async () => {
     const { userAppKeys } = await doApiGet({

@@ -41,15 +41,13 @@ components:
           type: object
           description: The job app parameters
           required: true
-          example: '{
-            "method": "dailyReport"
-          }'
+          example:
+            method: dailyReport
         jobParams:
           type: object
           description: Additional bull job params
-          example: '{
-            "delay": "5000"
-          }'
+          example:
+            delay: 5000
     JobStatus:
       type: object
       properties:
@@ -388,6 +386,23 @@ components:
         settings:
           type: object
           description: an object with the app+user seettings
+  parameters:
+    CallbackUrl:
+      name: callbackUrl
+      in: query
+      description: Callback URL for asynchronous operations
+      required: false
+      schema:
+        type: string
+        format: url
+    BackgroundJob:
+      name: backgroundJob
+      in: query
+      description: Whether to run the job in the background
+      required: false
+      schema:
+        type: boolean
+        default: false
 paths:
   /ping:
     get:
@@ -1640,6 +1655,8 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: '#/components/parameters/CallbackUrl'
+        - $ref: '#/components/parameters/BackgroundJob'
       requestBody:
         description: Search query
         required:  true
@@ -1683,6 +1700,8 @@ paths:
           example: 'travelgate-australia'
           schema:
             type: string
+        - $ref: '#/components/parameters/CallbackUrl'
+        - $ref: '#/components/parameters/BackgroundJob'
       requestBody:
         description: Search query
         required:  true

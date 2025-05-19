@@ -1,7 +1,6 @@
 const assert = require('assert');
 const hash = require('object-hash');
 const R = require('ramda');
-const cache = require('../cache');
 const { UserAppKey } = require('../models/index');
 const { typeDefs: productTypeDefs, query: productQuery } = require('./graphql-schemas/product');
 const { typeDefs: availTypeDefs, query: availQuery } = require('./graphql-schemas/availability');
@@ -151,19 +150,15 @@ const $bookingsProductSearch = plugins => async ({
   const func = (app.searchProducts || app.searchProductsForItinerary).bind(app);
   // NOTE: this is intend to cache the entire product list
   const cacheKey = hash({
-    appKey,
     userId,
     hint,
     operationId: 'bookingsProductSearch',
   });
-  // TODO: remove debugging console.logs after no related issues reported for a while
   // Check cache first if not forcing refresh
-  const cacheValue = forceRefresh ? null : await cache.get({
-    pluginName: appKey,
+  const cacheValue = forceRefresh ? null : await app.cache.get({
     key: cacheKey,
   });
-  const lastUpdated = await cache.get({
-    pluginName: appKey,
+  const lastUpdated = await app.cache.get({
     key: `${cacheKey}:lastUpdated`,
   });
   // refresh every 24 hours
@@ -176,16 +171,13 @@ const $bookingsProductSearch = plugins => async ({
   if (doNotCallPluginForProducts) {
     isStale = false;
   }
-  const hasLock = await cache.get({
-    pluginName: appKey,
+  const hasLock = await app.cache.get({
     key: `${cacheKey}:lock`,
   });
-  console.log(`${appKey}/${userId}/${hint}: lastUpdated: ${lastUpdated}, ttr: ${ttr}, isStale: ${isStale}, hasLock: ${hasLock}, foundCache: ${!!cacheValue}`);
   // when there is a lock (meaning another request is already fetching the products)
   // return stale cache during this short window
   if (cacheValue && cacheValue.products && (hasLock || !isStale)) {
     const searchResults = $searchProductList(cacheValue.products, searchInput, optionId);
-    console.log(`${appKey}/${userId}/${hint}: returning cached products: ${searchResults.length}`);
     return {
       ...cacheValue,
       products: searchResults,
@@ -194,13 +186,10 @@ const $bookingsProductSearch = plugins => async ({
     };
   }
   if (doNotCallPluginForProducts && !forceRefresh) {
-    console.log(`${appKey}/${userId}/${hint}:not calling the plugin because doNotCallPluginForProducts is true and forceRefresh is false`);
     return { products: [] };
   }
-  console.log(`${appKey}/${userId}/${hint}: (forceRefresh: ${forceRefresh}) so calling func to get fresh products`);
   // create a lock with 2 minute TTL
-  await cache.save({
-    pluginName: appKey,
+  await app.cache.save({
     key: `${cacheKey}:lock`,
     value: true,
     ttl: 120,
@@ -215,28 +204,32 @@ const $bookingsProductSearch = plugins => async ({
   });
   // save cache if products are found
   if (funcResults && funcResults.products && funcResults.products.length > 0) {
-    console.log(`${appKey}/${userId}/${hint}: saving cache of ${funcResults.products.length} products`);
     // I initially wanted to let the cache live forever
     // but just in case user left TC or something, we don't want to keep the cache forever
     // so we set the TTL to 30 days, within 30 days,
     // we will refresh the cache every 24 hours(or specified by the user) without deleting the stale cache
     const monthInSeconds = 30 * 24 * 60 * 60;
-    await cache.save({
-      pluginName: appKey,
+    await app.cache.save({
       key: `${cacheKey}:lastUpdated`,
       value: Date.now(),
       ttl: monthInSeconds,
     });
-    await cache.save({
-      pluginName: appKey,
+    await app.cache.save({
       key: cacheKey,
       value: funcResults,
       ttl: monthInSeconds,
     });
+    app.events.emit('bookingsProductSearch:cache:save', {
+      cacheKey,
+      userId,
+      hint,
+      operationId: 'bookingsProductSearch',
+      requestId,
+      pluginName: app.name,
+    });
   }
   // release the lock
-  await cache.drop({
-    pluginName: appKey,
+  await app.cache.drop({
     key: `${cacheKey}:lock`,
   });
   const searchResults = $searchProductList(R.pathOr([], ['products'], funcResults), searchInput, optionId);

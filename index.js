@@ -14,6 +14,7 @@ const { v4: uuidv4 } = require('uuid');
 const EventEmitter = require('eventemitter2');
 const axios = require('axios');
 const curlirize = require('axios-curlirize');
+const { addJob } = require('./worker/queue');
 
 const cacheSettings = {
   '*': [
@@ -58,13 +59,14 @@ const axiosSafeResponse = response => {
 module.exports = async ({
   apiDocs = true,
   plugins: pluginsParam = {},
+  pluginsInstantiated = false,
   port: portParam,
   startServer = true,
   worker = false,
 }) => {
   const port = portParam || process.env.PORT || 10010;
   // create the plugin instances
-  const plugins = await bb.map(Object.entries(pluginsParam), async ([pluginName, Plugin]) => {
+  const plugins = pluginsInstantiated || await bb.map(Object.entries(pluginsParam), async ([pluginName, Plugin]) => {
     // pass all env variables
     const pluginEnv = pickBy(
       (_val, key) => key.substring(0, `ti2_${pluginName}`.length)
@@ -83,6 +85,7 @@ module.exports = async ({
         getOrExec: args => cache.getOrExec({ ...args, pluginName }),
         save: args => cache.save({ ...args, pluginName }),
       },
+      axios,
       events: ti2Events,
       name: pluginName,
       ...params,
@@ -277,6 +280,44 @@ module.exports = async ({
             },
           }
         */
+       // check if the operation is supposed to be ran in the background
+        const backgroundJob = R.pathOr(
+          false, ['backgroundJob'], req.body,
+        );
+       if (backgroundJob) {
+        const job = await addJob({
+          type: 'api',
+          method: req.method,
+          url: req.url,
+          headers: req.headers,
+          payload: {
+            ...req.body,
+            requestId: req.requestId,
+          },
+        });
+        return res.json({ jobId: job });
+       }
+       // intercept res.json
+        const callbackUrl = R.pathOr(
+          false, ['callbackUrl'], req.body);
+        if (callbackUrl) {
+          // send callback
+          const originalJson = res.json;
+          res.json = function (data) {
+            const callbackBody = {
+              callbackUrl,
+              request: body,
+              result: data,
+            };
+            addJob({
+              type: 'callback',
+              payload: callbackBody,
+            }).then(jobId => {
+              console.debug('created callback job', jobId);
+            });
+            return originalJson.call(this, data);
+          };
+        }
         const pluginCacheSettings = R.pathOr({}, ['cacheSettings'], currentPlugin);
         // Filter plugin cache settings to only include those with cacheInMiddleware: true
         const filteredPluginCacheSettings = R.pickBy(

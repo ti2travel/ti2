@@ -14,7 +14,8 @@ describe('user: bookings controller', () => {
     adminEmail: 'engineering+travelgate@tourconnect.com',
   };
   const appKey = newApp.name;
-  const userId = '551394be5ac58e5c76000019';
+  // Generate a random userId for better test isolation
+  const userId = `test-user-${chance.guid()}`;
   const token = {
     endpoint: 'https://api.travelgatex.com',
     apiKey: chance.guid(),
@@ -28,6 +29,7 @@ describe('user: bookings controller', () => {
   let doApiGet;
   let doApiPost;
   let plugins;
+  let userToken;
   beforeAll(async () => {
     ({
       doApiDelete,
@@ -38,67 +40,69 @@ describe('user: bookings controller', () => {
       plugins: [newApp.name],
     }));
 
-    // drop all cache keys, clean slate
-    const cacheKeys = await cache.keys();
-    cacheKeys.forEach(key => cache.drop({
-      pluginName: key.split(':')[0],
-      key: key.split(':')[1],
-    }));
-  });
-  beforeEach(async () => {
-    jest.clearAllMocks();
-  });
-
-  let userToken;
-  it('drop any existing travelgateapp integration', async () => {
-    try {
-      await doApiDelete({
-        url: `/travelgate/${userId}`,
-        token: adminKey,
-        payload: { tokenHint: 'testingToken' },
-      });
-    } catch (err) {
-      console.debug(err);
-    }
-    try {
-      await doApiDelete({
-        url: '/app/travelgate',
-        token: adminKey,
-      });
-    } catch (err) {
-      console.debug(err);
-    }
-  });
-  it('create the travelgate app', async () => {
+    // drop all related cache keys, clean slate for this user
+    const cacheKey = hash({
+      appKey,
+      userId,
+      hint: 'testingToken',
+      operationId: 'bookingsProductSearch',
+    });
+    await cache.drop({
+      pluginName: appKey,
+      key: cacheKey,
+    });
+    await cache.drop({
+      pluginName: appKey,
+      key: `${cacheKey}:lock`,
+    });
+    // create the travelgate app and user
     const { value: apiKey } = await doApiPost({
       url: '/app',
       token: adminKey,
       payload: newApp,
     });
     expect(apiKey).toBeTruthy();
-    // create the user token
+
+    // Create the user token
     ({ value: userToken } = await doApiPost({
       url: '/user',
       token: adminKey,
       payload: { userId },
     }));
     expect(userToken).toBeTruthy();
-  });
-  it('create the travelGage+User setup', async () => {
-    const { userAppKeys } = await doApiGet({
+    // Create the user first, then get the token
+    await doApiPost({
+      url: '/user',
+        token: adminKey,
+        payload: { userId, email: `${userId}@example.com` },
+      });
+      // Now get the token
+      ({ value: userToken } = await doApiPost({
+        url: '/user',
+        token: adminKey,
+        payload: { userId },
+      }));
+      expect(userToken).toBeTruthy();
+    // create the travelGage+User setup
+    let userAppKeys = [];
+    ({ userAppKeys } = await doApiGet({
       url: `/user/${userId}/apps`,
       token: userToken,
-    });
+    }));
+    // Check if we need to create the integration
     if (!userAppKeys.find(e => e.hint === newIntegration.tokenHint
-        && e.integrationId === newApp.name)) {
-      // relation does not exits
+      && e.integrationId === newApp.name)) {
+      // relation does not exist
       const { value } = await doApiPost({
         url: `/${appKey}/${userId}`,
         token: userToken,
-        payload: newIntegration,
-      });
-      expect(value).toBeTruthy();
-    }
+          payload: newIntegration,
+        });
+        expect(value).toBeTruthy();
+      }
+  });
+  beforeEach(async () => {
+    jest.clearAllMocks();
   });
   it('should be able to search a for a booking', async () => {
     const payload = {
@@ -173,6 +177,7 @@ describe('user: bookings controller', () => {
       expect(products[1].options.length).toBe(2);
     });
     it('should be able to get booking products with searchInput', async () => {
+
       const payload = {
         searchInput: 'Transfer from Sydney Harbor to Hilton Hotel',
       };
@@ -245,35 +250,21 @@ describe('user: bookings controller', () => {
         client: 'tourconnect',
         ttlForProducts: 2, // 2 seconds TTR
       };
-
-      beforeEach(async () => {
-        // Clear any existing integration
-        try {
-          await doApiDelete({
-            url: `/${appKey}/${userId}`,
-            token: adminKey,
-            payload: { tokenHint: 'ttr-test' },
-          });
-        } catch (err) {
-          console.debug(err);
-        }
-
-        // Create new integration with short TTR
+      beforeAll(async () => {
         await doApiPost({
           url: `/${appKey}/${userId}`,
-          token: adminKey,
+          token: userToken,
           payload: {
-            token: shortTTRToken,
             tokenHint: 'ttr-test',
+            token: shortTTRToken,
           },
         });
-
-        // Clear mock calls
+      });
+      beforeEach(async () => {
         jest.clearAllMocks();
       });
 
       it('should use cache within TTR period', async () => {
-        // First call should hit the plugin
         await doApiPost({
           url: `/products/${appKey}/${userId}/ttr-test/search`,
           token: userToken,
