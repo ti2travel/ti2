@@ -68,6 +68,9 @@ describe('worker: API job handling', () => {
   let actualJobHandler;
 
   beforeAll(async () => {
+    // Silence console.log for tests
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+
     // Setting up test environment
     
     const testUtilsResult = await require('../../test/utils')({
@@ -110,12 +113,8 @@ describe('worker: API job handling', () => {
   });
 
   afterAll(() => {
-    jest.clearAllMocks();
+    jest.restoreAllMocks(); // Restores all mocks, including console.log spy
     actualJobHandler = null; // Clear captured handler
-  });
-
-  afterAll(() => {
-    jest.clearAllMocks();
   });
 
   it('should create a job of type "api" for the product search endpoint and send it to the API server', async () => {
