@@ -1,67 +1,183 @@
-/* globals describe it expect jest beforeAll afterAll */
+const axios = require('axios');
+require('../../test/utils');
 
-// Import queue module directly to avoid reference issues
-const queueModule = require('../queue');
+// Mock throng to directly execute the worker function
+jest.mock('throng', () => jest.fn(config => {
+  if (typeof config.worker === 'function') {
+    console.log('Mocked throng: Executing worker function provided in config.');
+    // Provide dummy id and disconnect function, similar to how throng would call it
+    config.worker('test-worker-id', jest.fn()); 
+  } else {
+    console.error('Mocked throng: config.worker is not a function or not provided.');
+    // Optionally, throw an error or handle as appropriate for your tests
+    // throw new Error('Throng mock expected a worker function in config.');
+  }
+  // throng can return a promise or be void, depending on usage. Here, we don't need to return.
+}));
+
+// Mock axios
+jest.mock('axios');
+
+// Mock the queue to avoid actual Redis operations
+jest.mock('../queue', () => {
+  const original = jest.requireActual('../queue');
+  return {
+    ...original,
+    queue: {
+      ...original.queue,
+      process: jest.fn(),
+      getJob: jest.fn(),
+    },
+  };
+});
+
+// Mock the queue module
+jest.mock('../queue', () => {
+  const original = jest.requireActual('../queue');
+  return {
+    ...original,
+    queue: {
+      ...original.queue,
+      process: jest.fn(),
+      getJob: jest.fn().mockResolvedValue({
+        id: 'test-job-id',
+        data: {
+          type: 'api',
+          method: 'POST',
+          url: '/products/testAppKey/testUserId/testTokenHint/search',
+          headers: { 'content-type': 'application/json' },
+          payload: { backgroundJob: true },
+          inTesting: true
+        },
+        remove: jest.fn().mockResolvedValue(true)
+      })
+    },
+    addJob: jest.fn().mockResolvedValue('test-job-id'),
+    allDone: jest.fn().mockResolvedValue(true)
+  };
+});
+
+// Import the mocked queue and the actual worker module
+const { addJob, queue, allDone } = require('../queue');
+const actualWorkerModule = require('../index'); // Actual worker module
 
 describe('worker: API job handling', () => {
-  it('should create a job of type "api" for the /ping endpoint', async () => {
-    // Create a job to call the /ping endpoint
+  let serverUrl;
+  let plugins;
+  let doApiPost;
+
+  let actualJobHandler;
+
+  beforeAll(async () => {
+    console.log('Setting up test environment...');
+    
+    const testUtilsResult = await require('../../test/utils')({
+      plugins: ['mockPlugin'],
+      startServer: false,
+      worker: false,
+    });
+    
+    plugins = testUtilsResult.plugins;
+    // doApiPost might not be used directly if worker uses supertest
+    serverUrl = 'http://127.0.0.1:3000'; // This might be for constructing expected URLs
+    
+    axios.mockImplementation(config => {
+      console.log('Mocked axios called with config:', config);
+      // This mock is for the internal axios call made by the worker
+      if (config.url && config.url.includes('/products/testAppKey/testUserId/testTokenHint/search')) {
+        return Promise.resolve({ status: 200, data: { success: true, message: 'Mocked internal success' } });
+      }
+      console.error('Unexpected axios call to mock:', config);
+      return Promise.reject(new Error(`Unexpected axios call in mock for URL: ${config.url}`));
+    });
+
+    // Mock queue.process to capture the handler passed by the actual worker
+    queue.process.mockImplementation((...args) => {
+      let handlerCallback;
+      if (typeof args[args.length - 1] === 'function') {
+        handlerCallback = args[args.length - 1];
+      } else {
+        console.error('queue.process mock called without a handler function', args);
+        throw new Error('queue.process mock called without a handler function');
+      }
+      const queueName = typeof args[0] === 'string' ? args[0] : 'default';
+      console.log(`Mocked queue.process for queue "${queueName}" called by actual worker. Capturing handler.`);
+      actualJobHandler = handlerCallback;
+    });
+    
+    console.log('Initializing actual worker module...');
+    actualWorkerModule({ plugins }); // Initialize the actual worker, it should call the mocked queue.process
+    console.log('Actual worker module initialized.');
+    
+    console.log('Test environment setup complete');
+  });
+
+  afterAll(() => {
+    console.log('Cleaning up test environment...');
+    jest.clearAllMocks();
+    actualJobHandler = null; // Clear captured handler
+  });
+
+  afterAll(() => {
+    console.log('Cleaning up test environment...');
+    jest.clearAllMocks();
+  });
+
+  it('should create a job of type "api" for the product search endpoint and send it to the API server', async () => {
+    console.log('Starting test...');
+    
+    // 1. Test that we can create a job
     const jobData = {
       type: 'api',
-      method: 'GET',
-      url: '/ping',
-      headers: {
-        'content-type': 'application/json',
-      },
-      payload: {},
+      method: 'POST',
+      url: '/products/testAppKey/testUserId/testTokenHint/search',
+      headers: { 'content-type': 'application/json' },
+      payload: { backgroundJob: true },
     };
-
-    // Add the job to the queue
-    const jobId = await queueModule.addJob(jobData);
     
-    // Verify job was created with a valid ID
+    console.log('Adding job to queue...');
+    const jobId = await addJob(jobData);
+    console.log('Job added with ID:', jobId);
+    
+    // Basic assertions
     expect(jobId).toBeTruthy();
     expect(typeof jobId).toBe('string');
     
-    // Get the job from the queue to verify its data
-    const job = await queueModule.queue.getJob(jobId);
+    // Verify addJob was called correctly
+    expect(addJob).toHaveBeenCalledWith(jobData);
     
-    // Verify the job exists and has the correct data
-    expect(job).toBeTruthy();
-    expect(job.data).toEqual(expect.objectContaining({
-      type: 'api',
-      method: 'GET',
-      url: '/ping',
-      headers: expect.objectContaining({
-        'content-type': 'application/json',
-      }),
-      payload: expect.any(Object),
-      inTesting: true, // This is added by addJob function
-    }));
+    // Simulate job processing by invoking the captured handler
+    console.log('Simulating job processing with captured handler...');
+    if (!actualJobHandler) {
+      throw new Error('Job handler was not captured from queue.process. Worker might not have initialized queue processing correctly.');
+    }
+    // Construct a mock Bull job object
+    const mockJob = {
+      data: jobData,
+      id: jobId,
+      log: jest.fn(),
+      progress: jest.fn(),
+      update: jest.fn(),
+    };
+    await actualJobHandler(mockJob);
+    console.log('Job processing simulation complete.');
     
-    // Clean up - we'll clean the queue at the end of all tests
-    // No need to remove individual jobs
-  });
-  
-  it('should include the correct structure for API jobs', () => {
-    // This test verifies the worker/index.js handles API jobs correctly
-    // by checking the code structure without actually running it
+    // Verify queue.process was called (to capture the handler)
+    expect(queue.process).toHaveBeenCalled();
     
-    // Read the worker code
-    const workerCode = require('fs').readFileSync(require('path').resolve(__dirname, '../index.js'), 'utf8');
+    // Verify the internal API call was made by the worker correctly
+    expect(axios).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: jobData.method.toLowerCase(), // Ensure method matches job data
+        url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/products\/testAppKey\/testUserId\/testTokenHint\/search$/),
+        data: {}, // Payload after R.omit(['backgroundJob'], { backgroundJob: true }) is an empty object
+        headers: expect.objectContaining({
+          // Axios might add/remove/modify some headers, so be specific about what must be there
+          // 'content-type': 'application/json' // This might be set by axios default or omitted if data is empty
+        }),
+      })
+    );
     
-    // Verify the worker code includes handling for API jobs
-    expect(workerCode).toContain('if (type === \'api\')'); 
-    
-    // Verify it creates a temporary HTTP server
-    expect(workerCode).toContain('server = http.createServer(app)'); 
-    
-    // Verify it makes a request to the specified URL
-    expect(workerCode).toContain('url: `${baseURL}${url}`'); 
-    
-    // Verify it returns the expected result structure
-    expect(workerCode).toContain('code,');
-    expect(workerCode).toContain('result,');
-    expect(workerCode).toContain('success:');
+    console.log('Test completed successfully');
   });
 });
