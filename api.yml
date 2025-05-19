@@ -12,22 +12,6 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-  parameters:  
-    CallbackUrl:
-      name: callbackUrl
-      in: query
-      required: false
-      description: URL to be called with the operation results
-      schema:
-        type: string
-    BackgroundJob:
-      name: backgroundJob
-      in: query
-      required: false
-      default: false
-      description: If true, the search will be processed in the background and return a jobId
-      schema:
-        type: boolean
   schemas:
     ServerInfo:
       type: object
