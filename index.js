@@ -191,7 +191,7 @@ module.exports = async ({
     app.use(async (req, res, next) => {
       const startHrTime = process.hrtime();
       const body = composeBodyFromReq(req);
-      req.customBody = body;
+      req.requestBody = R.clone(body);
       ti2Events.emit('request.start', body);
       req.requestId = body.requestId;
       res.on('finish', async () => {
@@ -201,7 +201,7 @@ module.exports = async ({
           10,
         );
         ti2Events.emit('request.end', {
-          ...body,
+          ...req.requestBody,
           cacheKey: req.cacheKey,
           responseTimeInMs,
           responseStatusCode: res.statusCode,
@@ -328,7 +328,7 @@ module.exports = async ({
           ...cacheSettings['*'],
           ...(currentPlugin ? R.keys(filteredPluginCacheSettings) : []),
         ];
-        const body = req.customBody;
+        const body = req.requestBody;
         if (cachingOperations.indexOf(body.operationId) > -1) {
           const cacheBody = R.omit(['requestId', 'date'], body);
           const cacheKey = hash(cacheBody);
