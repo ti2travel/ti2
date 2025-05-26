@@ -74,7 +74,6 @@ components:
             startDate: '01/04/2023'
             endDate: '03/04/2023'
             keyPath: 'MAGLUX|7CQLDACMAGLUXDELSUI'
-  schemas:
     ServerInfo:
       type: object
       properties:
@@ -561,7 +560,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  paths:
   /ping:
     get:
       tags:

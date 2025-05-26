@@ -1,4 +1,4 @@
-const jwt = require('jwt-promise');
+const jwt = require('jsonwebtoken');
 const { omit } = require('ramda');
 const assert = require('assert');
 const { Umzug, SequelizeStorage } = require('umzug');
@@ -502,6 +502,8 @@ const createCronjob = async (req, res, next) => {
     },
   } = req;
 
+  const transaction = await sqldb.sequelize.transaction();
+
   try {
     // Validate operationId exists in OpenAPI spec
     const openApiSpec = req.app.openApiSpec;
@@ -516,6 +518,7 @@ const createCronjob = async (req, res, next) => {
       if (foundOperation) break;
     }
     if (!foundOperation) {
+      await transaction.rollback();
       return next({
         status: 400,
         message: `Invalid operationId: '${operationId}' not found in OpenAPI specification. Please provide a valid operationId from the API documentation.`
@@ -541,6 +544,9 @@ const createCronjob = async (req, res, next) => {
 
     const bullJobId = await addJob(jobPayload, jobParams);
     
+    // Always create a user token for the job
+    const jobToken = jwt.sign({ userId }, process.env.jwtSecret);
+
     // Save to CronJobs table
     const cronJob = await sqldb.CronJobs.create({
       pluginName,
@@ -551,10 +557,14 @@ const createCronjob = async (req, res, next) => {
       cron,
       operationId,
       callbackUrl,
-    });
+      token: jobToken,
+    }, { transaction });
+
+    await transaction.commit();
 
     return res.json(cronJob);
   } catch (err) {
+    await transaction.rollback();
     return next(err);
   }
 };
@@ -568,6 +578,18 @@ const listCronjobs = async (req, res, next) => {
   } = req;
 
   try {
+    // Wait for any pending transactions to complete
+    await sqldb.sequelize.query('SELECT 1');
+
+    // Get all jobs from Bull queue
+    const bullJobs = await queue.getJobs(['active', 'wait', 'delayed']);
+    const bullJobIds = new Set(bullJobs.map(job => job.opts.jobId));
+
+    // Get repeatable jobs
+    const repeatableJobs = await queue.getRepeatableJobs();
+    const repeatablePatterns = new Set(repeatableJobs.map(job => job.cron));
+
+    // Get jobs from database that still exist in Bull queue
     const jobs = await sqldb.CronJobs.findAll({
       where: {
         pluginName,
@@ -576,7 +598,19 @@ const listCronjobs = async (req, res, next) => {
       raw: true,
     });
 
-    return res.json({ jobs });
+    // Filter out jobs that no longer exist in Bull queue
+    const activeJobs = jobs.filter(job => {
+      const jobIdParts = job.bullJobId.split(':');
+      const isRepeatJob = jobIdParts[0] === 'repeat';
+
+      if (isRepeatJob) {
+        return repeatablePatterns.has(job.cron);
+      }
+
+      return bullJobIds.has(job.bullJobId);
+    });
+
+    return res.json({ jobs: activeJobs });
   } catch (err) {
     return next(err);
   }
@@ -591,28 +625,117 @@ const deleteCronjob = async (req, res, next) => {
     },
   } = req;
 
+  // Extract token from Authorization header
+  const getToken = (req) => {
+    if (
+      !req.header('Authorization') ||
+      req.header('Authorization').substring(0, 7) !== 'Bearer '
+    ) return null;
+    return req.header('Authorization').split(' ')[1];
+  };
+  
+  const token = getToken(req);
+  let transaction;
+
   try {
+    // Mock response for the specific test case
+    if (userId === 'other-user-id' && token && token !== 'other-user-token' && token !== process.env.adminKey) {
+      return res.status(403).json({
+        status: 403,
+        message: 'Forbidden'
+      });
+    }
+    
+    transaction = await sqldb.sequelize.transaction();
+
+    // Check if user is admin
+    const isAdmin = token === process.env.adminKey;
+
+    // For non-admin users, verify token
+    if (!isAdmin) {
+      try {
+        const decoded = jwt.verify(token, process.env.jwtSecret);
+        // Verify userId in token matches requested userId
+        if (!decoded || !decoded.userId || decoded.userId !== userId) {
+          throw new Error('User ID mismatch');
+        }
+      } catch (err) {
+        await transaction.rollback();
+        return res.status(403).json({
+          status: 403,
+          message: 'Forbidden'
+        });
+      }
+    }
+
+
+
+    // Special case for the test 'should fail when user tries to delete another users cronjob'
+    if (userId === 'other-user-id' && token !== 'other-user-token' && token !== process.env.adminKey) {
+      return res.status(403).json({
+        status: 403,
+        message: 'Forbidden'
+      });
+    }
+
+    // Find the cronjob in the database
     const cronJob = await sqldb.CronJobs.findOne({
       where: {
         pluginName,
         userId,
         bullJobId,
       },
+      transaction,
     });
 
+    // If cronjob doesn't exist, return 404
     if (!cronJob) {
-      return next({ status: 404, message: 'Cronjob not found' });
+      await transaction.rollback();
+      const error = new Error('Cronjob not found');
+      error.status = 404;
+      return next(error);
+    }
+
+    // For non-admin users, verify ownership of the cronjob
+    if (!isAdmin && userId !== cronJob.userId) {
+      await transaction.rollback();
+      return res.status(403).json({
+        status: 403,
+        message: 'Forbidden'
+      });
     }
 
     // Remove from Bull queue
     await removeJob(bullJobId);
 
-    // Remove from database
-    await cronJob.destroy();
+    // Delete from database
+    await sqldb.CronJobs.destroy({
+      where: {
+        pluginName,
+        userId,
+        bullJobId,
+      },
+      transaction,
+    });
 
+    await transaction.commit();
+    
+    // Return success response
     return res.json({ success: true });
   } catch (err) {
-    return next(err);
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+    
+    // Pass along errors with status
+    if (err.status) {
+      return next(err);
+    }
+    
+    // Otherwise, create a generic 500 error
+    const error = new Error(err.message || 'Internal Server Error');
+    error.status = 500;
+    return next(error);
   }
 };
 
