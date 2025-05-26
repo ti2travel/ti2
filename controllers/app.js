@@ -13,6 +13,7 @@ const {
   queue,
   addJob,
   jobStatus,
+  removeJob,
 } = require('../worker/queue');
 
 const { env: { jwtSecret } } = process;
@@ -487,6 +488,134 @@ const getAppToken = async (req, res, next) => {
   return res.json({ token: await userAppKey.token });
 };
 
+const createCronjob = async (req, res, next) => {
+  const {
+    body: {
+      operationId,
+      cron,
+      callbackUrl,
+      payload = {},
+    },
+    params: {
+      appKey: pluginName,
+      userId,
+    },
+  } = req;
+
+  try {
+    // Validate operationId exists in OpenAPI spec
+    const openApiSpec = req.app.openApiSpec;
+    let foundOperation = false;
+    for (const [path, pathObj] of Object.entries(openApiSpec.paths)) {
+      for (const [method, operation] of Object.entries(pathObj)) {
+        if (operation.operationId === operationId) {
+          foundOperation = true;
+          break;
+        }
+      }
+      if (foundOperation) break;
+    }
+    if (!foundOperation) {
+      return next({
+        status: 400,
+        message: `Invalid operationId: '${operationId}' not found in OpenAPI specification. Please provide a valid operationId from the API documentation.`
+      });
+    }
+
+    // Create job with API type
+    const jobPayload = {
+      type: 'api',
+      pluginName,
+      userId,
+      operationId,
+      ...payload,
+      ...(callbackUrl ? { callbackUrl } : {}),
+    };
+
+    const jobParams = {
+      repeat: {
+        cron,
+      },
+      removeOnComplete: false,
+    };
+
+    const bullJobId = await addJob(jobPayload, jobParams);
+    
+    // Save to CronJobs table
+    const cronJob = await sqldb.CronJobs.create({
+      pluginName,
+      userId,
+      hint: payload.hint || 'default',
+      pluginJobId: operationId,
+      bullJobId,
+      cron,
+      operationId,
+      callbackUrl,
+    });
+
+    return res.json(cronJob);
+  } catch (err) {
+    return next(err);
+  }
+};
+
+const listCronjobs = async (req, res, next) => {
+  const {
+    params: {
+      appKey: pluginName,
+      userId,
+    },
+  } = req;
+
+  try {
+    const jobs = await sqldb.CronJobs.findAll({
+      where: {
+        pluginName,
+        userId,
+      },
+      raw: true,
+    });
+
+    return res.json({ jobs });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+const deleteCronjob = async (req, res, next) => {
+  const {
+    params: {
+      appKey: pluginName,
+      userId,
+      jobId: bullJobId,
+    },
+  } = req;
+
+  try {
+    const cronJob = await sqldb.CronJobs.findOne({
+      where: {
+        pluginName,
+        userId,
+        bullJobId,
+      },
+    });
+
+    if (!cronJob) {
+      return next({ status: 404, message: 'Cronjob not found' });
+    }
+
+    // Remove from Bull queue
+    await removeJob(bullJobId);
+
+    // Remove from database
+    await cronJob.destroy();
+
+    return res.json({ success: true });
+  } catch (err) {
+    return next(err);
+  }
+};
+
 module.exports = plugins => ({
   createAppToken,
   getAppToken,
@@ -504,4 +633,7 @@ module.exports = plugins => ({
   tokenTemplate,
   validateAppToken: validateAppToken(plugins),
   getAffiliates: getAffiliates(plugins),
+  createCronjob,
+  deleteCronjob,
+  listCronjobs,
 });

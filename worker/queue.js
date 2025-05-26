@@ -46,6 +46,15 @@ const saveResult = async ({ id, resultValue }) => {
   await redisResults.set(id, JSON.stringify(resultValue), 'EX', itemsTTL);
 };
 
+const removeJob = async (jobId) => {
+  const job = await queue.getJob(jobId);
+  if (!job) {
+    throw new Error('Job not found');
+  }
+  await job.remove();
+  await redisResults.del(jobId);
+};
+
 const jobStatus = async ({ jobId }) => {
   try {
     const job = await queue.getJob(jobId);
@@ -85,4 +94,5 @@ module.exports = {
   queue,
   saveResult,
   redisResults,
+  removeJob,
 };

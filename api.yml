@@ -13,6 +13,68 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    CronJob:
+      type: object
+      properties:
+        operationId:
+          type: string
+          description: OpenAPI operationId to execute as a cronjob
+          example: 'queryAllotment'
+        cron:
+          type: string
+          description: Cron expression for job scheduling
+          example: '0 0 * * *'
+        hint:
+          type: string
+          description: Token hint for the job
+          example: 'tourplan-australia'
+        pluginName:
+          type: string
+          description: Name of the plugin
+          example: 'tourplan'
+        userId:
+          type: string
+          description: User ID associated with the job
+        bullJobId:
+          type: string
+          description: Bull queue job ID
+        pluginJobId:
+          type: string
+          description: Plugin specific job ID
+    CronJobList:
+      type: object
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/CronJob'
+    CronJobCreate:
+      type: object
+      required:
+        - operationId
+        - cron
+      properties:
+        operationId:
+          type: string
+          description: OpenAPI operationId to execute as a cronjob
+          example: 'queryAllotment'
+        cron:
+          type: string
+          description: Cron expression for job scheduling
+          example: '0 0 * * *'
+        callbackUrl:
+          type: string
+          description: URL to send operation results to
+          format: url
+          example: 'https://api.example.com/webhook'
+        payload:
+          type: object
+          description: Additional payload for the operation
+          example:
+            startDate: '01/04/2023'
+            endDate: '03/04/2023'
+            keyPath: 'MAGLUX|7CQLDACMAGLUXDELSUI'
+  schemas:
     ServerInfo:
       type: object
       properties:
@@ -404,6 +466,102 @@ components:
         type: boolean
         default: false
 paths:
+  /cronjobs/{appKey}/{userId}:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - cronjobs
+      summary: List cronjobs for a user
+      operationId: listCronjobs
+      parameters:
+        - name: appKey
+          in: path
+          description: App to list cronjobs for
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: User ID to list cronjobs for
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of cronjobs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronJobList'
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - cronjobs
+      summary: Create a new cronjob
+      operationId: createCronjob
+      parameters:
+        - name: appKey
+          in: path
+          description: App to create cronjob for
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: User ID to create cronjob for
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CronJobCreate'
+      responses:
+        '200':
+          description: Created cronjob
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronJob'
+  /cronjobs/{appKey}/{userId}/{jobId}:
+    delete:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - cronjobs
+      summary: Delete a cronjob
+      operationId: deleteCronjob
+      parameters:
+        - name: appKey
+          in: path
+          description: App the cronjob belongs to
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: User ID the cronjob belongs to
+          required: true
+          schema:
+            type: string
+        - name: jobId
+          in: path
+          description: Bull job ID to delete
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  paths:
   /ping:
     get:
       tags:
