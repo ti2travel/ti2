@@ -553,7 +553,7 @@ const createCronjob = async (req, res, next) => {
       pluginName,
       userId,
       hint: payload.hint || 'default',
-      pluginJobId: operationId,
+      pluginJobId: operationId, // backward compatibility
       bullJobId,
       cron,
       operationId,
