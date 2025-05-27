@@ -49,8 +49,8 @@ describe('cronjobs', () => {
     // Create user token
     userToken = createUserToken(userId);
     
-    // Create another user for cross-user permission tests
-    const otherSetup = await appSetup();
+    // Create another user for cross-user permission tests under the same app
+    const otherSetup = await appSetup({ appName: appName });
     otherUserId = otherSetup.userId;
     
     // Create token for other user
