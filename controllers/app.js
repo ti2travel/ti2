@@ -502,7 +502,7 @@ const createCronjob = async (req, res, next) => {
     },
   } = req;
 
-  const transaction = await sqldb.sequelize.transaction();
+  let bullJobId;
 
   try {
     // Validate operationId exists in OpenAPI spec
@@ -518,12 +518,13 @@ const createCronjob = async (req, res, next) => {
       if (foundOperation) break;
     }
     if (!foundOperation) {
-      await transaction.rollback();
       return next({
         status: 400,
         message: `Invalid operationId: '${operationId}' not found in OpenAPI specification. Please provide a valid operationId from the API documentation.`
       });
     }
+
+    const transaction = await sqldb.sequelize.transaction();
 
     // Create job with API type
     const jobPayload = {
@@ -542,7 +543,7 @@ const createCronjob = async (req, res, next) => {
       removeOnComplete: false,
     };
 
-    const bullJobId = await addJob(jobPayload, jobParams);
+    bullJobId = await addJob(jobPayload, jobParams);
     
     // Always create a user token for the job
     const jobToken = jwt.sign({ userId }, process.env.jwtSecret);
@@ -565,6 +566,14 @@ const createCronjob = async (req, res, next) => {
     return res.json(cronJob);
   } catch (err) {
     await transaction.rollback();
+    // Clean up Bull job if database failed
+    if (bullJobId) {
+      try {
+        await removeJob(bullJobId);
+      } catch (cleanupErr) {
+        console.error('Failed to cleanup Bull job:', cleanupErr);
+      }
+    }
     return next(err);
   }
 };
@@ -578,9 +587,6 @@ const listCronjobs = async (req, res, next) => {
   } = req;
 
   try {
-    // Wait for any pending transactions to complete
-    await sqldb.sequelize.query('SELECT 1');
-
     // Get all jobs from Bull queue
     const bullJobs = await queue.getJobs(['active', 'wait', 'delayed']);
     const bullJobIds = new Set(bullJobs.map(job => job.opts.jobId));
@@ -635,19 +641,8 @@ const deleteCronjob = async (req, res, next) => {
   };
   
   const token = getToken(req);
-  let transaction;
 
   try {
-    // Mock response for the specific test case
-    if (userId === 'other-user-id' && token && token !== 'other-user-token' && token !== process.env.adminKey) {
-      return res.status(403).json({
-        status: 403,
-        message: 'Forbidden'
-      });
-    }
-    
-    transaction = await sqldb.sequelize.transaction();
-
     // Check if user is admin
     const isAdmin = token === process.env.adminKey;
 
@@ -660,22 +655,11 @@ const deleteCronjob = async (req, res, next) => {
           throw new Error('User ID mismatch');
         }
       } catch (err) {
-        await transaction.rollback();
         return res.status(403).json({
           status: 403,
           message: 'Forbidden'
         });
       }
-    }
-
-
-
-    // Special case for the test 'should fail when user tries to delete another users cronjob'
-    if (userId === 'other-user-id' && token !== 'other-user-token' && token !== process.env.adminKey) {
-      return res.status(403).json({
-        status: 403,
-        message: 'Forbidden'
-      });
     }
 
     // Find the cronjob in the database
@@ -685,12 +669,10 @@ const deleteCronjob = async (req, res, next) => {
         userId,
         bullJobId,
       },
-      transaction,
     });
 
     // If cronjob doesn't exist, return 404
     if (!cronJob) {
-      await transaction.rollback();
       const error = new Error('Cronjob not found');
       error.status = 404;
       return next(error);
@@ -698,35 +680,27 @@ const deleteCronjob = async (req, res, next) => {
 
     // For non-admin users, verify ownership of the cronjob
     if (!isAdmin && userId !== cronJob.userId) {
-      await transaction.rollback();
       return res.status(403).json({
         status: 403,
         message: 'Forbidden'
       });
     }
 
-    // Remove from Bull queue
+    // Remove from Bull queue first
     await removeJob(bullJobId);
 
-    // Delete from database
+    // Then remove from database
     await sqldb.CronJobs.destroy({
       where: {
         pluginName,
         userId,
         bullJobId,
       },
-      transaction,
     });
-
-    await transaction.commit();
     
     // Return success response
     return res.json({ success: true });
   } catch (err) {
-    if (transaction && !transaction.finished) {
-      await transaction.rollback();
-    }
-    
     // Pass along errors with status
     if (err.status) {
       return next(err);
