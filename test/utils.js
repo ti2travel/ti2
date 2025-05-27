@@ -127,11 +127,9 @@ module.exports = async (appParams = {}) => {
         .send(newApp);
       appKey = newAppKey;
     } else {
-      // If appNameParam is provided, we need to get the appKey for the existing app
-      const { body: { value: existingAppKey } } = await request(app)
-        .get(`/app/${appName1}`)
-        .set('Authorization', `Bearer ${adminKey}`);
-      appKey = existingAppKey;
+      // If appNameParam is provided, we'll use the adminKey directly
+      // This avoids the need for a GET /app/{appName} endpoint
+      appKey = adminKey;
     }
     
     // Create user token for the app
