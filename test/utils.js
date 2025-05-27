@@ -101,9 +101,9 @@ module.exports = async (appParams = {}) => {
   const doApiPut = params => doApi({ ...params, verb: 'put' });
   const doApiDelete = params => doApi({ ...params, verb: 'delete' });
 
-  const appSetup = async ({ userId: userIdParam } = {}) => {
+  const appSetup = async ({ userId: userIdParam, appName: appNameParam } = {}) => {
     const userId = userIdParam || chance.guid();
-    const appName1 = slugify(
+    const appName1 = appNameParam || slugify(
       chance.company(),
     ).toLowerCase();
     const newApp = {
@@ -116,10 +116,25 @@ module.exports = async (appParams = {}) => {
       endpoint: chance.url(),
       apiKey: apiKey1,
     };
-    const { body: { value: appKey } } = await request(app)
-      .post('/app')
-      .set('Authorization', `Bearer ${adminKey}`)
-      .send(newApp);
+    
+    let appKey;
+    
+    // Only create a new app if appNameParam is not provided
+    if (!appNameParam) {
+      const { body: { value: newAppKey } } = await request(app)
+        .post('/app')
+        .set('Authorization', `Bearer ${adminKey}`)
+        .send(newApp);
+      appKey = newAppKey;
+    } else {
+      // If appNameParam is provided, we need to get the appKey for the existing app
+      const { body: { value: existingAppKey } } = await request(app)
+        .get(`/app/${appName1}`)
+        .set('Authorization', `Bearer ${adminKey}`);
+      appKey = existingAppKey;
+    }
+    
+    // Create user token for the app
     await request(app)
       .post(`/${newApp.name}/${userId}`)
       .set('Authorization', `Bearer ${appKey}`)
@@ -127,6 +142,7 @@ module.exports = async (appParams = {}) => {
         tokenHint: token.apiKey.split('-')[0],
         token,
       });
+    
     return {
       newApp,
       token,
