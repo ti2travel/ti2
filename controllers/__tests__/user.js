@@ -2,12 +2,12 @@
 
 const R = require('ramda');
 const chance = require('chance').Chance();
-const testUtils = require('../../test/utils');
 const slugify = require('../../test/slugify');
 
 const { env: { adminKey } } = process;
 
 describe('user', () => {
+  const testUtils = require('../../test/utils');
   const appName = slugify(
     chance.company(),
   ).toLowerCase();

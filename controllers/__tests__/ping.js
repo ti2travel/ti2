@@ -1,7 +1,7 @@
 /* global beforeAll, describe, it, expect */
-const testUtils = require('../../test/utils');
 
 describe('ping', () => {
+  const testUtils = require('../../test/utils');
   let doApiGet;
   beforeAll(async () => {
     ({

@@ -3,11 +3,10 @@ const axios = require('axios');
 const MockAdapter = require('axios-mock-adapter');
 const chance = require('chance').Chance();
 
-const testUtils = require('../../test/utils');
-
 const { env: { adminKey } } = process;
 
 describe('allotment', () => {
+  const testUtils = require('../../test/utils');
   const newApp = {
     name: 'tourplantest',
     packageName: 'ti2-tourplanTest',
