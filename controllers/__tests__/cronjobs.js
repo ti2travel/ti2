@@ -225,33 +225,18 @@ describe('cronjobs', () => {
 
     expect(response).toEqual({ success: true });
 
-    // Implement a retry mechanism with exponential backoff for database verification
-    const maxRetries = 3;
-    let retryCount = 0;
-    let deletedJob;
-    
-    while (retryCount < maxRetries) {
-      // Wait with increasing delay between retries
-      const delay = 2000 * Math.pow(2, retryCount);
-      await new Promise(resolve => setTimeout(resolve, delay));
+    // Wait for the database to refresh
+    await new Promise(resolve => setTimeout(resolve, 2000));
       
-      // Verify it's deleted
-      const { jobs } = await doApiGet({
-        url: `/cronjobs/${appName}/${userId}`,
-        token: adminKey,
-      });
+    // Verify it's deleted
+    const { jobs } = await doApiGet({
+      url: `/cronjobs/${appName}/${userId}`,
+      token: adminKey,
+    });
       
-      // Check if the job is still in the list
-      deletedJob = jobs.find(job => job.bullJobId === newJobId);
+    // Check if the job is still in the list
+    const deletedJob = jobs.find(job => job.bullJobId === newJobId);
       
-      // If job is deleted, we can break out of the retry loop
-      if (!deletedJob) {
-        break;
-      }
-      
-      retryCount++;
-    }
-    
     // Final verification
     expect(deletedJob).toBeUndefined();
   });
