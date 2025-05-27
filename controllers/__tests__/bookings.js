@@ -344,8 +344,18 @@ describe('user: bookings controller', () => {
           expect(products.length).toBe(2); // Based on existing test expectations
         });
 
-        // Plugin should only be called once due to lock mechanism
-        expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
+        // Plugin should only be called once due to lock mechanism, and with correct context
+        expect(plugins[0].searchProducts).toHaveBeenCalledWith(
+          expect.objectContaining({
+            token: expect.objectContaining({
+              client: 'tourconnect',
+              endpoint: expect.stringContaining('https://api.travelgatex.com'),
+            }),
+            userId: expect.stringContaining(userId),
+            payload: {},
+            typeDefsAndQueries: expect.any(Object)
+          })
+        );
       });
     });
   });
