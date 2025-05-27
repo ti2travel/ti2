@@ -1,5 +1,4 @@
 /* globals beforeAll describe it expect */
-const testUtils = require('../../test/utils');
 const yaml = require('js-yaml');
 const fs = require('fs');
 
@@ -8,6 +7,7 @@ const { env: { adminKey } } = process;
 const schema = yaml.load(fs.readFileSync(`${__dirname}/../../api.yml`));
 
 describe('cronjobs', () => {
+  const testUtils = require('../../test/utils');
   // API helper functions
   let doApiPost;
   let doApiGet;

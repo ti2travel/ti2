@@ -3,13 +3,13 @@ const chance = require('chance').Chance();
 const jwt = require('jwt-promise');
 const R = require('ramda');
 
-const testUtils = require('../../test/utils');
 const slugify = require('../../test/slugify');
 let appController = require('../app');
 
 const { env: { adminKey, jwtSecret } } = process;
 
 describe('app', () => {
+  const testUtils = require('../../test/utils');
   const appName = slugify(
     chance.company(),
   );
