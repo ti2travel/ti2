@@ -51,12 +51,12 @@ module.exports = async (appParams = {}) => {
     );
     // Set up auth middleware
     app.use((req, res, next) => {
-      const securityRequirements = req.swagger?.security;
+      const securityRequirements = req.swagger && req.swagger.security;
       if (!securityRequirements) return next();
       
       // Check if endpoint requires admin or user auth
       const hasAdminOrUser = securityRequirements.some(sec => 
-        sec.bearerAuth?.includes('admin') || sec.bearerAuth?.includes('user')
+        (sec.bearerAuth && sec.bearerAuth.includes('admin')) || (sec.bearerAuth && sec.bearerAuth.includes('user'))
       );
       
       if (hasAdminOrUser) {
