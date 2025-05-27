@@ -40,7 +40,7 @@ components:
           description: Bull queue job ID
         pluginJobId:
           type: string
-          description: Plugin specific job ID
+          description: Plugin specific job action (plugin method or operationId)
     CronJobList:
       type: object
       properties:
