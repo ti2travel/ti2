@@ -29,9 +29,6 @@ describe('cronjobs', () => {
   const adminHint = 'admin-test';
   const userHint = 'user-test';
 
-  // Helper to get just the job ID from the Bull queue ID
-  const getJobId = fullId => fullId;
-  
   beforeAll(async () => {
     const { 
       doApiPost: post, 
@@ -201,7 +198,7 @@ describe('cronjobs', () => {
     });
 
     // Verify the job is no longer in the list
-    const deletedJob = jobs.find(job => getJobId(job.bullJobId) === getJobId(bullJobId));
+    const deletedJob = jobs.find(job => job.bullJobId === bullJobId);
     expect(deletedJob).toBeUndefined();
   });
 
@@ -245,7 +242,7 @@ describe('cronjobs', () => {
       });
       
       // Check if the job is still in the list
-      deletedJob = jobs.find(job => getJobId(job.bullJobId) === getJobId(newJobId));
+      deletedJob = jobs.find(job => job.bullJobId === newJobId);
       
       // If job is deleted, we can break out of the retry loop
       if (!deletedJob) {
@@ -302,7 +299,7 @@ describe('cronjobs', () => {
       token: adminKey,
     });
     
-    const otherJob = jobs.find(job => getJobId(job.bullJobId) === getJobId(otherJobId));
+    const otherJob = jobs.find(job => job.bullJobId === otherJobId);
     expect(otherJob).toBeDefined();
   });
       
