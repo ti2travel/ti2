@@ -35,6 +35,11 @@ const CronJobs = db.define('CronJobs', {
     type: Sequelize.STRING,
     allowNull: true,
     comment: 'URL to send operation results to',
+  },
+  token: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    comment: 'JWT token for job authentication',
   }
 }, {});
 
