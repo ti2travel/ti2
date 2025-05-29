@@ -26,21 +26,6 @@ const CronJobs = db.define('CronJobs', {
     type: Sequelize.STRING,
     allowNull: false,
   },
-  operationId: {
-    type: Sequelize.STRING,
-    allowNull: true,
-    comment: 'OpenAPI operationId to execute as a cronjob',
-  },
-  callbackUrl: {
-    type: Sequelize.STRING,
-    allowNull: true,
-    comment: 'URL to send operation results to',
-  },
-  token: {
-    type: Sequelize.STRING,
-    allowNull: true,
-    comment: 'JWT token for job authentication',
-  }
 }, {});
 
 module.exports = CronJobs;
