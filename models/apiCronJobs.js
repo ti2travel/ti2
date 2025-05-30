@@ -39,10 +39,6 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: false,
     },
-    callbackUrl: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    },
     token: {
       type: DataTypes.STRING,
       allowNull: false,
