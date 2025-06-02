@@ -27,6 +27,10 @@ module.exports = {
         type: Sequelize.STRING,
         allowNull: false,
       },
+      callbackUrl: {
+        type: Sequelize.STRING,
+        allowNull: true,
+      },
       token: {
         type: Sequelize.STRING,
         allowNull: false,

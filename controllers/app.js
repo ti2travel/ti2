@@ -4,9 +4,23 @@ const assert = require('assert');
 const { Umzug, SequelizeStorage } = require('umzug');
 const path = require('path');
 const Sequelize = require('sequelize');
-const fs = require('fs').promises;
+const fs = require('fs'); // Changed to synchronous fs for initial load
+const yaml = require('js-yaml');
 const bb = require('bluebird');
 const R = require('ramda');
+
+// Load OpenAPI schema
+let openApiSchema = null;
+try {
+  const schemaPath = path.join(__dirname, '..', 'api.yml'); // Assuming api.yml is in the parent directory of controllers
+  const schemaFile = fs.readFileSync(schemaPath, 'utf8');
+  openApiSchema = yaml.load(schemaFile);
+} catch (e) {
+  console.error('Failed to load OpenAPI schema:', e);
+  // Handle error appropriately, perhaps by preventing the app from starting
+  // or by using a default empty schema to prevent crashes later.
+  // For now, we'll let it potentially crash if openApiSchema is null and accessed.
+}
 
 const sqldb = require('../models');
 const {
@@ -97,7 +111,7 @@ const createAppToken = async (req, res, next) => {
     if (userAppKeyDup) await userAppKeyDup.destroy();
     const newAppKey = await sqldb.UserAppKey.create(payload);
     // create any cronjobs related to the app
-    await bb.each(req.app.plugins, async plugin => {
+        await bb.each(req.app.plugins, async plugin => {
       if (Array.isArray(plugin.jobs)) {
         const validJobs = plugin.jobs.filter(job => Boolean(job.cron) && Boolean(job.method));
         await bb.each(validJobs, async job => {
@@ -151,6 +165,7 @@ const createAppToken = async (req, res, next) => {
         });
       }
     });
+
 
     return res.json({ value: newAppKey.get('id').toString() });
   } catch (err) {
@@ -333,12 +348,10 @@ const migrateApp = async ({ integrationId, action }) => {
 const getAppScheduledJobs = async ({
   integrationId,
   userId,
-  hint,
 }) => {
   const where = R.reject(R.isNil)({
     pluginName: integrationId,
     userId,
-    hint,
   });
   const jobs = await sqldb.CronJobs.findAll({
     where,
@@ -490,48 +503,74 @@ const getAppToken = async (req, res, next) => {
 
 const createCronjob = async (req, res, next) => {
   const {
+    params: {
+      userId,
+    },
     body: {
-      operationId,
+      method,
+      url,
       cron,
       callbackUrl,
-      payload = {},
-    },
-    params: {
-      appKey: pluginName,
-      userId,
+      payload,
     },
   } = req;
 
+  let transaction;
   let bullJobId;
 
   try {
-    // Validate operationId exists in OpenAPI spec
-    const openApiSpec = req.app.openApiSpec;
-    let foundOperation = false;
-    for (const [path, pathObj] of Object.entries(openApiSpec.paths)) {
-      for (const [method, operation] of Object.entries(pathObj)) {
-        if (operation.operationId === operationId) {
-          foundOperation = true;
-          break;
+    // Validate required fields
+    if (!method || !url || !cron) {
+      const error = new Error('method, url, and cron are required fields');
+      error.status = 400;
+      throw error;
+    }
+
+    // Validate URL path
+    const validUrlPattern = /^\/[\w\-\/\.]+$/;
+    if (!validUrlPattern.test(url)) {
+      const error = new Error('Invalid URL path');
+      error.status = 400;
+      throw error;
+    }
+  
+    // Helper function to find a matching path in the OpenAPI schema
+    const findMatchingOpenApiPath = (requestUrl, schemaPaths) => {
+      if (!schemaPaths) return null;
+      for (const schemaPathKey in schemaPaths) {
+        // Convert schemaPathKey to a regex: e.g., /products/{id} -> ^/products/[^/]+$
+        const regexPattern = '^' + schemaPathKey.replace(/{[^}]+}/g, '[^/]+') + '$';
+        const regex = new RegExp(regexPattern);
+        if (regex.test(requestUrl)) {
+          return schemaPathKey; // Return the original schema path key
         }
       }
-      if (foundOperation) break;
-    }
-    if (!foundOperation) {
-      return next({
-        status: 400,
-        message: `Invalid operationId: '${operationId}' not found in OpenAPI specification. Please provide a valid operationId from the API documentation.`
-      });
+      return null;
+    };
+
+    const matchedSchemaPathKey = findMatchingOpenApiPath(url, openApiSchema ? openApiSchema.paths : null);
+
+    // Validate URL and method against OpenAPI schema
+    if (!openApiSchema || !matchedSchemaPathKey || !openApiSchema.paths[matchedSchemaPathKey][method.toLowerCase()]) {
+      const errorMessage = openApiSchema && openApiSchema.paths ?
+        `Invalid URL ('${url}') or method ('${method}') combination not found in API schema, or schema path not matched.` :
+        'API schema not loaded, cannot validate URL and method.';
+      const error = new Error(errorMessage);
+      error.status = 400;
+      throw error;
     }
 
-    const transaction = await sqldb.sequelize.transaction();
+    // Create a user token for the job test
+    const jobToken = jwt.sign({ userId }, process.env.jwtSecret);
 
-    // Create job with API type
+    // Start transaction
+    transaction = await sqldb.sequelize.transaction();
+
+    // Create job in Bull queue
     const jobPayload = {
-      type: 'api',
-      pluginName,
-      userId,
-      operationId,
+      method,
+      url,
+      token: jobToken,
       ...payload,
       ...(callbackUrl ? { callbackUrl } : {}),
     };
@@ -544,28 +583,22 @@ const createCronjob = async (req, res, next) => {
     };
 
     bullJobId = await addJob(jobPayload, jobParams);
-    
-    // Always create a user token for the job
-    const jobToken = jwt.sign({ userId }, process.env.jwtSecret);
 
-    // Save to CronJobs table
-    const cronJob = await sqldb.CronJobs.create({
-      pluginName,
+    // Create job in database
+    const cronJob = await sqldb.ApiCronJobs.create({
       userId,
-      hint: payload.hint || 'default',
-      pluginJobId: operationId, // backward compatibility
       bullJobId,
       cron,
-      operationId,
+      method,
+      url,
       callbackUrl,
       token: jobToken,
     }, { transaction });
 
     await transaction.commit();
-
     return res.json(cronJob);
   } catch (err) {
-    await transaction.rollback();
+    if (transaction) await transaction.rollback();
     // Clean up Bull job if database failed
     if (bullJobId) {
       try {
@@ -581,7 +614,6 @@ const createCronjob = async (req, res, next) => {
 const listCronjobs = async (req, res, next) => {
   const {
     params: {
-      appKey: pluginName,
       userId,
     },
   } = req;
@@ -589,16 +621,15 @@ const listCronjobs = async (req, res, next) => {
   try {
     // Get all jobs from Bull queue
     const bullJobs = await queue.getJobs(['active', 'wait', 'delayed']);
-    const bullJobIds = new Set(bullJobs.map(job => job.opts.jobId));
+    const bullJobIds = new Set(bullJobs.map(job => job.id));
 
     // Get repeatable jobs
     const repeatableJobs = await queue.getRepeatableJobs();
     const repeatablePatterns = new Set(repeatableJobs.map(job => job.cron));
 
-    // Get jobs from database that still exist in Bull queue
-    const jobs = await sqldb.CronJobs.findAll({
+    // Get jobs from database
+    const jobs = await sqldb.ApiCronJobs.findAll({
       where: {
-        pluginName,
         userId,
       },
       raw: true,
@@ -625,9 +656,8 @@ const listCronjobs = async (req, res, next) => {
 const deleteCronjob = async (req, res, next) => {
   const {
     params: {
-      appKey: pluginName,
       userId,
-      jobId: bullJobId,
+      id, // Changed from jobId to id
     },
   } = req;
 
@@ -663,11 +693,10 @@ const deleteCronjob = async (req, res, next) => {
     }
 
     // Find the cronjob in the database
-    const cronJob = await sqldb.CronJobs.findOne({
+    const cronJob = await sqldb.ApiCronJobs.findOne({
       where: {
-        pluginName,
         userId,
-        bullJobId,
+        id, // Changed from bullJobId to id
       },
     });
 
@@ -687,14 +716,13 @@ const deleteCronjob = async (req, res, next) => {
     }
 
     // Remove from Bull queue first
-    await removeJob(bullJobId);
+    await removeJob(cronJob.bullJobId);
 
     // Then remove from database
-    await sqldb.CronJobs.destroy({
+    await sqldb.ApiCronJobs.destroy({
       where: {
-        pluginName,
         userId,
-        bullJobId,
+        id, // Changed from bullJobId to id
       },
     });
     

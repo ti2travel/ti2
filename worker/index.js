@@ -57,12 +57,19 @@ const worker = ({ plugins: pluginsParam }) => (id, disconnect) => {
         const baseURL = `http://${address}:${port}`;
         console.log(`Worker internal server for job ${jobId} listening on: ${baseURL}`);
 
+        // Extract token and body from payload
+        const { token, body } = payload || {};
+        const requestHeaders = {
+          ...R.omit(['content-length'], headers),
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        };
+
         // Use axios to make the request
         const response = await axios({
           method: method.toLowerCase(),
           url: `${baseURL}${url}`,
           data: R.omit(['backgroundJob'], payload),
-          headers: R.omit(['content-length'], headers),
+          headers: requestHeaders,
           validateStatus: () => true, // Prevent axios from throwing on non-2xx status
         });
 

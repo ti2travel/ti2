@@ -133,11 +133,12 @@ module.exports = async (appParams = {}) => {
     }
     
     // Create user token for the app
+    const hint = token.apiKey.split('-')[0];
     await request(app)
       .post(`/${newApp.name}/${userId}`)
       .set('Authorization', `Bearer ${appKey}`)
       .send({
-        tokenHint: token.apiKey.split('-')[0],
+        tokenHint: hint,
         token,
       });
     
@@ -146,6 +147,7 @@ module.exports = async (appParams = {}) => {
       token,
       appKey,
       userId,
+      hint,
     };
   };
 

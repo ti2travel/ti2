@@ -1,52 +1,37 @@
-'use strict';
-const {
-  Model
-} = require('sequelize');
-module.exports = (sequelize, DataTypes) => {
-  class ApiCronJobs extends Model {
-    /**
-     * Helper method for defining associations.
-     * This method is not a part of Sequelize lifecycle.
-     * The `models/index` file will call this method automatically.
-     */
-    static associate(models) {
-      // define association here
-    }
+const Sequelize = require('sequelize');
+const db = require('./db');
+
+const ApiCronJobs = db.define('ApiCronJobs', {
+  id: {
+    type: Sequelize.UUID,
+    defaultValue: Sequelize.UUIDV4,
+    primaryKey: true,
+  },
+  userId: {
+    type: Sequelize.STRING,
+    allowNull: false,
+  },
+  bullJobId: {
+    type: Sequelize.STRING,
+    allowNull: false,
+  },
+  cron: {
+    type: Sequelize.STRING,
+    allowNull: false,
+  },
+  method: {
+    type: Sequelize.STRING,
+    allowNull: false,
+  },
+  url: {
+    type: Sequelize.STRING,
+    allowNull: false,
+  },
+  token: {
+    type: Sequelize.STRING,
+    allowNull: false,
   }
-  ApiCronJobs.init({
-    id: {
-      type: DataTypes.UUID,
-      defaultValue: DataTypes.UUIDV4,
-      primaryKey: true,
-    },
-    userId: {
-      type: DataTypes.STRING,
-      allowNull: false,
-    },
-    bullJobId: {
-      type: DataTypes.STRING,
-      allowNull: false,
-    },
-    cron: {
-      type: DataTypes.STRING,
-      allowNull: false,
-    },
-    method: {
-      type: DataTypes.STRING,
-      allowNull: false,
-    },
-    url: {
-      type: DataTypes.STRING,
-      allowNull: false,
-    },
-    token: {
-      type: DataTypes.STRING,
-      allowNull: false,
-    }
-  }, {
-    sequelize,
-    modelName: 'ApiCronJobs',
-  });
-  return ApiCronJobs;
-};
+}, {});
+
+module.exports = ApiCronJobs;
 
