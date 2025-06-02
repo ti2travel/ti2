@@ -55,8 +55,8 @@ describe('cronjobs', () => {
     userToken = createUserToken(userId);
     
     // Create another user for cross-user permission tests under the same app
-    otherSetup = await appSetup({ appName: appName });
-    otherUserId = otherSetup.userId;
+    otherUserSetup = await appSetup({ appName: appName });
+    otherUserId = otherUserSetup.userId;
     
     // Create token for other user
     otherUserToken = createUserToken(otherUserId);
@@ -66,7 +66,7 @@ describe('cronjobs', () => {
     doApiDelete = del;
   });
 
-  it.only('should create a new cronjob as admin', async () => {
+  it('should create a new cronjob as admin', async () => {
     const newJobPayload = testApiPayload(userSetup);
     const response = await doApiPost({
       url: `/cronjobs/${userId}`,
@@ -80,6 +80,7 @@ describe('cronjobs', () => {
     createdAdminJobId = response.id; // Changed from bullJobId to id
     expect(createdAdminJobId).toBeTruthy(); // Check the new id variable
   });
+
   it('should create a new cronjob as user', async () => {
     const response = await doApiPost({
       url: `/cronjobs/${userId}`,
@@ -177,6 +178,7 @@ describe('cronjobs', () => {
   it('should delete a cronjob as user', async () => {
     // First create a new cronjob ( new one since we used prev for other test)
     const { id: newJobId } = await doApiPost({
+      url: `/cronjobs/${userId}`,
       token: userToken,
       payload: {...testApiPayload(userSetup)},
     });
@@ -242,96 +244,95 @@ describe('cronjobs', () => {
     expect(otherJob).toBeDefined();
   });
 
-   it('should fail to create cronjob with invalid url', async () => {
-     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  it('should fail to create cronjob with invalid url', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
-     try {
-       await doApiPost({
-         url: `/cronjobs/${userId}`,
-         token: adminKey,
-         payload: {
-           method: 'GET',
-           url: '/invalid/path',
-           cron,
-         },
-       });
-       throw new Error('Should have failed');
-     } catch (error) {
-       expect(error.response.status).toBe(400);
-       expect(error.response.data.message).toContain('Invalid URL path');
-     } finally {
-       consoleErrorSpy.mockRestore();
-     }
-   });
-  //
-  // it('should fail to delete non-existent cronjob', async () => {
-  //   const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-  //   try {
-  //     await doApiDelete({
-  //       url: `/cronjobs/${userId}/nonexistent`,
-  //       token: adminKey,
-  //     });
-  //     throw new Error('Should have failed');
-  //   } catch (error) {
-  //     expect(error.response.status).toBe(404);
-  //     expect(error.response.data.message).toBe('Cronjob not found');
-  //   } finally {
-  //     consoleErrorSpy.mockRestore();
-  //   }
-  // });
-  //
-  // it('should execute a scheduled cronjob', async () => {
-  //   const cronExpression = '*/1 * * * *'; // Every minute
-  //
-  //   // Create a cronjob that should execute in the next minute
-  //   const response = await doApiPost({
-  //     url: `/cronjobs/${userId}`,
-  //     token: adminKey,
-  //     payload: {
-  //       method: 'POST',
-  //       url: `/products/${appName}/${userId}/search`,
-  //       token: userToken,
-  //       cron: cronExpression,
-  //       payload: {},
-  //       callbackUrl: 'http://ti2:44294/callback',
-  //     },
-  //   });
-  //
-  //   expect(response.bullJobId).toBeTruthy();
-  //
-  //   // Create a temporary HTTP server to receive the callback
-  //   const http = require('http');
-  //   const port = 44294; // Using a fixed port for test
-  //
-  //   const jobExecution = new Promise((resolve, reject) => {
-  //     const timeout = setTimeout(() => {
-  //       reject(new Error('Job execution timed out'));
-  //     }, 70000); // 70 seconds timeout
-  //
-  //     const server = http.createServer((req, res) => {
-  //       let body = '';
-  //       req.on('data', chunk => body += chunk);
-  //       req.on('end', () => {
-  //         clearTimeout(timeout);
-  //         res.writeHead(200, { 'Content-Type': 'application/json' });
-  //         res.end(JSON.stringify({ success: true }));
-  //         server.close(() => {
-  //           resolve({ id: response.bullJobId });
-  //         });
-  //       });
-  //     });
-  //
-  //     server.listen(port, '127.0.0.1');
-  //   });
-  //
-  //   // Wait for the job to execute
-  //   const executedJob = await jobExecution;
-  //   expect(executedJob.id).toBe(response.bullJobId);
-  //
-  //   // Clean up - remove the cron job
-  //   await doApiDelete({
-  //     url: `/cronjobs/${userId}/${response.bullJobId}`,
-  //     token: adminKey,
-  //   });
-  // }, 90000); // Increase test timeout to 90 seconds
+    try {
+      await doApiPost({
+        url: `/cronjobs/${userId}`,
+        token: adminKey,
+        payload: {
+          method: 'GET',
+          url: '/invalid/path',
+          cron,
+        },
+      });
+      throw new Error('Should have failed');
+    } catch (error) {
+      expect(error.response.status).toBe(400);
+      expect(error.response.data.message).toContain('Invalid URL');
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  it('should fail to delete non-existent cronjob', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await doApiDelete({
+        url: `/cronjobs/${userId}/nonexistent`,
+        token: adminKey,
+      });
+      throw new Error('Should have failed');
+    } catch (error) {
+      expect(error.response.status).toBe(404);
+      expect(error.response.data.message).toBe('Cronjob not found');
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  it('should execute a scheduled cronjob', async () => {
+    const cronExpression = '*/1 * * * *'; // Every minute
+
+    // Create a cronjob that should execute in the next minute
+    const response = await doApiPost({
+      url: `/cronjobs/${userId}`,
+      token: adminKey,
+      payload: {
+        method: 'POST',
+        url: `/products/${appName}/${userId}/search`,
+        cron: cronExpression,
+        payload: {},
+        callbackUrl: 'http://ti2:44294/callback',
+      },
+    });
+
+    expect(response.bullJobId).toBeTruthy();
+
+    // Create a temporary HTTP server to receive the callback
+    const http = require('http');
+    const port = 44294; // Using a fixed port for test
+
+    const jobExecution = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Job execution timed out'));
+      }, 70000); // 70 seconds timeout
+
+      const server = http.createServer((req, res) => {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', () => {
+          clearTimeout(timeout);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true }));
+          server.close(() => {
+            resolve({ id: response.bullJobId });
+          });
+        });
+      });
+
+      server.listen(port, '127.0.0.1');
+    });
+
+    // Wait for the job to execute
+    const executedJob = await jobExecution;
+    expect(executedJob.id).toBe(response.bullJobId);
+
+    // Clean up - remove the cron job
+    await doApiDelete({
+      url: `/cronjobs/${userId}/${response.bullJobId}`,
+      token: adminKey,
+    });
+  }, 90000); // Increase test timeout to 90 seconds
 });
