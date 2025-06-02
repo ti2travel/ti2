@@ -13,7 +13,7 @@ module.exports = {
       },
       bullJobId: {
         type: Sequelize.STRING,
-        allowNull: false,
+        allowNull: true,
       },
       cron: {
         type: Sequelize.STRING,

@@ -516,7 +516,6 @@ const createCronjob = async (req, res, next) => {
   } = req;
 
   let transaction;
-  let bullJobId;
 
   try {
     // Validate required fields
@@ -566,49 +565,31 @@ const createCronjob = async (req, res, next) => {
     // Start transaction
     transaction = await sqldb.sequelize.transaction();
 
-    // Create job in Bull queue
-    const jobPayload = {
-      method,
-      url,
-      token: jobToken,
-      ...body,
-      ...(callbackUrl ? { callbackUrl } : {}),
-    };
-
-    const jobParams = {
-      repeat: {
-        cron,
-      },
-      // TODO: implement this feture, it shouild also reflect the change in the database (maybe with an enabled flag)
-      removeOnComplete: false,
-    };
-
-    bullJobId = await addJob(jobPayload, jobParams);
-
     // Create job in database
-    const cronJob = await sqldb.ApiCronJobs.create({
+    const cronJobData = {
       userId,
-      bullJobId,
+      // bullJobId will be set by the hook
       cron,
       method,
       url,
-      callbackUrl,
       token: jobToken,
-      body,
-    }, { transaction });
+      body: { // Ensure body includes callbackUrl if present, or is an empty object if body is null/undefined
+        ...(body || {}),
+        ...(callbackUrl ? { callbackUrl } : {}),
+      },
+    };
+    
+    const cronJob = await sqldb.ApiCronJobs.create(cronJobData, { transaction });
 
     await transaction.commit();
+    // The cronJob instance returned here should have bullJobId populated by the hook
     return res.json(cronJob);
   } catch (err) {
     if (transaction) await transaction.rollback();
-    // Clean up Bull job if database failed
-    if (bullJobId) {
-      try {
-        await removeJob(bullJobId);
-      } catch (cleanupErr) {
-        console.error('Failed to cleanup Bull job:', cleanupErr);
-      }
-    }
+    // No need to manually cleanup bullJobId here.
+    // If hook failed, transaction is rolled back by the hook re-throwing,
+    // or by create itself failing.
+    // If create itself failed before hook, no bull job was created.
     return next(err);
   }
 };
@@ -673,6 +654,7 @@ const deleteCronjob = async (req, res, next) => {
   };
   
   const token = getToken(req);
+  let transaction; // Add transaction variable for deleteCronjob
 
   try {
     // Check if user is admin
@@ -717,20 +699,37 @@ const deleteCronjob = async (req, res, next) => {
       });
     }
 
-    // Remove from Bull queue first
-    await removeJob(cronJob.bullJobId);
+    // Start transaction
+    transaction = await sqldb.sequelize.transaction();
 
-    // Then remove from database
-    await sqldb.ApiCronJobs.destroy({
+    // Remove from database. The beforeDestroy hook in ApiCronJobs model
+    // will handle removing the job from the Bull queue.
+    // Pass the transaction to ensure atomicity.
+    // The destroy operation will only succeed if the beforeDestroy hook (including removeJob) succeeds.
+    const destroyedRows = await sqldb.ApiCronJobs.destroy({
       where: {
-        userId,
-        id, // Changed from bullJobId to id
+        // id, // cronJob instance is already fetched and verified
+        id: cronJob.id, // Use the id from the fetched cronJob instance
+        userId: cronJob.userId, // Ensure we are deleting the correct user's job
       },
+      transaction, // Pass transaction to destroy
     });
+
+    // It's good practice to check if any rows were actually deleted,
+    // though in this flow, cronJob existence is checked prior.
+    if (destroyedRows === 0) {
+        // This case should ideally not be reached if cronJob was found
+        if (transaction) await transaction.rollback();
+        const error = new Error('Cronjob not found for deletion, though it was fetched prior.');
+        error.status = 404; // Or 500 for internal inconsistency
+        return next(error);
+    }
     
+    await transaction.commit();
     // Return success response
     return res.json({ success: true });
   } catch (err) {
+    if (transaction) await transaction.rollback(); // Rollback transaction on error
     // Pass along errors with status
     if (err.status) {
       return next(err);
@@ -739,7 +738,7 @@ const deleteCronjob = async (req, res, next) => {
     // Otherwise, create a generic 500 error
     const error = new Error(err.message || 'Internal Server Error');
     error.status = 500;
-    return next(error);
+    return next(error); // Changed from next(err) to next(the new error object) for consistency
   }
 };
 
