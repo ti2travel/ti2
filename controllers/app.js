@@ -511,7 +511,7 @@ const createCronjob = async (req, res, next) => {
       url,
       cron,
       callbackUrl,
-      payload,
+      body,
     },
   } = req;
 
@@ -571,7 +571,7 @@ const createCronjob = async (req, res, next) => {
       method,
       url,
       token: jobToken,
-      ...payload,
+      ...body,
       ...(callbackUrl ? { callbackUrl } : {}),
     };
 
@@ -579,6 +579,7 @@ const createCronjob = async (req, res, next) => {
       repeat: {
         cron,
       },
+      // TODO: implement this feture, it shouild also reflect the change in the database (maybe with an enabled flag)
       removeOnComplete: false,
     };
 
@@ -593,6 +594,7 @@ const createCronjob = async (req, res, next) => {
       url,
       callbackUrl,
       token: jobToken,
+      body,
     }, { transaction });
 
     await transaction.commit();

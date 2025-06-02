@@ -67,14 +67,15 @@ describe('cronjobs', () => {
   });
 
   it.only('should create a new cronjob as admin', async () => {
+    const newJobPayload = testApiPayload(userSetup);
     const response = await doApiPost({
       url: `/cronjobs/${userId}`,
       token: adminKey,
-      payload: {...testApiPayload(userSetup)},
+      payload: {...newJobPayload},
     });
 
     expect(response).toEqual(
-      expect.objectContaining({...testApiPayload(userSetup)}),
+      expect.objectContaining({...newJobPayload}),
     );
     createdAdminJobId = response.id; // Changed from bullJobId to id
     expect(createdAdminJobId).toBeTruthy(); // Check the new id variable
