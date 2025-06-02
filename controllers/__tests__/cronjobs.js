@@ -331,7 +331,7 @@ describe('cronjobs', () => {
 
     // Clean up - remove the cron job
     await doApiDelete({
-      url: `/cronjobs/${userId}/${response.bullJobId}`,
+      url: `/cronjobs/${userId}/${response.id}`,
       token: adminKey,
     });
   }, 90000); // Increase test timeout to 90 seconds
