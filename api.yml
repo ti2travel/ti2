@@ -39,6 +39,9 @@ components:
         userId:
           type: string
           description: User ID associated with the job
+        body:
+          type: object
+          description: body for the scheduled rquest
     CronJobList:
       type: object
       properties:

@@ -30,6 +30,10 @@ const ApiCronJobs = db.define('ApiCronJobs', {
   token: {
     type: Sequelize.STRING,
     allowNull: false,
+  },
+  body: {
+    type: Sequelize.JSON,
+    allowNull: true, // Assuming body can be optional
   }
 }, {});
 
