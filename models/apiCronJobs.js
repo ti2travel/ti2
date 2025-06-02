@@ -35,6 +35,11 @@ const ApiCronJobs = db.define('ApiCronJobs', {
   body: {
     type: Sequelize.JSON,
     allowNull: true, // Assuming body can be optional
+  },
+  removeOnComplete: {
+    type: Sequelize.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
   }
 }, {
   hooks: {
@@ -47,20 +52,20 @@ const ApiCronJobs = db.define('ApiCronJobs', {
         ...(apiCronJob.body || {}),
       };
 
-      const jobParams = {
-        repeat: {
-          cron: apiCronJob.cron,
-        },
-        removeOnComplete: false, // TODO: implement this feature
-      };
+        const jobParams = {
+          repeat: {
+            cron: apiCronJob.cron,
+          },
+          removeOnComplete: apiCronJob.removeOnComplete,
+        };
 
       try {
         // The addJob must be part of the same transaction that created apiCronJob
         const bullJobId = await addJob(jobPayload, jobParams, options.transaction);
         // Update the instance with the bullJobId and save it within the same transaction
         // Note: This will trigger update hooks if any are defined, which is generally fine.
-        apiCronJob.bullJobId = bullJobId;
-        await apiCronJob.save({ transaction: options.transaction, hooks: false });
+        // apiCronJob.bullJobId = bullJobId;
+        await apiCronJob.update({ bullJobId }, { transaction: options.transaction, hooks: false });
       } catch (err) {
         // If addJob or the subsequent save fails, the transaction should be rolled back
         // by the controller that initiated it.

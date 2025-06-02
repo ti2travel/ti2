@@ -39,6 +39,11 @@ module.exports = {
         type: Sequelize.JSON,
         allowNull: true,
       },
+      removeOnComplete: {
+        type: Sequelize.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
       createdAt: {
         type: Sequelize.DATE,
         allowNull: false,
@@ -51,7 +56,6 @@ module.exports = {
   },
 
   down: async (queryInterface, Sequelize) => {
-    // Drop the new table
     await queryInterface.dropTable('ApiCronJobs');
   },
 };

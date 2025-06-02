@@ -512,6 +512,7 @@ const createCronjob = async (req, res, next) => {
       cron,
       callbackUrl,
       body,
+      removeOnComplete,
     },
   } = req;
 
@@ -577,6 +578,7 @@ const createCronjob = async (req, res, next) => {
         ...(body || {}),
         ...(callbackUrl ? { callbackUrl } : {}),
       },
+      removeOnComplete: removeOnComplete || false, // Ensure it defaults to false if not provided
     };
     
     const cronJob = await sqldb.ApiCronJobs.create(cronJobData, { transaction });
