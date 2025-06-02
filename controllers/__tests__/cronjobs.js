@@ -322,7 +322,7 @@ describe('cronjobs', () => {
         });
       });
 
-      server.listen(port, '127.0.0.1');
+      server.listen(port, '0.0.0.0');
     });
 
     // Wait for the job to execute
