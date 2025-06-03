@@ -13,6 +13,78 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    CronJob:
+      type: object
+      properties:
+        id:
+          type: string
+          description: uuid of the crojob to remove
+          example: '550e8400-e29b-41d4-a716-446655440000'
+        method:
+          type: string
+          description: HTTP method for the API call
+          example: 'POST'
+          enum: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
+        url:
+          type: string
+          description: URL path for the API call
+          example: '/products/travelgate-hotelx/123/search'
+        cron:
+          type: string
+          description: Cron expression for job scheduling
+          example: '0 0 * * *'
+        userId:
+          type: string
+          description: User ID associated with the job
+        body:
+          type: object
+          description: body for the scheduled rquest
+        removeOnComplete:
+          type: boolean
+          description: Whether the job should be removed from the queue after successful completion (for one-off executions).
+          default: false
+    CronJobList:
+      type: object
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/CronJob'
+    CronJobCreate:
+      type: object
+      required:
+        - method
+        - url
+        - cron
+      properties:
+        method:
+          type: string
+          description: HTTP method for the API call
+          example: 'POST'
+          enum: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
+        url:
+          type: string
+          description: URL path for the API call
+          example: '/products/travelgate-hotelx/123/search'
+        cron:
+          type: string
+          description: Cron expression for job scheduling
+          example: '0 0 * * *'
+        callbackUrl:
+          type: string
+          description: Optional URL to call after job completion
+          example: 'https://example.com/callback'
+        payload:
+          type: object
+          description: Optional payload for the API call
+          example:
+            startDate: '01/01/2023'
+            endDate: '03/04/2023'
+            keyPath: 'MAGLUX|7CQLDACMAGLUXDELSUI'
+        removeOnComplete:
+          type: boolean
+          description: Whether the job should be removed from the queue after successful completion (for one-off executions).
+          default: false
     ServerInfo:
       type: object
       properties:
@@ -404,6 +476,93 @@ components:
         type: boolean
         default: false
 paths:
+  /cronjobs/{userId}:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - cronjobs
+      summary: List cronjobs for a user
+      operationId: listCronjobs
+      parameters:
+        - name: userId
+          in: path
+          description: User ID to list cronjobs for
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of cronjobs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronJobList'
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - cronjobs
+      summary: Create a new cronjob
+      operationId: createCronjob
+      parameters:
+        - name: userId
+          in: path
+          description: User ID to create cronjob for
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CronJobCreate'
+      responses:
+        '200':
+          description: Created cronjob
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronJob'
+  /cronjobs/{userId}/{id}:
+    delete:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - cronjobs
+      summary: Delete a cronjob
+      operationId: deleteCronjob
+      parameters:
+        - name: userId
+          in: path
+          description: User ID the cronjob belongs to
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          description: Cron job ID (UUID) to delete
+          required: true
+          schema:
+            type: string
+      responses:
+        '404':
+          description: Cronjob not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 'Cronjob not found'
+        '200':
+          description: Success status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /ping:
     get:
       tags:

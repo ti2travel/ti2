@@ -38,6 +38,10 @@ jobs:
       run: npx sequelize db:create && npx sequelize db:migrate
     - name: seed the database
       run: npx sequelize db:seed:all
-    - run: RUNNER_TRACKING_ID="" && (nohup node ./test/worker.js&)
+    - name: start worker process
+      run: RUNNER_TRACKING_ID="" node ./test/worker.js > worker.log 2>&1 &
     - name: run the tests
       run: npx jest -i --coverage --forceExit
+    - name: display worker logs
+      if: ${{ failure() }}
+      run: cat worker.log

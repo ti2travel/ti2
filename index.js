@@ -312,9 +312,8 @@ module.exports = async ({
             addJob({
               type: 'callback',
               payload: callbackBody,
-            }).then(jobId => {
-              console.debug('created callback job', jobId);
-            });
+              removeOnComplete: true,
+            }).then();
             return originalJson.call(this, data);
           };
         }

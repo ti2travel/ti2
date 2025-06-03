@@ -1,9 +1,9 @@
 /* globals beforeAll describe it expect jest beforeEach */
 
 const chance = require('chance').Chance();
-const testUtils = require('../../test/utils');
 
 describe('user: bookings controller - productSearch background job', () => {
+  const testUtils = require('../../test/utils');
   const newApp = {
     name: `travelgate-${chance.guid()}`,
     packageName: 'ti2-travelgate',
