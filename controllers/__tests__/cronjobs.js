@@ -305,10 +305,6 @@ describe('cronjobs', () => {
     const port = 44294; // Using a fixed port for test
 
     const jobExecution = new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Job execution timed out'));
-      }, 70000); // 70 seconds timeout
-
       const server = http.createServer((req, res) => {
         let body = '';
         req.on('data', chunk => body += chunk);
@@ -316,7 +312,6 @@ describe('cronjobs', () => {
           const requestUrl = url.parse(req.url, true);
           const receivedUniqueId = requestUrl.query.date;
           if (receivedUniqueId === uniqueId) {
-            clearTimeout(timeout);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true }));
             server.close(() => {
@@ -325,7 +320,6 @@ describe('cronjobs', () => {
           } else {
             // If the uniqueId doesn't match, send a different response.
             // The test will eventually time out if the correct callback doesn't arrive.
-            // We don't resolve or reject here, letting the timeout handle it if the correct callback never comes.
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: false, message: 'Callback ID mismatch' }));
             // server.close(); // Optionally close server on mismatch to free port sooner
@@ -366,5 +360,5 @@ describe('cronjobs', () => {
       url: `/cronjobs/${userId}/${response.id}`,
       token: adminKey,
     });
-  }, 120e3); // Increase test timeout to 90 seconds
+  }, 120e3); // timeout to wait for the queue to clearout the job
 });
