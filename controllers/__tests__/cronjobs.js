@@ -284,6 +284,7 @@ describe('cronjobs', () => {
 
   it('should execute a scheduled cronjob', async () => {
     const cronExpression = '*/1 * * * *'; // Every minute
+    const uniqueId = `${(new Date()).getTime()}`
 
     // Create a cronjob that should execute in the next minute
     const response = await doApiPost({
@@ -294,7 +295,8 @@ describe('cronjobs', () => {
         url: `/products/${appName}/${userId}/search`,
         cron: cronExpression,
         payload: {},
-        callbackUrl: 'http://ti2:44294/callback',
+        callbackUrl: `http://ti2:44294/callback?date=${uniqueId}`,
+        removeOnComplete: true,
       },
     });
 
@@ -302,6 +304,7 @@ describe('cronjobs', () => {
 
     // Create a temporary HTTP server to receive the callback
     const http = require('http');
+    const url = require('url'); // Import the 'url' module
     const port = 44294; // Using a fixed port for test
 
     const jobExecution = new Promise((resolve, reject) => {
@@ -313,12 +316,23 @@ describe('cronjobs', () => {
         let body = '';
         req.on('data', chunk => body += chunk);
         req.on('end', () => {
-          clearTimeout(timeout);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true }));
-          server.close(() => {
-            resolve({ id: response.bullJobId });
-          });
+          const requestUrl = url.parse(req.url, true);
+          const receivedUniqueId = requestUrl.query.date;
+          if (receivedUniqueId === uniqueId) {
+            clearTimeout(timeout);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+            server.close(() => {
+              resolve({ id: response.bullJobId });
+            });
+          } else {
+            // If the uniqueId doesn't match, send a different response.
+            // The test will eventually time out if the correct callback doesn't arrive.
+            // We don't resolve or reject here, letting the timeout handle it if the correct callback never comes.
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, message: 'Callback ID mismatch' }));
+            // server.close(); // Optionally close server on mismatch to free port sooner
+          }
         });
       });
 
@@ -329,10 +343,31 @@ describe('cronjobs', () => {
     const executedJob = await jobExecution;
     expect(executedJob.id).toBe(response.bullJobId);
 
-    // Clean up - remove the cron job
+    // Import the queue to check job status
+    const { queue } = require('../../worker/queue');
+
+    // Check if the job was removed from the Bull queue
+    // It might take a moment for the job to be fully removed after completion
+    // try the next command for up to 30s, queue auto-removal can take a bit
+    let jobInQueue;
+    const maxRetries = 60; // Max 30 retries (e.g. 30 seconds if 1s interval)
+    const retryInterval = 1e3; // 1 second interval
+
+    for (let i = 0; i < maxRetries; i++) {
+      jobInQueue = await queue.getJob(response.bullJobId);
+      if (!jobInQueue) {
+        break; // Job removed, exit loop
+      }
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, retryInterval));
+    }
+
+    expect(jobInQueue).toBeNull();
+
+    // Clean up - remove the cron job from the database
     await doApiDelete({
       url: `/cronjobs/${userId}/${response.id}`,
       token: adminKey,
     });
-  }, 90000); // Increase test timeout to 90 seconds
+  }, 120e3); // Increase test timeout to 90 seconds
 });
