@@ -33,9 +33,6 @@ components:
           type: string
           description: Cron expression for job scheduling
           example: '0 0 * * *'
-        token:
-          type: string
-          description: Bearer token for authentication
         userId:
           type: string
           description: User ID associated with the job

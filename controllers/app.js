@@ -585,7 +585,7 @@ const createCronjob = async (req, res, next) => {
 
     await transaction.commit();
     // The cronJob instance returned here should have bullJobId populated by the hook
-    return res.json(cronJob);
+    return res.json(R.omit(['token'], cronJob.get({ plain:true })));
   } catch (err) {
     if (transaction) await transaction.rollback();
     // No need to manually cleanup bullJobId here.
@@ -617,6 +617,7 @@ const listCronjobs = async (req, res, next) => {
       where: {
         userId,
       },
+      attributes: { exclude: ['token'] },
       raw: true,
     });
 
