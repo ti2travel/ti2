@@ -46,6 +46,7 @@ const ApiCronJobs = db.define('ApiCronJobs', {
     afterCreate: async (apiCronJob, options) => {
       const { addJob } = require('../worker/queue');
       const jobPayload = {
+        type: 'api',
         method: apiCronJob.method,
         url: apiCronJob.url,
         token: apiCronJob.token,
