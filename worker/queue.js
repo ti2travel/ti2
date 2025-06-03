@@ -37,7 +37,7 @@ const addJob = async (payload, paramsParam) => {
     ...payload,
     inTesting,
   }, {
-    removeOnComplete: false, // if in params it would be overridden
+    removeOnComplete: true,
     ...params,
   });
   // For repeat jobs, we need to store the full repeat key
