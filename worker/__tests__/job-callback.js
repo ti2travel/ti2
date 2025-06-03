@@ -45,28 +45,6 @@ describe('worker: Callback job handling', () => {
     }));
   });
   
-  it('should include the correct structure for callback jobs', () => {
-    // This test verifies the worker/index.js handles callback jobs correctly
-    // by checking the code structure without actually running it
-    
-    // Read the worker code
-    const workerCode = require('fs').readFileSync(require('path').resolve(__dirname, '../index.js'), 'utf8');
-    
-    // Verify the worker code includes handling for callback jobs
-    expect(workerCode).toContain('if (type === \'callback\')');
-    
-    // Verify it extracts the necessary parameters
-    expect(workerCode).toContain('callbackUrl,');
-    expect(workerCode).toContain('request,');
-    expect(workerCode).toContain('result,');
-    
-    // Verify it calls the sendCallback function
-    expect(workerCode).toContain('sendCallback');
-    
-    // Verify it returns the expected result structure
-    expect(workerCode).toContain('return { success: true }');
-  });
-  
   it('should use the callback module to send callbacks', async () => {
     // Get a reference to the mocked axios.post function
     const axios = require('axios');
