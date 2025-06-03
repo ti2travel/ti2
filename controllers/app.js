@@ -621,19 +621,21 @@ const listCronjobs = async (req, res, next) => {
       raw: true,
     });
 
-    // Filter out jobs that no longer exist in Bull queue
-    const activeJobs = jobs.filter(job => {
+    // Add inQueue status to jobs
+    const jobsWithStatus = jobs.map(job => {
       const jobIdParts = job.bullJobId.split(':');
       const isRepeatJob = jobIdParts[0] === 'repeat';
+      let isInQueue = false;
 
       if (isRepeatJob) {
-        return repeatablePatterns.has(job.cron);
+        isInQueue = repeatablePatterns.has(job.cron);
+      } else {
+        isInQueue = bullJobIds.has(job.bullJobId);
       }
-
-      return bullJobIds.has(job.bullJobId);
+      return { ...job, inQueue: isInQueue };
     });
 
-    return res.json({ jobs: activeJobs });
+    return res.json({ jobs: jobsWithStatus });
   } catch (err) {
     return next(err);
   }
