@@ -312,6 +312,7 @@ module.exports = async ({
             addJob({
               type: 'callback',
               payload: callbackBody,
+              removeOnComplete: true,
             }).then();
             return originalJson.call(this, data);
           };
