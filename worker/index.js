@@ -110,7 +110,11 @@ const worker = ({ plugins: pluginsParam }) => (id, disconnect) => {
         result,
       });
       resultValue = { success: true };
-    } else if (type === 'api') {
+    } else if (type === 'plugin') {
+      const {
+        method,
+        payload,
+      } = params;
       const plugins = await (async () => {
         if (inTesting) {
           const fakePlugin = require('../test/plugin');
@@ -120,7 +124,7 @@ const worker = ({ plugins: pluginsParam }) => (id, disconnect) => {
       })();
       const thePlugin = plugins.find(({ name }) => name === pluginName);
       resultValue = await thePlugin[method]({
-        ...params.payload,
+        ...payload,
         token: params.token,
         plugins,
         typeDefsAndQueries: require('../controllers/bookings').typeDefsAndQueries,
