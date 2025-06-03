@@ -284,6 +284,7 @@ describe('cronjobs', () => {
     const uniqueId = `${(new Date()).getTime()}`
 
     // Create a cronjob that should execute in the next minute
+    // Assuming the test are running on the same host as the worker
     const response = await doApiPost({
       url: `/cronjobs/${userId}`,
       token: adminKey,
@@ -292,7 +293,7 @@ describe('cronjobs', () => {
         url: `/products/${appName}/${userId}/search`,
         cron: cronExpression,
         payload: {},
-        callbackUrl: `http://ti2:44294/callback?date=${uniqueId}`,
+        callbackUrl: `http://localhost:44294/callback?date=${uniqueId}`,
         removeOnComplete: true,
       },
     });
