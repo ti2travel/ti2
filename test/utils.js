@@ -3,8 +3,6 @@
 const chance = require('chance').Chance();
 const request = require('supertest');
 const assert = require('assert');
-const createMiddleware = require('swagger-express-middleware');
-const bb = require('bluebird');
 
 const appReq = require('../index');
 const Plugin = require('./plugin');
@@ -20,7 +18,6 @@ afterAll(async () => {
   await sqldb.connectionManager.close();
 });
 module.exports = async (appParams = {}) => {
-  const { openApiSpec } = appParams;
   const plugins = (() => {
     if (Array.isArray(appParams.plugins)) {
       const retVal = {};
@@ -38,33 +35,6 @@ module.exports = async (appParams = {}) => {
     ...appParams,
     plugins,
   });
-
-  // Set up swagger middleware with the OpenAPI spec
-  if (openApiSpec) {
-    app.openApiSpec = openApiSpec;
-    const middleware = await bb.promisify(createMiddleware)(openApiSpec);
-    const auth = require('../auth/authHandler');
-    app.use(
-      middleware.metadata(),
-      middleware.CORS(),
-      middleware.parseRequest(),
-    );
-    // Set up auth middleware
-    app.use((req, res, next) => {
-      const securityRequirements = req.swagger && req.swagger.security;
-      if (!securityRequirements) return next();
-      
-      // Check if endpoint requires admin or user auth
-      const hasAdminOrUser = securityRequirements.some(sec => 
-        (sec.bearerAuth && sec.bearerAuth.includes('admin')) || (sec.bearerAuth && sec.bearerAuth.includes('user'))
-      );
-      
-      if (hasAdminOrUser) {
-        return auth['admin,user'](req, res, next);
-      }
-      next();
-    });
-  }
 
   const doApi = async ({
     query,

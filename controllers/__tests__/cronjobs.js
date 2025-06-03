@@ -4,7 +4,6 @@ const fs = require('fs');
 
 // Load environment variables and API schema
 const { env: { adminKey } } = process;
-const schema = yaml.load(fs.readFileSync(`${__dirname}/../../api.yml`));
 
 describe('cronjobs', () => {
   const testUtils = require('../../test/utils');
@@ -41,9 +40,7 @@ describe('cronjobs', () => {
       doApiDelete: del, 
       createUserToken,
       appSetup
-    } = await testUtils({
-      openApiSpec: schema
-    });
+    } = await testUtils();
 
     // Use appSetup to create app and user
     userSetup = await appSetup();
