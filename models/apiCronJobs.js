@@ -49,8 +49,11 @@ const ApiCronJobs = db.define('ApiCronJobs', {
         type: 'api',
         method: apiCronJob.method,
         url: apiCronJob.url,
-        token: apiCronJob.token,
-        ...(apiCronJob.body || {}),
+        headers: {
+          'content-type': 'application/json',
+          'Authorization': `Bearer ${apiCronJob.token}`,
+        },
+        payload: (apiCronJob.body || {}),
       };
 
         const jobParams = {
