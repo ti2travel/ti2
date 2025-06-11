@@ -283,29 +283,12 @@ describe('cronjobs', () => {
     const cronExpression = '*/1 * * * *'; // Every minute
     const uniqueId = `${(new Date()).getTime()}`
 
-    // Create a cronjob that should execute in the next minute
-    // Assuming the test are running on the same host as the worker
-    const response = await doApiPost({
-      url: `/cronjobs/${userId}`,
-      token: adminKey,
-      payload: {
-        method: 'POST',
-        url: `/products/${appName}/${userId}/search`,
-        cron: cronExpression,
-        payload: {},
-        callbackUrl: `http://localhost:44294/callback?date=${uniqueId}`,
-        removeOnComplete: true,
-      },
-    });
+    const callBackServer = new Promise((resolve, reject) => {
+      // Create a temporary HTTP server to receive the callback
+      const http = require('http');
+      const url = require('url'); // Import the 'url' module
+      const port = 44294; // Using a fixed port for test
 
-    expect(response.bullJobId).toBeTruthy();
-
-    // Create a temporary HTTP server to receive the callback
-    const http = require('http');
-    const url = require('url'); // Import the 'url' module
-    const port = 44294; // Using a fixed port for test
-
-    const jobExecution = new Promise((resolve, reject) => {
       const server = http.createServer((req, res) => {
         let body = '';
         req.on('data', chunk => body += chunk);
@@ -331,9 +314,25 @@ describe('cronjobs', () => {
       server.listen(port, '0.0.0.0');
     });
 
+    // Create a cronjob that should execute in the next minute
+    // Assuming the test are running on the same host as the worker
+    const response = await doApiPost({
+      url: `/cronjobs/${userId}`,
+      token: adminKey,
+      payload: {
+        method: 'POST',
+        url: `/products/${appName}/${userId}/search`,
+        cron: cronExpression,
+        payload: {},
+        callbackUrl: `http://localhost:44294/callback?date=${uniqueId}`,
+        removeOnComplete: true,
+      },
+    });
+
+    expect(response.bullJobId).toBeTruthy();
     // Wait for the job to execute
-    const executedJob = await jobExecution;
-    expect(executedJob.id).toBe(response.bullJobId);
+    const callBackInstance = await callBackServer;
+    expect(callBackInstance.id).toBe(response.bullJobId);
 
     // Import the queue to check job status
     const { queue } = require('../../worker/queue');
