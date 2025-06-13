@@ -280,107 +280,115 @@ describe('cronjobs', () => {
   });
 
 describe('scheduled cronjob execution', () => {
-    let cronJobIdToCleanup; // To store the ID of the job for cleanup in afterAll
-    let server; // To hold the HTTP server instance for manual cleanup if needed
+    let bullJobId;
+    describe('create and remove job (via api)', () => {
+      let cronJobIdToCleanup; // To store the ID of the job for cleanup in afterAll
+      let server; // To hold the HTTP server instance for manual cleanup if needed
 
-    // Define port here to be accessible in afterAll for server closing
-    const testPort = 44294; 
+      // Define port here to be accessible in afterAll for server closing
+      const testPort = 44294; 
 
-    afterAll(async () => {
-      if (cronJobIdToCleanup) {
-        try {
-          await doApiDelete({
-            url: `/cronjobs/${userId}/${cronJobIdToCleanup}`,
-            token: adminKey,
-          });
-        } catch (e) {
-          console.error(`Failed to cleanup cronjob ${cronJobIdToCleanup} in afterAll: ${e.message}`);
+      afterAll(async () => {
+        if (cronJobIdToCleanup) {
+          try {
+            await doApiDelete({
+              url: `/cronjobs/${userId}/${cronJobIdToCleanup}`,
+              token: adminKey,
+            });
+          } catch (e) {
+            console.error(`Failed to cleanup cronjob ${cronJobIdToCleanup} in afterAll: ${e.message}`);
+          }
         }
-      }
-      // Ensure server is closed
-      if (server && server.listening) {
-        await new Promise(resolve => server.close(resolve));
-      }
-    });
+        // Ensure server is closed
+        if (server && server.listening) {
+          await new Promise(resolve => server.close(resolve));
+        }
+      });
 
-    it('should create, execute, and verify a scheduled cronjob', async () => {
-      const cronExpression = '* * * * *'; // Every minute
-      const uniqueId = `${(new Date()).getTime()}`;
-      let response; // To store the API response for creating the cronjob
+      it('should create, execute, and verify a scheduled cronjob', async () => {
+        const cronExpression = '* * * * *'; // Every minute
+        const uniqueId = `${(new Date()).getTime()}`;
+        let response; // To store the API response for creating the cronjob
 
-      const callBackServerPromise = new Promise((resolve, reject) => {
-        const http = require('http');
-        const url = require('url');
-        
-        server = http.createServer((req, res) => {
-          let body = '';
-          req.on('data', chunk => body += chunk);
-          req.on('end', () => {
-            const requestUrl = url.parse(req.url, true);
-            const receivedUniqueId = requestUrl.query.date;
+        const callBackServerPromise = new Promise((resolve, reject) => {
+          const http = require('http');
+          const url = require('url');
 
-            if (receivedUniqueId === uniqueId) {
-              // Check if response and response.bullJobId are available
-              if (response && response.bullJobId) {
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: true }));
-                // server.close() will be handled in afterAll or if explicitly resolved/rejected
-                resolve({ id: response.bullJobId });
+          server = http.createServer((req, res) => {
+            let body = '';
+            req.on('data', chunk => body += chunk);
+            req.on('end', () => {
+              const requestUrl = url.parse(req.url, true);
+              const receivedUniqueId = requestUrl.query.date;
+
+              if (receivedUniqueId === uniqueId) {
+                // Check if response and response.bullJobId are available
+                if (response && response.bullJobId) {
+                  res.writeHead(200, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ success: true }));
+                  // server.close() will be handled in afterAll or if explicitly resolved/rejected
+                  resolve({ id: response.bullJobId });
+                } else {
+                  // This case handles if callback arrives but job creation might have failed or response not processed
+                  res.writeHead(500, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ success: false, message: 'Callback received but job details unavailable.' }));
+                  reject(new Error('Callback processed but original job details (response.bullJobId) were missing.'));
+                }
               } else {
-                // This case handles if callback arrives but job creation might have failed or response not processed
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, message: 'Callback received but job details unavailable.' }));
-                reject(new Error('Callback processed but original job details (response.bullJobId) were missing.'));
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, message: 'Callback ID mismatch' }));
+                // Do not resolve or reject here, let the test timeout if correct callback never comes.
+                // Or, optionally, reject:
+                // reject(new Error('Callback ID mismatch.'));
               }
-            } else {
-              res.writeHead(400, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ success: false, message: 'Callback ID mismatch' }));
-              // Do not resolve or reject here, let the test timeout if correct callback never comes.
-              // Or, optionally, reject:
-              // reject(new Error('Callback ID mismatch.'));
-            }
+            });
+          });
+
+          server.on('error', (err) => {
+            reject(err); // Reject promise if server fails to start (e.g. port in use)
+          });
+
+          server.listen(testPort, '0.0.0.0', () => {
+            // console.log(`Test callback server listening on port ${testPort}`);
           });
         });
-
-        server.on('error', (err) => {
-          reject(err); // Reject promise if server fails to start (e.g. port in use)
+        response = await doApiPost({
+          url: `/cronjobs/${userId}`,
+          token: adminKey,
+          payload: {
+            method: 'POST',
+            url: `/products/${appName}/${userId}/search`,
+            cron: cronExpression,
+            payload: {},
+            callbackUrl: `http://localhost:${testPort}/callback?date=${uniqueId}`,
+            removeOnComplete: true,
+          },
         });
-        
-        server.listen(testPort, '0.0.0.0', () => {
-          // console.log(`Test callback server listening on port ${testPort}`);
-        });
-      });
-      response = await doApiPost({
-        url: `/cronjobs/${userId}`,
-        token: adminKey,
-        payload: {
-          method: 'POST',
-          url: `/products/${appName}/${userId}/search`,
-          cron: cronExpression,
-          payload: {},
-          callbackUrl: `http://localhost:${testPort}/callback?date=${uniqueId}`,
-          removeOnComplete: true,
-        },
-      });
 
-      expect(response.bullJobId).toBeTruthy();
-      expect(response.id).toBeTruthy();
-      cronJobIdToCleanup = response.id;
+        expect(response.bullJobId).toBeTruthy();
+        expect(response.id).toBeTruthy();
+        cronJobIdToCleanup = response.id;
 
-      const callBackInstance = await callBackServerPromise;
-      expect(callBackInstance.id).toBe(response.bullJobId);
+        const callBackInstance = await callBackServerPromise;
+        expect(callBackInstance.id).toBe(response.bullJobId);
+        bullJobId = response.bullJobId;
 
+      }, 120e3); // Timeout for the cronjob to be executed
+
+    })
+    it ('wait for queue job to be automatically removed', async() => {
+      expect(bullJobId).toBeTruthy();
       const { queue } = require('../../worker/queue');
       let jobInQueue;
       const maxRetries = 60;
       const retryInterval = 1e3;
 
       for (let i = 0; i < maxRetries; i++) {
-        jobInQueue = await queue.getJob(response.bullJobId);
+        jobInQueue = await queue.getJob(bullJobId);
         if (!jobInQueue) break;
         await new Promise(resolveDelay => setTimeout(resolveDelay, retryInterval));
       }
       expect(jobInQueue).toBeNull();
-    }, 120e3); // Timeout for the test
+    }, 60e3) // timeout for bull  to remove the queue Job once executed (removeOnComplete)
   });
 });
