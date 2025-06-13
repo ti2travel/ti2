@@ -279,86 +279,108 @@ describe('cronjobs', () => {
     }
   });
 
-  it('should execute a scheduled cronjob', async () => {
-    const cronExpression = '* * * * *'; // Every minute
-    const uniqueId = `${(new Date()).getTime()}`
+describe('scheduled cronjob execution', () => {
+    let cronJobIdToCleanup; // To store the ID of the job for cleanup in afterAll
+    let server; // To hold the HTTP server instance for manual cleanup if needed
 
-    const callBackServer = new Promise((resolve, reject) => {
-      // Create a temporary HTTP server to receive the callback
-      const http = require('http');
-      const url = require('url'); // Import the 'url' module
-      const port = 44294; // Using a fixed port for test
+    // Define port here to be accessible in afterAll for server closing
+    const testPort = 44294; 
 
-      const server = http.createServer((req, res) => {
-        let body = '';
-        req.on('data', chunk => body += chunk);
-        req.on('end', () => {
-          const requestUrl = url.parse(req.url, true);
-          const receivedUniqueId = requestUrl.query.date;
-          if (receivedUniqueId === uniqueId) {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true }));
-            server.close(() => {
-              resolve({ id: response.bullJobId });
-            });
-          } else {
-            // If the uniqueId doesn't match, send a different response.
-            // The test will eventually time out if the correct callback doesn't arrive.
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: false, message: 'Callback ID mismatch' }));
-            // server.close(); // Optionally close server on mismatch to free port sooner
-          }
+    afterAll(async () => {
+      if (cronJobIdToCleanup) {
+        try {
+          await doApiDelete({
+            url: `/cronjobs/${userId}/${cronJobIdToCleanup}`,
+            token: adminKey,
+          });
+        } catch (e) {
+          console.error(`Failed to cleanup cronjob ${cronJobIdToCleanup} in afterAll: ${e.message}`);
+        }
+      }
+      // Ensure server is closed
+      if (server && server.listening) {
+        await new Promise(resolve => server.close(resolve));
+      }
+    });
+
+    it('should create, execute, and verify a scheduled cronjob', async () => {
+      const cronExpression = '* * * * *'; // Every minute
+      const uniqueId = `${(new Date()).getTime()}`;
+      let response; // To store the API response for creating the cronjob
+
+      const callBackServerPromise = new Promise((resolve, reject) => {
+        const http = require('http');
+        const url = require('url');
+        
+        server = http.createServer((req, res) => {
+          let body = '';
+          req.on('data', chunk => body += chunk);
+          req.on('end', () => {
+            const requestUrl = url.parse(req.url, true);
+            const receivedUniqueId = requestUrl.query.date;
+
+            if (receivedUniqueId === uniqueId) {
+              // Check if response and response.bullJobId are available
+              if (response && response.bullJobId) {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true }));
+                // server.close() will be handled in afterAll or if explicitly resolved/rejected
+                resolve({ id: response.bullJobId });
+              } else {
+                // This case handles if callback arrives but job creation might have failed or response not processed
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, message: 'Callback received but job details unavailable.' }));
+                reject(new Error('Callback processed but original job details (response.bullJobId) were missing.'));
+              }
+            } else {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, message: 'Callback ID mismatch' }));
+              // Do not resolve or reject here, let the test timeout if correct callback never comes.
+              // Or, optionally, reject:
+              // reject(new Error('Callback ID mismatch.'));
+            }
+          });
+        });
+
+        server.on('error', (err) => {
+          reject(err); // Reject promise if server fails to start (e.g. port in use)
+        });
+        
+        server.listen(testPort, '0.0.0.0', () => {
+          // console.log(`Test callback server listening on port ${testPort}`);
         });
       });
+      response = await doApiPost({
+        url: `/cronjobs/${userId}`,
+        token: adminKey,
+        payload: {
+          method: 'POST',
+          url: `/products/${appName}/${userId}/search`,
+          cron: cronExpression,
+          payload: {},
+          callbackUrl: `http://localhost:${testPort}/callback?date=${uniqueId}`,
+          removeOnComplete: true,
+        },
+      });
 
-      server.listen(port, '0.0.0.0');
-    });
+      expect(response.bullJobId).toBeTruthy();
+      expect(response.id).toBeTruthy();
+      cronJobIdToCleanup = response.id;
 
-    // Create a cronjob that should execute in the next minute
-    // Assuming the test are running on the same host as the worker
-    const response = await doApiPost({
-      url: `/cronjobs/${userId}`,
-      token: adminKey,
-      payload: {
-        method: 'POST',
-        url: `/products/${appName}/${userId}/search`,
-        cron: cronExpression,
-        payload: {},
-        callbackUrl: `http://localhost:44294/callback?date=${uniqueId}`,
-        removeOnComplete: true,
-      },
-    });
+      const callBackInstance = await callBackServerPromise;
+      expect(callBackInstance.id).toBe(response.bullJobId);
 
-    expect(response.bullJobId).toBeTruthy();
-    // Wait for the job to execute
-    const callBackInstance = await callBackServer;
-    expect(callBackInstance.id).toBe(response.bullJobId);
+      const { queue } = require('../../worker/queue');
+      let jobInQueue;
+      const maxRetries = 60;
+      const retryInterval = 1e3;
 
-    // Import the queue to check job status
-    const { queue } = require('../../worker/queue');
-
-    // Check if the job was removed from the Bull queue
-    // It might take a moment for the job to be fully removed after completion
-    // try the next command for up to 30s, queue auto-removal can take a bit
-    let jobInQueue;
-    const maxRetries = 60; // Max 30 retries (e.g. 30 seconds if 1s interval)
-    const retryInterval = 1e3; // 1 second interval
-
-    for (let i = 0; i < maxRetries; i++) {
-      jobInQueue = await queue.getJob(response.bullJobId);
-      if (!jobInQueue) {
-        break; // Job removed, exit loop
+      for (let i = 0; i < maxRetries; i++) {
+        jobInQueue = await queue.getJob(response.bullJobId);
+        if (!jobInQueue) break;
+        await new Promise(resolveDelay => setTimeout(resolveDelay, retryInterval));
       }
-      // Wait before retrying
-      await new Promise(resolve => setTimeout(resolve, retryInterval));
-    }
-
-    expect(jobInQueue).toBeNull();
-
-    // Clean up - remove the cron job from the database
-    await doApiDelete({
-      url: `/cronjobs/${userId}/${response.id}`,
-      token: adminKey,
-    });
-  }, 120e3); // timeout to wait for the queue to clearout the job
+      expect(jobInQueue).toBeNull();
+    }, 120e3); // Timeout for the test
+  });
 });
