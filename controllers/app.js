@@ -313,7 +313,7 @@ const migrateApp = async ({ integrationId, action }) => {
     'migrations',
   );
   try {
-    await fs.access(migrationsPath);
+    await fs.promises.access(migrationsPath);
   } catch (err) {
     throw Error(`Could not find any migrations for ${integrationId} on ${migrationsPath}`);
   }
