@@ -280,7 +280,7 @@ describe('cronjobs', () => {
   });
 
   it('should execute a scheduled cronjob', async () => {
-    const cronExpression = '*/1 * * * *'; // Every minute
+    const cronExpression = '* * * * *'; // Every minute
     const uniqueId = `${(new Date()).getTime()}`
 
     const callBackServer = new Promise((resolve, reject) => {
