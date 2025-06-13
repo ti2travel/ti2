@@ -7,7 +7,7 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     container:
-      image: node:16.15.0
+      image: node:16.20.0
     services:
       mysql:
         image: mysql
@@ -31,13 +31,17 @@ jobs:
     - uses: actions/checkout@v2
     - uses: actions/setup-node@v1
       with:
-        node-version: 12
+        node-version: 16
     - name: install dependencies
       run: npm ci
     - name: create/migrate the database
       run: npx sequelize db:create && npx sequelize db:migrate
     - name: seed the database
       run: npx sequelize db:seed:all
-    - run: RUNNER_TRACKING_ID="" && (nohup node ./test/worker.js&)
+    - name: start worker process
+      run: RUNNER_TRACKING_ID="" node ./test/worker.js > worker.log 2>&1 &
     - name: run the tests
       run: npx jest -i --coverage --forceExit
+    - name: display worker logs
+      if: ${{ failure() }}
+      run: cat worker.log

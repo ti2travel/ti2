@@ -1,12 +1,12 @@
 /* globals beforeAll describe it expect */
 
 const chance = require('chance').Chance();
-const testUtils = require('../../test/utils');
 const slugify = require('../../test/slugify');
 
 const { env: { adminKey } } = process;
 
 describe('admin', () => {
+  const testUtils = require('../../test/utils');
   const appName = slugify(
     chance.company(),
   );
