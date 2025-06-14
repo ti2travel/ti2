@@ -312,49 +312,56 @@ describe('user: bookings controller', () => {
           expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
         });
       });
+      describe('lock mechanism', () => {
+        
+        it('wait for the TTR to expire', async () => {
+          await new Promise(resolve => {
+            setTimeout(resolve, 2100);
+          });
         });
-
-        // Make multiple requests with slight delays to simulate real-world concurrent requests
-        const makeRequest = () => doApiPost({
-          url: `/products/${appKey}/${userId}/ttr-test/search`,
-          token: userToken,
-          payload: {},
-        });
-
-        // Start first request
-        const request1 = makeRequest();
-        // Start second request after 10ms
-        await new Promise(resolve => {
-          setTimeout(resolve, 10);
-        });
-        const request2 = makeRequest();
-        // Start third request after another 10ms
-        await new Promise(resolve => {
-          setTimeout(resolve, 10);
-        });
-        const request3 = makeRequest();
-
-        // Wait for all requests to complete
-        const results = await Promise.all([request1, request2, request3]);
-
-        // All requests should return valid products
-        results.forEach(({ products }) => {
-          expect(Array.isArray(products)).toBeTruthy();
-          expect(products.length).toBe(2); // Based on existing test expectations
-        });
-
-        // Plugin should only be called once due to lock mechanism, and with correct context
-        expect(plugins[0].searchProducts).toHaveBeenCalledWith(
-          expect.objectContaining({
-            token: expect.objectContaining({
-              client: 'tourconnect',
-              endpoint: expect.stringContaining('https://api.travelgatex.com'),
-            }),
-            userId: expect.stringContaining(userId),
+        it('Make multiple requests with slight delays to simulate real-world concurrent requests', async () => {
+          const makeRequest = () => doApiPost({
+            url: `/products/${appKey}/${userId}/ttr-test/search`,
+            token: userToken,
             payload: {},
-            typeDefsAndQueries: expect.any(Object)
-          })
-        );
+          });
+
+          // Start first request
+          const request1 = makeRequest();
+          // Start second request after 10ms
+          await new Promise(resolve => {
+            setTimeout(resolve, 10);
+          });
+          const request2 = makeRequest();
+          // Start third request after another 10ms
+          await new Promise(resolve => {
+            setTimeout(resolve, 10);
+          });
+          const request3 = makeRequest();
+
+          // Wait for all requests to complete
+          const results = await Promise.all([request1, request2, request3]);
+
+          // All requests should return valid products
+          results.forEach(({ products }) => {
+            expect(Array.isArray(products)).toBeTruthy();
+            expect(products.length).toBe(2); // Based on existing test expectations
+          });
+
+        });
+        it('Plugin should only be called once due to lock mechanism, and with correct context', async () => {
+          expect(plugins[0].searchProducts).toHaveBeenCalledWith(
+            expect.objectContaining({
+              token: expect.objectContaining({
+                client: 'tourconnect',
+                endpoint: expect.stringContaining('https://api.travelgatex.com'),
+              }),
+              userId: expect.stringContaining(userId),
+              payload: {},
+              typeDefsAndQueries: expect.any(Object)
+            })
+          );
+        });
       });
     });
   });
