@@ -153,86 +153,95 @@ describe('user: bookings controller', () => {
       expect(products[1].options.length).toBe(2);
       expect(plugins[0].searchProducts.mock.calls[0][0].token).toEqual(token);
     });
-    it('should be able to get booking products: using cache', async () => {
-      const payload = {};
-      const { products } = await doApiPost({
-        url: `/products/${appKey}/${userId}/testingToken/search`,
-        token: userToken,
-        payload,
-      });
-      expect(plugins[0].searchProducts).not.toHaveBeenCalled();
-      expect(Array.isArray(products)).toBeTruthy();
-      expect(products.length).toBe(2);
-      expect(products[0].options.length).toBe(1);
-      expect(products[1].options.length).toBe(2);
-    });
-    it('should be able to get booking products with searchInput', async () => {
-
-      const payload = {
-        searchInput: 'Transfer from Sydney Harbor to Hilton Hotel',
-      };
-      const { products } = await doApiPost({
-        url: `/products/${appKey}/${userId}/testingToken/search`,
-        token: userToken,
-        payload,
-      });
-      expect(plugins[0].searchProducts).not.toHaveBeenCalled();
-      expect(Array.isArray(products)).toBeTruthy();
-      expect(products.length).toBe(1);
-      expect(products[0].productName).toBe('Davids');
-      expect(products[0].options.length).toBe(1);
-      expect(products[0].options[0].optionName).toBe('Transfer from Sydney Harbor Bridge to Hilton Hotel');
-    });
-    it('should be able to process doNotCallPluginForProducts in token', async () => {
-      const { userAppKeys } = await doApiGet({
-        url: `/user/${userId}/apps`,
-        token: userToken,
-      });
-      let newnewIntegration = userAppKeys.find(e => e.hint === 'hint_for_doNotCallPluginForProducts'
-        && e.integrationId === newApp.name);
-      if (!newnewIntegration) {
-        const newIntegrationContent = {
-          endpoint: 'https://api.travelgatex.com',
-          apiKey: chance.guid(),
-          client: 'tourconnect',
-          doNotCallPluginForProducts: true,
-        };
-        // create a new user token with the new content
-        newnewIntegration = await doApiPost({
-          url: `/travelgate/${userId}`,
-          token: adminKey,
-          payload: {
-            token: newIntegrationContent,
-            tokenHint: 'hint_for_doNotCallPluginForProducts',
-          },
+    describe('cache exists and is valid', () => {
+      it('should be able to get booking products: using cache', async () => {
+        const payload = {};
+        const { products } = await doApiPost({
+          url: `/products/${appKey}/${userId}/testingToken/search`,
+          token: userToken,
+          payload,
         });
-      }
-      expect(newnewIntegration).toBeTruthy();
-      // first time call, no cache expect no plugin call and empty products
-      let products;
-      await doApiPost({
-        url: `/products/${appKey}/${userId}/hint_for_doNotCallPluginForProducts/search`,
-        token: userToken,
-        payload: {},
-      }).then(({ products: p }) => {
-        products = p;
+        expect(plugins[0].searchProducts).not.toHaveBeenCalled();
+        expect(Array.isArray(products)).toBeTruthy();
+        expect(products.length).toBe(2);
+        expect(products[0].options.length).toBe(1);
+        expect(products[1].options.length).toBe(2);
       });
-      expect(plugins[0].searchProducts).not.toHaveBeenCalled();
-      expect(Array.isArray(products)).toBeTruthy();
-      expect(products.length).toBe(0);
-      // second time call, forceRefresh and still expect plugin call
-      await doApiPost({
-        url: `/products/${appKey}/${userId}/hint_for_doNotCallPluginForProducts/search`,
-        token: userToken,
-        payload: { forceRefresh: true },
-      }).then(({ products: p }) => {
-        products = p;
-      });
-      expect(plugins[0].searchProducts).toHaveBeenCalled();
-      expect(Array.isArray(products)).toBeTruthy();
-      expect(products.length).toBe(2);
-    });
+      it('should be able to get booking products with searchInput', async () => {
 
+        const payload = {
+          searchInput: 'Transfer from Sydney Harbor to Hilton Hotel',
+        };
+        const { products } = await doApiPost({
+          url: `/products/${appKey}/${userId}/testingToken/search`,
+          token: userToken,
+          payload,
+        });
+        expect(plugins[0].searchProducts).not.toHaveBeenCalled();
+        expect(Array.isArray(products)).toBeTruthy();
+        expect(products.length).toBe(1);
+        expect(products[0].productName).toBe('Davids');
+        expect(products[0].options.length).toBe(1);
+        expect(products[0].options[0].optionName).toBe('Transfer from Sydney Harbor Bridge to Hilton Hotel');
+      });
+    });
+    describe('doNotCallPluginForProducts flag', () => {
+      it('create the integration', async ()=> {
+        const { userAppKeys } = await doApiGet({
+          url: `/user/${userId}/apps`,
+          token: userToken,
+        });
+        let newnewIntegration = userAppKeys.find(e => e.hint === 'hint_for_doNotCallPluginForProducts'
+          && e.integrationId === newApp.name);
+        if (!newnewIntegration) {
+          const newIntegrationContent = {
+            endpoint: 'https://api.travelgatex.com',
+            apiKey: chance.guid(),
+            client: 'tourconnect',
+            doNotCallPluginForProducts: true,
+          };
+          // create a new user token with the new content
+          newnewIntegration = await doApiPost({
+            url: `/travelgate/${userId}`,
+            token: adminKey,
+            payload: {
+              token: newIntegrationContent,
+              tokenHint: 'hint_for_doNotCallPluginForProducts',
+            },
+          });
+        }
+        expect(newnewIntegration).toBeTruthy();
+      });
+      it('productSearch should not call the plugin', async () => {
+        // first time call, no cache expect no plugin call and empty products
+        let products;
+        await doApiPost({
+          url: `/products/${appKey}/${userId}/hint_for_doNotCallPluginForProducts/search`,
+          token: userToken,
+          payload: {},
+        }).then(({ products: p }) => {
+          products = p;
+        });
+        expect(plugins[0].searchProducts).not.toHaveBeenCalled();
+        expect(Array.isArray(products)).toBeTruthy();
+        expect(products.length).toBe(0);
+
+      });
+      it('a forceRefresh should trigger the call to the plugin', async() => {
+        // second time call, forceRefresh and still expect plugin call
+        await doApiPost({
+          url: `/products/${appKey}/${userId}/hint_for_doNotCallPluginForProducts/search`,
+          token: userToken,
+          payload: { forceRefresh: true },
+        }).then(({ products: p }) => {
+          products = p;
+        });
+        expect(plugins[0].searchProducts).toHaveBeenCalled();
+        expect(Array.isArray(products)).toBeTruthy();
+        expect(products.length).toBe(2);
+
+      });
+    });
     describe('cache TTR and lock mechanism', () => {
       const shortTTRToken = {
         endpoint: 'https://api.travelgatex.com',
@@ -253,56 +262,56 @@ describe('user: bookings controller', () => {
       beforeEach(async () => {
         jest.clearAllMocks();
       });
-
-      it('should use cache within TTR period', async () => {
-        await doApiPost({
-          url: `/products/${appKey}/${userId}/ttr-test/search`,
-          token: userToken,
-          payload: {},
+      describe('inside of the TTR period', () => {
+        it('first call should create the cache', async ()=> {
+          await doApiPost({
+            url: `/products/${appKey}/${userId}/ttr-test/search`,
+            token: userToken,
+            payload: {},
+          });
+          expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
         });
-        expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
-
-        // Second immediate call should use cache
-        await doApiPost({
-          url: `/products/${appKey}/${userId}/ttr-test/search`,
-          token: userToken,
-          payload: {},
+        it('inmediate call should not call the plugin mehthod', async () => {
+          // Second immediate call should use cache
+          await doApiPost({
+            url: `/products/${appKey}/${userId}/ttr-test/search`,
+            token: userToken,
+            payload: {},
+          });
+          expect(plugins[0].searchProducts).not.toHaveBeenCalled();
         });
-        expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1); // Still 1, used cache
       });
-
-      it('should refresh cache after TTR expires', async () => {
-        // Wait for TTR to expire (2 seconds + buffer) so the cache from previous test is stale
-        await new Promise(resolve => {
-          setTimeout(resolve, 2100);
+      describe('outside of the TTR period', () => {
+        it('wait for the TTR to expire', async () => {
+          // Wait for TTR to expire (2 seconds + buffer)
+          await new Promise(resolve => {
+            setTimeout(resolve, 2100);
+          });
         });
-
-        // First call to populate cache
-        await doApiPost({
-          url: `/products/${appKey}/${userId}/ttr-test/search`,
-          token: userToken,
-          payload: {},
+        it('populate the cache', async () => {
+          // First call to populate cache
+          await doApiPost({
+            url: `/products/${appKey}/${userId}/ttr-test/search`,
+            token: userToken,
+            payload: {},
+          });
+          expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
         });
-        expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
-
-        // Wait for TTR to expire (2 seconds + buffer)
-        await new Promise(resolve => {
-          setTimeout(resolve, 2100);
+        it('wait for the TTR to expire', async () => {
+          // Wait for TTR to expire (2 seconds + buffer)
+          await new Promise(resolve => {
+            setTimeout(resolve, 2100);
+          });
         });
-
-        // Call after TTR expired should hit the plugin again
-        await doApiPost({
-          url: `/products/${appKey}/${userId}/ttr-test/search`,
-          token: userToken,
-          payload: {},
+        it('call after TTR expired should hit the plugin again', async () => {
+          await doApiPost({
+            url: `/products/${appKey}/${userId}/ttr-test/search`,
+            token: userToken,
+            payload: {},
+          });
+          expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
         });
-        expect(plugins[0].searchProducts).toHaveBeenCalledTimes(2);
       });
-
-      it('should use lock mechanism to prevent concurrent calls', async () => {
-        // Wait for TTR to expire (2 seconds + buffer) so the cache from previous test is stale
-        await new Promise(resolve => {
-          setTimeout(resolve, 2100);
         });
 
         // Make multiple requests with slight delays to simulate real-world concurrent requests
