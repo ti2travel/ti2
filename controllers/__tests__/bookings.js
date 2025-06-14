@@ -137,17 +137,7 @@ describe('user: bookings controller', () => {
       expect(products[1].options.length).toBe(2);
     });
     it('should be able to get booking products: no cache, forceRefresh', async () => {
-      // NOTE: we need to remove the cache first
-      const cacheKey = hash({
-        appKey,
-        userId,
-        hint: 'testingToken',
-        operationId: 'bookingsProductSearch',
-      });
-      await cache.drop({
-        pluginName: appKey,
-        key: cacheKey,
-      });
+      // NOTE: we SHOULD NOT need to remove the cache first, since we are forceRefreshing, we are testing the endpoint get's called while having a cache created
       const payload = {
         forceRefresh: true,
       };
