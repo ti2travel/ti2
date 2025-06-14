@@ -104,22 +104,25 @@ describe('user: bookings controller', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
   });
-  it('should be able to search a for a booking', async () => {
-    const payload = {
-      bookingId: '', supplierBookingId: '', name: '',
-    };
-    const { bookings } = await doApiPost({
-      url: `/bookings/${appKey}/${userId}/testingToken/search`,
-      token: userToken,
-      payload,
-    });
-    expect(plugins[0].searchHotelBooking).toHaveBeenCalled();
-    expect(Array.isArray(bookings)).toBeTruthy();
-    expect(plugins[0].searchHotelBooking.mock.calls[0][0].payload).toEqual(payload);
-    expect(plugins[0].searchHotelBooking.mock.calls[0][0].token).toEqual(token);
+  describe('bookings', ()=> {
+    it('should be able to search a for a booking', async () => {
+      const payload = {
+        bookingId: '', supplierBookingId: '', name: '',
+      };
+      const { bookings } = await doApiPost({
+        url: `/bookings/${appKey}/${userId}/testingToken/search`,
+        token: userToken,
+        payload,
+      });
+      expect(plugins[0].searchHotelBooking).toHaveBeenCalled();
+      expect(Array.isArray(bookings)).toBeTruthy();
+      expect(plugins[0].searchHotelBooking.mock.calls[0][0].payload).toEqual(payload);
+      expect(plugins[0].searchHotelBooking.mock.calls[0][0].token).toEqual(token);
 
-    // expect(Array.isArray(retVal.bookings)).toBeTruthy();
-    // expect(retVal.bookings.length > 0).toBeTruthy();
+      // expect(Array.isArray(retVal.bookings)).toBeTruthy();
+      // expect(retVal.bookings.length > 0).toBeTruthy();
+    });
+
   });
 
   describe('searchProducts', () => {
@@ -259,9 +262,6 @@ describe('user: bookings controller', () => {
           },
         });
       });
-      beforeEach(async () => {
-        jest.clearAllMocks();
-      });
       describe('inside of the TTR period', () => {
         it('first call should create the cache', async ()=> {
           await doApiPost({
@@ -313,19 +313,19 @@ describe('user: bookings controller', () => {
         });
       });
       describe('lock mechanism', () => {
-        
         it('wait for the TTR to expire', async () => {
           await new Promise(resolve => {
             setTimeout(resolve, 2100);
           });
         });
-        it('Make multiple requests with slight delays to simulate real-world concurrent requests', async () => {
+        it('multiple concurrent requests with slight delays', async () => {
+          // NOTE: this is inside of a single block since it needs to count the nunber of times
           const makeRequest = () => doApiPost({
             url: `/products/${appKey}/${userId}/ttr-test/search`,
             token: userToken,
             payload: {},
           });
-
+          expect (plugins[0].searchProducts).not.toHaveBeenCalled();
           // Start first request
           const request1 = makeRequest();
           // Start second request after 10ms
@@ -347,9 +347,8 @@ describe('user: bookings controller', () => {
             expect(Array.isArray(products)).toBeTruthy();
             expect(products.length).toBe(2); // Based on existing test expectations
           });
-
-        });
-        it('Plugin should only be called once due to lock mechanism, and with correct context', async () => {
+          expect (plugins[0].searchProducts).toHaveBeenCalledTimes(1);
+          // Plugin should only be called once due to lock mechanism, and with correct context', async () => {
           expect(plugins[0].searchProducts).toHaveBeenCalledWith(
             expect.objectContaining({
               token: expect.objectContaining({
