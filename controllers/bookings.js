@@ -230,14 +230,27 @@ const $bookingsProductSearch = plugins => async ({
     } else { // Cache is stale and not locked: Serve stale, refresh in background.
       const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
       // Construct the body for the API call the worker will make
-      const backgroundJobApiCallBody = { ...payloadForPlugin, forceRefresh: true, backgroundJob: true };
-      const jwtToken = headers && headers.authorization ? headers.authorization.split(' ')[1] : null;
-      const jobData = {
-        type: 'api', method: 'POST', url: `/products/${appKey}/${userId}/${hint}/search`,
-        // This jobData.payload is what the worker receives.
-        // It includes the actual body for the API call and the JWT token.
-        payload: { ...backgroundJobApiCallBody, token: jwtToken },
+      const backgroundJobControllerArgs = {
+        appKey, // This is the pluginName for the worker context
+        userId,
+        hint,
+        payload: { // This is the 'payload' argument for $bookingsProductSearch
+          ...payloadForPlugin, // originalRequestBody without controller flags
+          forceRefresh: true,
+          backgroundJob: true,
+        },
+        // headers are passed to $bookingsProductSearch, so they are available here
         headers: R.omit(['content-length', 'host', 'connection', 'accept-encoding'], headers),
+      };
+
+      const jobData = {
+        type: 'plugin', // Use the generic 'plugin' type
+        pluginName: appKey, // For context, should match args.appKey
+        payload: {  // This is job.data.payload
+          methodName: '$bookingsProductSearchInternal', // Special identifier
+          args: backgroundJobControllerArgs, // Arguments for the controller's $bookingsProductSearch
+        },
+        // inTesting flag could be passed if available and needed by worker for this job type
       };
       await addJob(jobData, { removeOnComplete: true });
       return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };

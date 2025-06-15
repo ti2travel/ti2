@@ -238,7 +238,6 @@ describe('user: bookings controller - searchProducts', () => {
           // has served stale data and queued a background job.
           // We now wait for that background job to complete by polling listJobs and jobStatus.
 
-          const expectedJobUrl = `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`;
           let backgroundJobId = null;
           let jobSucceeded = false;
           const startTime = Date.now();
@@ -248,15 +247,24 @@ describe('user: bookings controller - searchProducts', () => {
           while (Date.now() - startTime < timeoutMs) {
             if (!backgroundJobId) {
               const jobs = await listJobs();
-              const foundJob = jobs.find(
-                job =>
-                  job.data.type === 'api' &&
-                  job.data.method === 'POST' &&
-                  job.data.url === expectedJobUrl &&
-                  job.data.payload && // job.data.payload is the payload for the worker
-                  job.data.payload.backgroundJob === true && // These flags are in the API call body, which is part of worker payload
-                  job.data.payload.forceRefresh === true
-              );
+              const foundJob = jobs.find(job => {
+                const jd = job.data; // job.data
+                return (
+                  jd.type === 'plugin' &&
+                  jd.pluginName === testAppName &&
+                  jd.payload &&
+                  jd.payload.methodName === '$bookingsProductSearchInternal' &&
+                  jd.payload.args &&
+                  jd.payload.args.appKey === testAppName &&
+                  jd.payload.args.userId === testUserId &&
+                  jd.payload.args.hint === ttrTestHint &&
+                  jd.payload.args.payload && // This is the payload for $bookingsProductSearch
+                  jd.payload.args.payload.backgroundJob === true &&
+                  jd.payload.args.payload.forceRefresh === true
+                  // Note: payloadForPlugin in controller is {} for this test path,
+                  // so args.payload will be { backgroundJob: true, forceRefresh: true }
+                );
+              });
               if (foundJob) {
                 backgroundJobId = foundJob.id;
               }
@@ -269,6 +277,10 @@ describe('user: bookings controller - searchProducts', () => {
                 break;
               }
               if (statusResult.status === 'failed') {
+                // Log the job data for easier debugging if it fails
+                const jobsForDebug = await listJobs();
+                const failedJobDetails = jobsForDebug.find(j => j.id === backgroundJobId);
+                console.error('Failed job details:', JSON.stringify(failedJobDetails, null, 2));
                 throw new Error(`Background job ${backgroundJobId} failed: ${statusResult.failedReason || JSON.stringify(statusResult)}`);
               }
               // If status is 'active', 'waiting', 'delayed', or job not found by jobStatus yet, continue polling.
@@ -284,7 +296,7 @@ describe('user: bookings controller - searchProducts', () => {
               const finalStatus = await jobStatus({ jobId: backgroundJobId });
               console.error(`DEBUG: Final status for job ${backgroundJobId}:`, JSON.stringify(finalStatus, null, 2));
             }
-            throw new Error(`Timeout or failure waiting for background job (ID: ${backgroundJobId || 'not found'}) to succeed. Expected URL: ${expectedJobUrl}`);
+            throw new Error(`Timeout or failure waiting for background job (ID: ${backgroundJobId || 'not found'}) to succeed. Expected job matching criteria for $bookingsProductSearchInternal.`);
           }
           
           // At this point, the job has succeeded.
