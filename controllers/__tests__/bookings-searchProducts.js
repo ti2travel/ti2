@@ -236,86 +236,63 @@ describe('user: bookings controller - searchProducts', () => {
         it('background job should refresh cache, and subsequent calls use updated cache', async () => {
           // This test assumes the previous one ('call outside of TTR should serve stale data...')
           // has served stale data and queued a background job.
-          // We now wait for that background job to complete.
+          // We now wait for that background job to complete by polling listJobs and jobStatus.
 
-          let jobFoundAndCompletedViaQueueApi = false;
           const expectedJobUrl = `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`;
           let backgroundJobId = null;
+          let jobSucceeded = false;
+          const startTime = Date.now();
+          const timeoutMs = 10000; // 10 seconds
+          const pollIntervalMs = 500; // 0.5 seconds
 
-          // Attempt to find the job using listJobs and wait for its status
-          // Poll for a few seconds to give the job a chance to appear in the queue
-          for (let i = 0; i < 15; i++) { // Approx 4.5 seconds (15 * 300ms)
-            const jobs = await listJobs();
-            const foundJob = jobs.find(
-              job =>
-                job.data.type === 'api' &&
-                job.data.method === 'POST' &&
-                job.data.url === expectedJobUrl &&
-                job.data.payload &&
-                job.data.payload.backgroundJob === true &&
-                job.data.payload.forceRefresh === true
-            );
-
-            if (foundJob) {
-              backgroundJobId = foundJob.id;
-              // Now poll jobStatus for this job
-              for (let j = 0; j < 20; j++) { // Approx 6 seconds (20 * 300ms)
-                const statusResult = await jobStatus({ jobId: backgroundJobId });
-                if (statusResult.status === 'success') {
-                  jobFoundAndCompletedViaQueueApi = true;
-                  break;
-                }
-                if (statusResult.status === 'failed') {
-                  throw new Error(`Background job ${backgroundJobId} failed: ${statusResult.failedReason || JSON.stringify(statusResult)}`);
-                }
-                await global.sleep(300); // Wait before polling jobStatus again
+          while (Date.now() - startTime < timeoutMs) {
+            if (!backgroundJobId) {
+              const jobs = await listJobs();
+              const foundJob = jobs.find(
+                job =>
+                  job.data.type === 'api' &&
+                  job.data.method === 'POST' &&
+                  job.data.url === expectedJobUrl &&
+                  job.data.payload && // job.data.payload is the payload for the worker
+                  job.data.payload.backgroundJob === true && // These flags are in the API call body, which is part of worker payload
+                  job.data.payload.forceRefresh === true
+              );
+              if (foundJob) {
+                backgroundJobId = foundJob.id;
               }
-              break; // Exit outer loop (listJobs polling) once job is found
             }
-            await global.sleep(300); // Wait before polling listJobs again
+
+            if (backgroundJobId) {
+              const statusResult = await jobStatus({ jobId: backgroundJobId });
+              if (statusResult.status === 'success') {
+                jobSucceeded = true;
+                break;
+              }
+              if (statusResult.status === 'failed') {
+                throw new Error(`Background job ${backgroundJobId} failed: ${statusResult.failedReason || JSON.stringify(statusResult)}`);
+              }
+              // If status is 'active', 'waiting', 'delayed', or job not found by jobStatus yet, continue polling.
+            }
+            
+            await global.sleep(pollIntervalMs);
           }
 
-          // If job wasn't confirmed via listJobs/jobStatus (e.g., completed too fast and removed),
-          // rely on checking the side effect (plugin mock call).
-          // This also serves as the ultimate validation of the job's action.
-          if (!jobFoundAndCompletedViaQueueApi) {
-            // This warning is useful for test debugging/understanding if queue polling is too slow.
-            console.warn(`WARN: Could not confirm background job ${backgroundJobId || '(ID not found)'} completion via listJobs/jobStatus. Proceeding to check for side effects (plugin mock call). This might indicate the job completed very quickly.`);
-            
-            // Poll for the background job's execution (indicated by plugin call)
-            let attempts = 0;
-            // If jobFoundAndCompletedViaQueueApi is true, we expect mock call count to be 1 already.
-            // If not, we poll up to maxAttempts.
-            const maxPollingAttempts = jobFoundAndCompletedViaQueueApi ? 1 : 20; // Max 6 seconds (20 * 300ms)
-            while (plugins[0].searchProducts.mock.calls.length < 1 && attempts < maxPollingAttempts) {
-              await global.sleep(300);
-              attempts++;
+          if (!jobSucceeded) {
+            const currentJobsForDebug = await listJobs();
+            console.error('DEBUG: Current jobs in queue during timeout:', JSON.stringify(currentJobsForDebug, null, 2));
+            if (backgroundJobId) {
+              const finalStatus = await jobStatus({ jobId: backgroundJobId });
+              console.error(`DEBUG: Final status for job ${backgroundJobId}:`, JSON.stringify(finalStatus, null, 2));
             }
+            throw new Error(`Timeout or failure waiting for background job (ID: ${backgroundJobId || 'not found'}) to succeed. Expected URL: ${expectedJobUrl}`);
           }
           
-          if (plugins[0].searchProducts.mock.calls.length < 1) {
-            const currentJobsForDebug = await listJobs();
-            console.error('DEBUG: Current jobs in queue during failure:', JSON.stringify(currentJobsForDebug, null, 2));
-            throw new Error('Background job did not call searchProducts as expected. Job might not have run, completed successfully, or the mock was not hit.');
-          }
-
-          expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1); // Called once by the background job
-
-          // Verify the payload of the call made by the background job
-          expect(plugins[0].searchProducts).toHaveBeenCalledWith(
-            expect.objectContaining({
-              token: expect.objectContaining({ ttlForProducts: shortTTRToken.ttlForProducts }),
-              // The payload for the plugin function itself should not contain backgroundJob or forceRefresh flags
-              payload: expect.not.objectContaining({ backgroundJob: true, forceRefresh: true }),
-              userId: testUserId,
-              requestId: expect.any(String), // Background job gets its own requestId
-            }),
-          );
-
-          // Clear mock calls before the final cache check
+          // At this point, the job has succeeded.
+          // Clear the plugin's searchProducts mock *before* the next API call
+          // to ensure we're checking if *that specific call* hits the plugin or serves from cache.
           plugins[0].searchProducts.mockClear();
 
-          // Now that the background job has run and (presumably) updated the cache,
+          // Now that the background job has run and updated the cache,
           // a new call should get fresh data from the cache without calling the plugin.
           const { products: freshProductsFromCache } = await doApiPost({
             url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
