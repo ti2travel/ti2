@@ -3,7 +3,6 @@
 const chance = require('chance').Chance();
 const hash = require('object-hash');
 const cache = require('../../cache');
-jest.mock('../../cache');
 
 // const { env: { adminKey } } = process; // adminKey is handled by appSetup
 
@@ -299,6 +298,7 @@ describe('user: bookings controller - searchProducts', () => {
   });
 
   describe('bookingsProductSearch caching - stale cache on TTR expiry', () => {
+    jest.mock('../../cache'); // Mock cache specifically for this describe block
     // This test suite uses the main testAppName, testUserId, testHint, userToken, plugins, doApiPost
     // defined in the beforeAll of the parent describe block.
 
