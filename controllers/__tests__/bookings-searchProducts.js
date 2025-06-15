@@ -234,7 +234,6 @@ describe('user: bookings controller - searchProducts', () => {
           expect(products.length).toBe(2); // Assuming stale data (from initial cache population) is available and has 2 products
         });
         it('background job should refresh cache, and subsequent calls use updated cache', async () => {
-          jest.setTimeout(60000); // Increase timeout for this specific test to 60 seconds
           // This test assumes the previous one ('call outside of TTR should serve stale data...')
           // has served stale data and queued a background job.
           // We now wait for that background job to complete by polling listJobs and jobStatus.
@@ -303,7 +302,7 @@ describe('user: bookings controller - searchProducts', () => {
           expect(plugins[0].searchProducts).not.toHaveBeenCalled(); // Should serve from updated cache
           expect(Array.isArray(freshProductsFromCache)).toBeTruthy();
           expect(freshProductsFromCache.length).toBe(2); // Expecting fresh data (mock returns 2 products)
-        });
+        }, 60e3);
       });
       describe.skip('lock mechanism', () => {
         // This describe block for lock mechanism was already skipped, keeping it as is.
