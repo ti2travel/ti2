@@ -3,6 +3,7 @@
 const chance = require('chance').Chance();
 const hash = require('object-hash');
 const cache = require('../../cache');
+jest.mock('../../cache');
 
 // const { env: { adminKey } } = process; // adminKey is handled by appSetup
 
@@ -294,6 +295,89 @@ describe('user: bookings controller - searchProducts', () => {
           );
         });
       });
+    });
+  });
+
+  describe('bookingsProductSearch caching - stale cache on TTR expiry', () => {
+    // This test suite uses the main testAppName, testUserId, testHint, userToken, plugins, doApiPost
+    // defined in the beforeAll of the parent describe block.
+
+    it('should not return empty products when TTR expires and stale cache exists, even if refresh yields empty products', async () => {
+      const cacheModule = require('../../cache'); // Get the mocked cache module
+
+      const initialProductsInCache = [{ productId: 'cached1', name: 'Cached Product One', optionId: 'opt1' }];
+      const productsFromPluginRefresh = []; // Simulate plugin returning empty on refresh
+
+      // Configure a short TTR for this test via plugin's cacheSettings
+      // This relies on testPluginToken.ttlForProducts being undefined or overridden by cacheSettings
+      const ttrInSeconds = 1;
+      // Ensure plugins[0] exists and then set cacheSettings
+      if (plugins && plugins.length > 0) {
+        plugins[0].cacheSettings = { bookingsProductSearch: { ttr: ttrInSeconds } };
+      } else {
+        throw new Error("Plugins array is not initialized or empty.");
+      }
+
+
+      const expectedCacheKeyForProducts = hash({
+        // Use variables from the outer scope of bookings-searchProducts.js
+        userId: testUserId,
+        hint: testHint,
+        operationId: 'bookingsProductSearch',
+      });
+      const lastUpdatedKey = `${expectedCacheKeyForProducts}:lastUpdated`;
+      const lockKey = `${expectedCacheKeyForProducts}:lock`;
+
+      cacheModule.get.mockImplementation(async ({ pluginName, key }) => {
+        // Ensure calls are for the correct plugin
+        if (pluginName !== testAppName) return null;
+
+        if (key === expectedCacheKeyForProducts) {
+          return { products: initialProductsInCache };
+        }
+        if (key === lastUpdatedKey) {
+          // Simulate that lastUpdated is older than TTR
+          return Date.now() - (ttrInSeconds * 1000 * 2);
+        }
+        if (key === lockKey) {
+          return null; // No lock exists
+        }
+        return null;
+      });
+
+      // Mock the plugin's underlying product search method
+      if (plugins && plugins.length > 0 && plugins[0].searchProducts) {
+        plugins[0].searchProducts.mockResolvedValue({ products: productsFromPluginRefresh });
+      } else {
+        throw new Error("plugins[0].searchProducts is not available or not a mock function.");
+      }
+
+      const searchPayload = { searchInput: 'test' };
+      const { products: resultProducts } = await doApiPost({
+        url: `/products/${testAppName}/${testUserId}/${testHint}/search`,
+        token: userToken,
+        payload: searchPayload,
+      });
+
+      expect(resultProducts).toEqual(initialProductsInCache);
+      expect(resultProducts.length).toBeGreaterThan(0);
+
+      // Verify interactions
+      expect(cacheModule.get).toHaveBeenCalledWith(expect.objectContaining({ pluginName: testAppName, key: expectedCacheKeyForProducts }));
+      expect(cacheModule.get).toHaveBeenCalledWith(expect.objectContaining({ pluginName: testAppName, key: lastUpdatedKey }));
+      expect(cacheModule.get).toHaveBeenCalledWith(expect.objectContaining({ pluginName: testAppName, key: lockKey }));
+
+      expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1); // Refresh was attempted
+
+      // Verify cache operations for locking and updating
+      expect(cacheModule.save).toHaveBeenCalledWith(expect.objectContaining({ pluginName: testAppName, key: lockKey, value: true }));
+      expect(cacheModule.save).toHaveBeenCalledWith(expect.objectContaining({
+        pluginName: testAppName,
+        key: expectedCacheKeyForProducts,
+        value: { products: productsFromPluginRefresh },
+      }));
+      expect(cacheModule.save).toHaveBeenCalledWith(expect.objectContaining({ pluginName: testAppName, key: lastUpdatedKey }));
+      expect(cacheModule.drop).toHaveBeenCalledWith(expect.objectContaining({ pluginName: testAppName, key: lockKey }));
     });
   });
 });
