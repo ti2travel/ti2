@@ -141,9 +141,32 @@ const jobStatus = async ({ jobId }) => {
     };
   }
 };
+
+const listJobs = async () => {
+  const jobTypes = ['waiting', 'active', 'completed', 'failed', 'delayed'];
+  const jobs = await queue.getJobs(jobTypes);
+  return jobs.map(job => ({
+    id: job.id,
+    name: job.name,
+    data: job.data,
+    opts: job.opts,
+    progress: job.progress,
+    attemptsMade: job.attemptsMade,
+    delay: job.delay,
+    timestamp: job.timestamp,
+    finishedOn: job.finishedOn,
+    processedOn: job.processedOn,
+    returnvalue: job.returnvalue,
+    failedReason: job.failedReason,
+    stacktrace: job.stacktrace,
+    state: job.state,
+  }));
+};
+
 module.exports = {
   addJob,
   allDone,
+  listJobs,
   jobStatus,
   queue,
   saveResult,
