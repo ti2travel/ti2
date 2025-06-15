@@ -249,20 +249,27 @@ describe('user: bookings controller - searchProducts', () => {
               const jobs = await listJobs();
               const foundJob = jobs.find(job => {
                 const jd = job.data; // job.data
+                // Assuming plugins[0] is the 'travelgate' mock plugin used in tests
+                // and its searchProducts method is the one being targeted.
+                const expectedPluginMethod = plugins[0].searchProducts ? 'searchProducts' : 'searchProductsForItinerary';
+
                 return (
                   jd.type === 'plugin' &&
                   jd.pluginName === testAppName &&
-                  jd.payload &&
-                  jd.payload.methodName === '$bookingsProductSearchInternal' &&
-                  jd.payload.args &&
-                  jd.payload.args.appKey === testAppName &&
-                  jd.payload.args.userId === testUserId &&
-                  jd.payload.args.hint === ttrTestHint &&
-                  jd.payload.args.payload && // This is the payload for $bookingsProductSearch
-                  jd.payload.args.payload.backgroundJob === true &&
-                  jd.payload.args.payload.forceRefresh === true
-                  // Note: payloadForPlugin in controller is {} for this test path,
-                  // so args.payload will be { backgroundJob: true, forceRefresh: true }
+                  jd.method === expectedPluginMethod && // Check for actual plugin method
+                  jd.token && // Check that token is present
+                  jd.payload && // Check for job.data.payload
+                  jd.payload.userId === testUserId &&
+                  // For this test, payloadForPlugin was {}, so jd.payload.payload should be {}
+                  (typeof jd.payload.payload === 'object' && Object.keys(jd.payload.payload).length === 0) &&
+                  
+                  jd.postProcess &&
+                  jd.postProcess.controller === 'bookings' &&
+                  jd.postProcess.action === '$updateProductSearchCache' &&
+                  jd.postProcess.args &&
+                  jd.postProcess.args.appKey === testAppName &&
+                  jd.postProcess.args.userId === testUserId &&
+                  jd.postProcess.args.hint === ttrTestHint
                 );
               });
               if (foundJob) {

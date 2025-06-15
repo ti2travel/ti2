@@ -138,12 +138,11 @@ const worker = ({ plugins: pluginsParam }) => { // pluginsParam are instantiated
 
           } else {
             // Handle generic plugin method call
-            jobLog(`Processing generic plugin method: ${jobDataMethod} for plugin ${pluginName}`);
+            jobLog(`Processing plugin method: ${jobDataMethod} for plugin ${pluginName}`);
             
             const currentJobPlugins = await (async () => {
               if (inTesting) {
                 const fakePlugin = require('../test/plugin');
-                // Ensure fakePlugin is instantiated correctly if it's a class
                 const FakePluginClass = fakePlugin.default || fakePlugin;
                 return [...pluginsParam, new FakePluginClass({ name: pluginName })];
               }
@@ -153,23 +152,45 @@ const worker = ({ plugins: pluginsParam }) => { // pluginsParam are instantiated
             const thePlugin = currentJobPlugins.find(({ name }) => name === pluginName);
 
             if (!thePlugin) {
-              throw new Error(`Plugin ${pluginName} not found for generic call.`);
+              throw new Error(`Plugin ${pluginName} not found for job ${jobId}.`);
             }
             if (!jobDataMethod || typeof thePlugin[jobDataMethod] !== 'function') {
-              throw new Error(`Method ${jobDataMethod} not found or not a function on plugin ${pluginName}.`);
+              throw new Error(`Method ${jobDataMethod} not found or not a function on plugin ${pluginName} for job ${jobId}.`);
             }
 
-            resultValue = await thePlugin[jobDataMethod]({
-              ...(jobDataPayload || {}), // Spread job.data.payload
-              token: data.token,         // Pass job.data.token if it exists at the top level of job.data
+            // Execute the plugin method
+            const pluginMethodResult = await thePlugin[jobDataMethod]({
+              ...(jobDataPayload || {}), // Spread job.data.payload (e.g., contains inner 'payload' and 'userId')
+              token: data.token,         // Pass job.data.token
               plugins: currentJobPlugins,
-              typeDefsAndQueries: require('../controllers/bookings').typeDefsAndQueries,
+              typeDefsAndQueries: require('../controllers/bookings').typeDefsAndQueries, // As per existing pattern
+              axios: mainAxios,          // Inject worker's axios instance
+              requestId: jobId,          // Inject job ID as requestId
             });
-            jobLog(`Generic plugin method ${jobDataMethod} for ${pluginName} completed.`);
+            
+            jobLog(`Plugin method ${jobDataMethod} for ${pluginName} completed.`);
+            resultValue = pluginMethodResult; // The primary result of the job is the plugin's output
+
+            // Post-processing step
+            if (data.postProcess) {
+              jobLog(`Initiating post-processing step: ${data.postProcess.controller}.${data.postProcess.action}`);
+              if (data.postProcess.controller === 'bookings' && bookingsCtrl[data.postProcess.action]) {
+                await bookingsCtrl[data.postProcess.action]({
+                  ...(data.postProcess.args || {}), // Spread static args from job data
+                  pluginResult: pluginMethodResult, // Pass the dynamic result from the plugin
+                  requestId: jobId,                 // Pass job ID for tracing in post-process
+                  // 'plugins' are already part of bookingsCtrl via its factory
+                });
+                jobLog(`Post-processing step ${data.postProcess.action} completed for job ${jobId}.`);
+              } else {
+                jobErr(`Post-processing action ${data.postProcess.action} on controller ${data.postProcess.controller} not found or controller not supported for job ${jobId}.`);
+                // Depending on requirements, this could throw an error to fail the job
+              }
+            }
           }
         } else {
-          jobErr(`Unknown job type: ${type}`);
-          throw new Error(`Unknown job type: ${type}`);
+          jobErr(`Unknown job type: ${type} for job ${jobId}`);
+          throw new Error(`Unknown job type: ${type} for job ${jobId}`);
         }
 
         jobLog(`completed`);
