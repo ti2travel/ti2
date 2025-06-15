@@ -30,12 +30,17 @@ describe('user: bookings controller', () => {
   let doApiPost;
   let plugins;
   let userToken;
+  let appSetup;
+  let createUserToken;
+  
   beforeAll(async () => {
     ({
       doApiDelete,
       doApiGet,
       doApiPost,
       plugins,
+      appSetup,
+      createUserToken,
     } = await testUtils({
       plugins: [newApp.name],
     }));
@@ -55,40 +60,25 @@ describe('user: bookings controller', () => {
       pluginName: appKey,
       key: `${cacheKey}:lock`,
     });
-    // create the travelgate app and user
-    const { value: apiKey } = await doApiPost({
-      url: '/app',
-      token: adminKey,
-      payload: newApp,
-    });
-    expect(apiKey).toBeTruthy();
-
-    // Create the user token
-    ({ value: userToken } = await doApiPost({
-      url: '/user',
-      token: adminKey,
-      payload: { userId },
-    }));
+    
+    // Create user token
+    userToken = createUserToken(userId);
     expect(userToken).toBeTruthy();
-    // Create the user first, then get the token
+    
+    // Create the user
     await doApiPost({
       url: '/user',
-        token: adminKey,
-        payload: { userId, email: `${userId}@example.com` },
-      });
-      // Now get the token
-      ({ value: userToken } = await doApiPost({
-        url: '/user',
-        token: adminKey,
-        payload: { userId },
-      }));
-      expect(userToken).toBeTruthy();
+      token: adminKey,
+      payload: { userId, email: `${userId}@example.com` },
+    });
+    
     // create the travelGage+User setup
     let userAppKeys = [];
     ({ userAppKeys } = await doApiGet({
       url: `/user/${userId}/apps`,
       token: userToken,
     }));
+    
     // Check if we need to create the integration
     if (!userAppKeys.find(e => e.hint === newIntegration.tokenHint
       && e.integrationId === newApp.name)) {
@@ -96,10 +86,10 @@ describe('user: bookings controller', () => {
       const { value } = await doApiPost({
         url: `/${appKey}/${userId}`,
         token: userToken,
-          payload: newIntegration,
-        });
-        expect(value).toBeTruthy();
-      }
+        payload: newIntegration,
+      });
+      expect(value).toBeTruthy();
+    }
   });
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -203,10 +193,10 @@ describe('user: bookings controller', () => {
             client: 'tourconnect',
             doNotCallPluginForProducts: true,
           };
-          // create a new user token with the new content
+          // create a new integration with the new content
           newnewIntegration = await doApiPost({
-            url: `/travelgate/${userId}`,
-            token: adminKey,
+            url: `/${appKey}/${userId}`,
+            token: userToken,
             payload: {
               token: newIntegrationContent,
               tokenHint: 'hint_for_doNotCallPluginForProducts',
