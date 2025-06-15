@@ -109,3 +109,4 @@ dist
 docs
 
 .vscode
+.aider*
