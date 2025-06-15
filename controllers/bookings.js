@@ -2,6 +2,7 @@ const assert = require('assert');
 const hash = require('object-hash');
 const R = require('ramda');
 const { UserAppKey } = require('../models/index');
+const { addJob } = require('../worker/queue');
 const { typeDefs: productTypeDefs, query: productQuery } = require('./graphql-schemas/product');
 const { typeDefs: availTypeDefs, query: availQuery } = require('./graphql-schemas/availability');
 const { typeDefs: bookingTypeDefs, query: bookingQuery } = require('./graphql-schemas/booking');
@@ -130,9 +131,11 @@ const $bookingsProductSearch = plugins => async ({
     searchInput,
     optionId,
     forceRefresh,
+    backgroundJob, // To identify calls from background worker
     ...restPayload
   },
   requestId,
+  headers, // To pass original request headers for background job
 }) => {
   const app = plugins.find(({ name }) => name === appKey);
   assert(userId, 'userId is required');
@@ -149,92 +152,102 @@ const $bookingsProductSearch = plugins => async ({
   const token = await userAppKeys.token;
   const func = (app.searchProducts || app.searchProductsForItinerary).bind(app);
   // NOTE: this is intend to cache the entire product list
-  const cacheKey = hash({
-    userId,
-    hint,
-    operationId: 'bookingsProductSearch',
-  });
-  // Check cache first if not forcing refresh
-  const cacheValue = forceRefresh ? null : await app.cache.get({
-    key: cacheKey,
-  });
-  const lastUpdated = await app.cache.get({
-    key: `${cacheKey}:lastUpdated`,
-  });
-  // refresh every 24 hours
+  const cacheKey = hash({ userId, hint, operationId: 'bookingsProductSearch' });
+  const actualCacheContent = await app.cache.get({ key: cacheKey });
+  const lastUpdated = await app.cache.get({ key: `${cacheKey}:lastUpdated` });
+
   const ttr = token.ttlForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'ttr'], app) || 60 * 60 * 24;
   let isStale = lastUpdated && (Date.now() - lastUpdated > ttr * 1000);
-  const doNotCallPluginForProducts = token.doNotCallPluginForProducts
-    || R.path(['cacheSettings', 'bookingsProductSearch', 'doNotCall'], app);
-  // if a company says never to call the plugin (their booking system)
-  // we will never treat their cache as stale
-  if (doNotCallPluginForProducts) {
+  const doNotCallPluginForProducts = token.doNotCallPluginForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'doNotCall'], app);
+
+  if (doNotCallPluginForProducts && !forceRefresh) {
     isStale = false;
   }
-  const hasLock = await app.cache.get({
-    key: `${cacheKey}:lock`,
-  });
-  // when there is a lock (meaning another request is already fetching the products)
-  // return stale cache during this short window
-  if (cacheValue && cacheValue.products && (hasLock || !isStale)) {
-    const searchResults = $searchProductList(cacheValue.products, searchInput, optionId);
-    return {
-      ...cacheValue,
-      products: searchResults,
-      // this is for sending the product filters specifically being used by pyfilematch
-      ...(token.configuration || {}),
-    };
+  const hasLock = await app.cache.get({ key: `${cacheKey}:lock` });
+
+  // If this is a background job, it should proceed to refresh, not serve from cache or spawn another job.
+  if (!backgroundJob) {
+    if (actualCacheContent && actualCacheContent.products) {
+      if (!isStale || hasLock) { // Cache is fresh, or another process is refreshing
+        const searchResults = $searchProductList(actualCacheContent.products, searchInput, optionId);
+        return { ...actualCacheContent, products: searchResults, ...(token.configuration || {}) };
+      } else { // Cache is stale and no lock: serve stale, then refresh in background
+        const searchResults = $searchProductList(actualCacheContent.products, searchInput, optionId);
+        
+        // Prepare payload for the API call the worker will make
+        const apiCallPayload = { ...restPayload, searchInput, optionId, forceRefresh: true, backgroundJob: true };
+        const jwtToken = headers && headers.authorization ? headers.authorization.split(' ')[1] : null;
+
+        // Prepare data for addJob, conforming to worker's expectations for 'api' type jobs
+        const jobData = {
+          type: 'api',
+          method: 'POST',
+          url: `/products/${appKey}/${userId}/${hint}/search`,
+          // The worker's 'api' job type expects 'token' (JWT) and other params for the API body within this 'payload'
+          payload: { 
+            ...apiCallPayload, // This becomes the body of the request made by the worker
+            token: jwtToken,   // JWT for the worker to set Authorization header
+          },
+          headers: R.omit(['content-length', 'host', 'connection', 'accept-encoding'], headers),
+        };
+        
+        await addJob(jobData, { removeOnComplete: true });
+        
+        return { ...actualCacheContent, products: searchResults, ...(token.configuration || {}) };
+      }
+    }
+    // If no actualCacheContent, proceed to fetch.
   }
-  if (doNotCallPluginForProducts && !forceRefresh) {
+  
+  // Proceed to fetch from plugin if:
+  // - It's a backgroundJob call.
+  // - It's a forceRefresh call (and not handled by serving stale + background refresh).
+  // - Cache was empty.
+  // - `doNotCallPluginForProducts` is false or `forceRefresh` is true.
+  if (doNotCallPluginForProducts && !forceRefresh && !backgroundJob) {
     return { products: [] };
   }
-  // create a lock with 2 minute TTL
-  await app.cache.save({
-    key: `${cacheKey}:lock`,
-    value: true,
-    ttl: 120,
-  });
+
+  await app.cache.save({ key: `${cacheKey}:lock`, value: true, ttl: 120 });
+  
   const funcResults = await func({
     axios,
     token,
-    payload: restPayload,
+    payload: restPayload, // Pass original payload without searchInput/optionId/forceRefresh/backgroundJob
     typeDefsAndQueries,
     requestId,
     userId,
   });
-  // save cache if products are found
+
   if (funcResults && funcResults.products && funcResults.products.length > 0) {
-    // I initially wanted to let the cache live forever
-    // but just in case user left TC or something, we don't want to keep the cache forever
-    // so we set the TTL to 30 days, within 30 days,
-    // we will refresh the cache every 24 hours(or specified by the user) without deleting the stale cache
     const monthInSeconds = 30 * 24 * 60 * 60;
-    await app.cache.save({
-      key: `${cacheKey}:lastUpdated`,
-      value: Date.now(),
-      ttl: monthInSeconds,
-    });
-    await app.cache.save({
-      key: cacheKey,
-      value: funcResults,
-      ttl: monthInSeconds,
-    });
+    await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
+    await app.cache.save({ key: cacheKey, value: funcResults, ttl: monthInSeconds });
     app.events.emit('bookingsProductSearch:cache:save', {
-      cacheKey,
-      userId,
-      hint,
-      operationId: 'bookingsProductSearch',
-      requestId,
-      pluginName: app.name,
+      cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
+    });
+  } else if (backgroundJob && actualCacheContent && actualCacheContent.products) {
+    // Background job fetched empty results, but stale content exists. Keep stale content.
+    // Only update the 'lastUpdated' timestamp to prevent immediate re-triggering.
+    const monthInSeconds = 30 * 24 * 60 * 60;
+    await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
+    app.events.emit('bookingsProductSearch:cache:refreshEmptyKeepStale', {
+      cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
     });
   }
-  // release the lock
-  await app.cache.drop({
-    key: `${cacheKey}:lock`,
-  });
-  const searchResults = $searchProductList(R.pathOr([], ['products'], funcResults), searchInput, optionId);
+  // For other cases (e.g., foreground request gets empty results), the cache is not updated with empty results,
+  // and `lastUpdated` is not touched, allowing staleness to persist or re-trigger.
+
+  await app.cache.drop({ key: `${cacheKey}:lock` });
+
+  // Determine products to return based on funcResults or fallback to actualCacheContent if appropriate (though covered by earlier logic)
+  const productsToReturn = (funcResults && funcResults.products && funcResults.products.length > 0)
+    ? funcResults.products
+    : []; // Default to empty if refresh failed or yielded no products
+
+  const searchResults = $searchProductList(productsToReturn, searchInput, optionId);
   return {
-    ...funcResults,
+    ...(funcResults || {}), // Spread funcResults if it exists, otherwise an empty object
     products: searchResults,
     ...(token.configuration || {}),
   };
@@ -253,6 +266,7 @@ const bookingsProductSearch = plugins => async (req, res, next) => {
       ...params,
       payload,
       requestId,
+      headers: req.headers, // Pass original request headers
     }));
   } catch (err) {
     return next(err);
