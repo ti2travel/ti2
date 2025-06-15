@@ -243,6 +243,7 @@ describe('user: bookings controller', () => {
         ttlForProducts: 2, // 2 seconds TTR
       };
       beforeAll(async () => {
+        // Use the existing token to create a new integration with short TTR
         await doApiPost({
           url: `/${appKey}/${userId}`,
           token: userToken,
