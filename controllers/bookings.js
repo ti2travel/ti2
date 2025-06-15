@@ -142,112 +142,105 @@ const $bookingsProductSearch = plugins => async ({
   assert(appKey, 'appKey is required');
   assert(app.searchProducts || app.searchProductsForItinerary, `searchProducts or searchProductsForItinerary is not available for ${appKey}`);
   const userAppKeys = (await UserAppKey.findOne({
-    where: {
-      userId,
-      integrationId: appKey,
-      ...(hint ? { hint } : {}),
-    },
+    where: { userId, integrationId: appKey, ...(hint ? { hint } : {}) },
   }));
   assert(userAppKeys, 'could not find the app key');
   const token = await userAppKeys.token;
   const func = (app.searchProducts || app.searchProductsForItinerary).bind(app);
-  // NOTE: this is intend to cache the entire product list
+
   const cacheKey = hash({ userId, hint, operationId: 'bookingsProductSearch' });
-  const actualCacheContent = await app.cache.get({ key: cacheKey });
+  // Fetch actualCacheContent once at the beginning if not a background job that will definitely refresh
+  // For background jobs, actualCacheContent is primarily for context if the refresh fails.
+  const initialActualCacheContent = backgroundJob ? (await app.cache.get({ key: cacheKey })) : (await app.cache.get({ key: cacheKey }));
   const lastUpdated = await app.cache.get({ key: `${cacheKey}:lastUpdated` });
-
   const ttr = token.ttlForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'ttr'], app) || 60 * 60 * 24;
-  let isStale = lastUpdated && (Date.now() - lastUpdated > ttr * 1000);
+  const isStale = lastUpdated && (Date.now() - lastUpdated > ttr * 1000);
   const doNotCallPluginForProducts = token.doNotCallPluginForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'doNotCall'], app);
-
-  if (doNotCallPluginForProducts && !forceRefresh) {
-    isStale = false;
-  }
   const hasLock = await app.cache.get({ key: `${cacheKey}:lock` });
 
-  // If this is a background job, it should proceed to refresh, not serve from cache or spawn another job.
-  if (!backgroundJob) {
-    if (actualCacheContent && actualCacheContent.products) {
-      if (!isStale || hasLock) { // Cache is fresh, or another process is refreshing
-        const searchResults = $searchProductList(actualCacheContent.products, searchInput, optionId);
-        return { ...actualCacheContent, products: searchResults, ...(token.configuration || {}) };
-      } else { // Cache is stale and no lock: serve stale, then refresh in background
-        const searchResults = $searchProductList(actualCacheContent.products, searchInput, optionId);
-        
-        // Prepare payload for the API call the worker will make
-        const apiCallPayload = { ...restPayload, searchInput, optionId, forceRefresh: true, backgroundJob: true };
-        const jwtToken = headers && headers.authorization ? headers.authorization.split(' ')[1] : null;
+  // Helper function to call the plugin, save cache, and return results
+  const fetchFromPluginAndCache = async (currentActualCacheForBackgroundJobContext) => {
+    await app.cache.save({ key: `${cacheKey}:lock`, value: true, ttl: 120 });
+    let pluginResults;
+    try {
+      pluginResults = await func({
+        axios, token, payload: restPayload, typeDefsAndQueries, requestId, userId,
+      });
 
-        // Prepare data for addJob, conforming to worker's expectations for 'api' type jobs
-        const jobData = {
-          type: 'api',
-          method: 'POST',
-          url: `/products/${appKey}/${userId}/${hint}/search`,
-          // The worker's 'api' job type expects 'token' (JWT) and other params for the API body within this 'payload'
-          payload: { 
-            ...apiCallPayload, // This becomes the body of the request made by the worker
-            token: jwtToken,   // JWT for the worker to set Authorization header
-          },
-          headers: R.omit(['content-length', 'host', 'connection', 'accept-encoding'], headers),
-        };
-        
-        await addJob(jobData, { removeOnComplete: true });
-        
-        return { ...actualCacheContent, products: searchResults, ...(token.configuration || {}) };
+      if (pluginResults && pluginResults.products && pluginResults.products.length > 0) {
+        const monthInSeconds = 30 * 24 * 60 * 60;
+        await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
+        await app.cache.save({ key: cacheKey, value: pluginResults, ttl: monthInSeconds });
+        app.events.emit('bookingsProductSearch:cache:save', {
+          cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
+        });
+      } else if (backgroundJob && currentActualCacheForBackgroundJobContext && currentActualCacheForBackgroundJobContext.products) {
+        // Background job fetched empty, but stale content existed. Keep stale by not overwriting product cache.
+        // Only update 'lastUpdated' to prevent immediate re-trigger.
+        const monthInSeconds = 30 * 24 * 60 * 60;
+        await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
+        app.events.emit('bookingsProductSearch:cache:refreshEmptyKeepStale', {
+          cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
+        });
       }
+      // If not backgroundJob and results are empty, main cache (cacheKey) is not updated with empty results.
+      // lastUpdated is also not touched in this case, allowing staleness to persist or re-trigger.
+    } finally {
+      await app.cache.drop({ key: `${cacheKey}:lock` });
     }
-    // If no actualCacheContent, proceed to fetch.
-  }
-  
-  // Proceed to fetch from plugin if:
-  // - It's a backgroundJob call.
-  // - It's a forceRefresh call (and not handled by serving stale + background refresh).
-  // - Cache was empty.
-  // - `doNotCallPluginForProducts` is false or `forceRefresh` is true.
-  if (doNotCallPluginForProducts && !forceRefresh && !backgroundJob) {
-    return { products: [] };
+    return pluginResults || { products: [] }; // Ensure products array exists
+  };
+
+  // 1. Background job: Always fetch from plugin.
+  if (backgroundJob) {
+    const funcResults = await fetchFromPluginAndCache(initialActualCacheContent);
+    const searchResults = $searchProductList(funcResults.products, searchInput, optionId);
+    return { ...funcResults, products: searchResults, ...(token.configuration || {}) };
   }
 
-  await app.cache.save({ key: `${cacheKey}:lock`, value: true, ttl: 120 });
-  
-  const funcResults = await func({
-    axios,
-    token,
-    payload: restPayload, // Pass original payload without searchInput/optionId/forceRefresh/backgroundJob
-    typeDefsAndQueries,
-    requestId,
-    userId,
-  });
-
-  if (funcResults && funcResults.products && funcResults.products.length > 0) {
-    const monthInSeconds = 30 * 24 * 60 * 60;
-    await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
-    await app.cache.save({ key: cacheKey, value: funcResults, ttl: monthInSeconds });
-    app.events.emit('bookingsProductSearch:cache:save', {
-      cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
-    });
-  } else if (backgroundJob && actualCacheContent && actualCacheContent.products) {
-    // Background job fetched empty results, but stale content exists. Keep stale content.
-    // Only update the 'lastUpdated' timestamp to prevent immediate re-triggering.
-    const monthInSeconds = 30 * 24 * 60 * 60;
-    await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
-    app.events.emit('bookingsProductSearch:cache:refreshEmptyKeepStale', {
-      cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
-    });
+  // 2. `doNotCallPluginForProducts` is true, and not `forceRefresh`: Serve from cache or empty.
+  if (doNotCallPluginForProducts && !forceRefresh) {
+    if (initialActualCacheContent && initialActualCacheContent.products) {
+      const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
+      return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
+    }
+    return { products: [], ...(token.configuration || {}) };
   }
-  // For other cases (e.g., foreground request gets empty results), the cache is not updated with empty results,
-  // and `lastUpdated` is not touched, allowing staleness to persist or re-trigger.
 
-  await app.cache.drop({ key: `${cacheKey}:lock` });
+  // 3. `forceRefresh` is true (and not case 2): Fetch from plugin.
+  if (forceRefresh) {
+    const funcResults = await fetchFromPluginAndCache(null); // Pass null as currentActualCache context for forceRefresh
+    const searchResults = $searchProductList(funcResults.products, searchInput, optionId);
+    return { ...funcResults, products: searchResults, ...(token.configuration || {}) };
+  }
 
-  // Determine products to return based on funcResults or fallback to actualCacheContent if appropriate (though covered by earlier logic)
-  const productsToReturn = (funcResults && funcResults.products && funcResults.products.length > 0)
-    ? funcResults.products
-    : []; // Default to empty if refresh failed or yielded no products
+  // 4. Cache exists (initialActualCacheContent):
+  if (initialActualCacheContent && initialActualCacheContent.products) {
+    // Effective staleness check, considering doNotCallPluginForProducts (already implicitly handled if it led here)
+    const effectiveIsStale = (lastUpdated && (Date.now() - lastUpdated > ttr * 1000)) && !doNotCallPluginForProducts;
 
-  const searchResults = $searchProductList(productsToReturn, searchInput, optionId);
+    if (!effectiveIsStale || hasLock) { // Cache is fresh or locked: Serve from cache.
+      const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
+      return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
+    } else { // Cache is stale and not locked: Serve stale, refresh in background.
+      const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
+      const apiCallPayload = { ...restPayload, searchInput, optionId, forceRefresh: true, backgroundJob: true };
+      const jwtToken = headers && headers.authorization ? headers.authorization.split(' ')[1] : null;
+      const jobData = {
+        type: 'api', method: 'POST', url: `/products/${appKey}/${userId}/${hint}/search`,
+        payload: { ...apiCallPayload, token: jwtToken },
+        headers: R.omit(['content-length', 'host', 'connection', 'accept-encoding'], headers),
+      };
+      await addJob(jobData, { removeOnComplete: true });
+      return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
+    }
+  }
+
+  // 5. No cache content (and not caught by forceRefresh or doNotCallPluginForProducts): Fetch from plugin.
+  const funcResults = await fetchFromPluginAndCache(null); // Pass null as currentActualCache context
+  const searchResults = $searchProductList(funcResults.products, searchInput, optionId);
   return {
-    ...(funcResults || {}), // Spread funcResults if it exists, otherwise an empty object
+    ...funcResults,
     products: searchResults,
     ...(token.configuration || {}),
   };
