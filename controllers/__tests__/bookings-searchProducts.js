@@ -4,93 +4,57 @@ const chance = require('chance').Chance();
 const hash = require('object-hash');
 const cache = require('../../cache');
 
-const { env: { adminKey } } = process;
+// const { env: { adminKey } } = process; // adminKey is handled by appSetup
 
 describe('user: bookings controller - searchProducts', () => {
   const testUtils = require('../../test/utils');
-  const newApp = {
-    name: 'travelgate',
-    packageName: 'ti2-travelgate',
-    adminEmail: 'engineering+travelgate@tourconnect.com',
-  };
-  const appKey = newApp.name;
-  // Generate a random userId for better test isolation
-  const userId = `test-user-${chance.guid()}`;
-  const token = {
-    endpoint: 'https://api.travelgatex.com',
-    apiKey: chance.guid(),
-    client: 'tourconnect',
-  };
-  const newIntegration = {
-    tokenHint: 'testingToken',
-    token,
-  };
-  let doApiDelete;
+  
   let doApiGet;
   let doApiPost;
   let plugins;
-  let userToken;
-  let appSetup;
-  let createUserToken;
-  
-  beforeAll(async () => {
-    ({
-      doApiDelete,
-      doApiGet,
-      doApiPost,
-      plugins,
-      appSetup,
-      createUserToken,
-    } = await testUtils({
-      plugins: [newApp.name],
-    }));
+  let userToken; // JWT for API authentication
+  let testAppName; // e.g., 'travelgate'
+  let testUserId; // User ID for tests
+  let testPluginToken; // Token object for plugin configuration
+  let testHint; // Hint for the default integration
 
-    // drop all related cache keys, clean slate for this user
+  beforeAll(async () => {
+    const utils = await testUtils({
+      plugins: ['travelgate'], // We are testing the 'travelgate' plugin mock
+    });
+    doApiGet = utils.doApiGet;
+    doApiPost = utils.doApiPost;
+    plugins = utils.plugins;
+
+    // Setup a new app, user, and integration using testUtils
+    // appName: 'travelgate' ensures we use the 'travelgate' plugin context
+    const setupData = await utils.appSetup({ appName: 'travelgate' });
+    testAppName = setupData.newApp.name; // Should be 'travelgate'
+    testUserId = setupData.userId;
+    testPluginToken = setupData.token; // This is the token config for the plugin
+    testHint = setupData.hint; // Hint for the integration created by appSetup
+    
+    // Create JWT for the testUser
+    userToken = utils.createUserToken(testUserId);
+    expect(userToken).toBeTruthy();
+
+    // Drop all related cache keys, clean slate for this user and app combination
     const cacheKey = hash({
-      appKey,
-      userId,
-      hint: 'testingToken',
+      appKey: testAppName,
+      userId: testUserId,
+      hint: testHint, // Use the hint from the default integration
       operationId: 'bookingsProductSearch',
     });
     await cache.drop({
-      pluginName: appKey,
+      pluginName: testAppName,
       key: cacheKey,
     });
     await cache.drop({
-      pluginName: appKey,
+      pluginName: testAppName,
       key: `${cacheKey}:lock`,
     });
-    
-    // Create user token
-    userToken = createUserToken(userId);
-    expect(userToken).toBeTruthy();
-    
-    // Create the user
-    await doApiPost({
-      url: '/user',
-      token: adminKey,
-      payload: { userId, email: `${userId}@example.com` },
-    });
-    
-    // create the travelGage+User setup
-    let userAppKeys = [];
-    ({ userAppKeys } = await doApiGet({
-      url: `/user/${userId}/apps`,
-      token: userToken,
-    }));
-    
-    // Check if we need to create the integration
-    if (!userAppKeys.find(e => e.hint === newIntegration.tokenHint
-      && e.integrationId === newApp.name)) {
-      // relation does not exist
-      const { value } = await doApiPost({
-        url: `/${appKey}/${userId}`,
-        token: userToken,
-        payload: newIntegration,
-      });
-      expect(value).toBeTruthy();
-    }
   });
+
   beforeEach(async () => {
     jest.clearAllMocks();
   });
@@ -99,7 +63,7 @@ describe('user: bookings controller - searchProducts', () => {
     it('should be able to get bookings products for most users without special setup: no cache', async () => {
       const payload = {};
       const { products } = await doApiPost({
-        url: `/products/${appKey}/${userId}/testingToken/search`,
+        url: `/products/${testAppName}/${testUserId}/${testHint}/search`,
         token: userToken,
         payload,
       });
@@ -115,7 +79,7 @@ describe('user: bookings controller - searchProducts', () => {
         forceRefresh: true,
       };
       const { products } = await doApiPost({
-        url: `/products/${appKey}/${userId}/testingToken/search`,
+        url: `/products/${testAppName}/${testUserId}/${testHint}/search`,
         token: userToken,
         payload,
       });
@@ -124,13 +88,13 @@ describe('user: bookings controller - searchProducts', () => {
       expect(products.length).toBe(2);
       expect(products[0].options.length).toBe(1);
       expect(products[1].options.length).toBe(2);
-      expect(plugins[0].searchProducts.mock.calls[0][0].token).toEqual(token);
+      expect(plugins[0].searchProducts.mock.calls[0][0].token).toEqual(testPluginToken);
     });
     describe('cache exists and is valid', () => {
       it('should be able to get booking products: using cache', async () => {
         const payload = {};
         const { products } = await doApiPost({
-          url: `/products/${appKey}/${userId}/testingToken/search`,
+          url: `/products/${testAppName}/${testUserId}/${testHint}/search`,
           token: userToken,
           payload,
         });
@@ -146,7 +110,7 @@ describe('user: bookings controller - searchProducts', () => {
           searchInput: 'Transfer from Sydney Harbor to Hilton Hotel',
         };
         const { products } = await doApiPost({
-          url: `/products/${appKey}/${userId}/testingToken/search`,
+          url: `/products/${testAppName}/${testUserId}/${testHint}/search`,
           token: userToken,
           payload,
         });
@@ -159,37 +123,30 @@ describe('user: bookings controller - searchProducts', () => {
       });
     });
     describe('doNotCallPluginForProducts flag', () => {
-      it('create the integration', async ()=> {
-        const { userAppKeys } = await doApiGet({
-          url: `/user/${userId}/apps`,
-          token: userToken,
+      const doNotCallHint = 'hint_for_doNotCallPluginForProducts';
+      beforeAll(async () => {
+        // Create a specific integration for this test suite
+        const newIntegrationContent = {
+          endpoint: 'https://api.travelgatex.com', // Can be any valid URL
+          apiKey: chance.guid(),
+          client: 'tourconnect', // Or any other fields your plugin might expect
+          doNotCallPluginForProducts: true,
+        };
+        await doApiPost({
+          url: `/${testAppName}/${testUserId}`,
+          token: userToken, // User's JWT to authorize setting up their own integration
+          payload: {
+            token: newIntegrationContent,
+            tokenHint: doNotCallHint,
+          },
         });
-        let newnewIntegration = userAppKeys.find(e => e.hint === 'hint_for_doNotCallPluginForProducts'
-          && e.integrationId === newApp.name);
-        if (!newnewIntegration) {
-          const newIntegrationContent = {
-            endpoint: 'https://api.travelgatex.com',
-            apiKey: chance.guid(),
-            client: 'tourconnect',
-            doNotCallPluginForProducts: true,
-          };
-          // create a new integration with the new content
-          newnewIntegration = await doApiPost({
-            url: `/${appKey}/${userId}`,
-            token: userToken,
-            payload: {
-              token: newIntegrationContent,
-              tokenHint: 'hint_for_doNotCallPluginForProducts',
-            },
-          });
-        }
-        expect(newnewIntegration).toBeTruthy();
       });
+
       it('productSearch should not call the plugin', async () => {
         // first time call, no cache expect no plugin call and empty products
         let products;
         await doApiPost({
-          url: `/products/${appKey}/${userId}/hint_for_doNotCallPluginForProducts/search`,
+          url: `/products/${testAppName}/${testUserId}/${doNotCallHint}/search`,
           token: userToken,
           payload: {},
         }).then(({ products: p }) => {
@@ -202,12 +159,13 @@ describe('user: bookings controller - searchProducts', () => {
       });
       it('a forceRefresh should trigger the call to the plugin', async() => {
         // second time call, forceRefresh and still expect plugin call
+        let products; // Define products here to ensure it's in scope for the then block
         await doApiPost({
-          url: `/products/${appKey}/${userId}/hint_for_doNotCallPluginForProducts/search`,
+          url: `/products/${testAppName}/${testUserId}/${doNotCallHint}/search`,
           token: userToken,
           payload: { forceRefresh: true },
         }).then(({ products: p }) => {
-          products = p;
+          products = p; // Assign to the outer scoped 'products'
         });
         expect(plugins[0].searchProducts).toHaveBeenCalled();
         expect(Array.isArray(products)).toBeTruthy();
@@ -216,19 +174,20 @@ describe('user: bookings controller - searchProducts', () => {
       });
     });
     describe('cache TTR and lock mechanism', () => {
+      const ttrTestHint = 'ttr-test';
       const shortTTRToken = {
-        endpoint: 'https://api.travelgatex.com',
+        endpoint: 'https://api.travelgatex.com', // Can be any valid URL
         apiKey: chance.guid(),
-        client: 'tourconnect',
+        client: 'tourconnect', // Or any other fields
         ttlForProducts: 2, // 2 seconds TTR
       };
       beforeAll(async () => {
-        // Use the existing token to create a new integration with short TTR
+        // Create a new integration with short TTR for this user and app
         await doApiPost({
-          url: `/${appKey}/${userId}`,
-          token: userToken,
+          url: `/${testAppName}/${testUserId}`,
+          token: userToken, // User's JWT
           payload: {
-            tokenHint: 'ttr-test',
+            tokenHint: ttrTestHint,
             token: shortTTRToken,
           },
         });
@@ -236,7 +195,7 @@ describe('user: bookings controller - searchProducts', () => {
       describe('inside of the TTR period', () => {
         it('first call should create the cache', async ()=> {
           await doApiPost({
-            url: `/products/${appKey}/${userId}/ttr-test/search`,
+            url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
             token: userToken,
             payload: {},
           });
@@ -245,7 +204,7 @@ describe('user: bookings controller - searchProducts', () => {
         it('inmediate call should not call the plugin mehthod', async () => {
           // Second immediate call should use cache
           await doApiPost({
-            url: `/products/${appKey}/${userId}/ttr-test/search`,
+            url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
             token: userToken,
             payload: {},
           });
@@ -262,7 +221,7 @@ describe('user: bookings controller - searchProducts', () => {
         it('populate the cache', async () => {
           // First call to populate cache
           await doApiPost({
-            url: `/products/${appKey}/${userId}/ttr-test/search`,
+            url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
             token: userToken,
             payload: {},
           });
@@ -276,7 +235,7 @@ describe('user: bookings controller - searchProducts', () => {
         });
         it('call after TTR expired should hit the plugin again', async () => {
           await doApiPost({
-            url: `/products/${appKey}/${userId}/ttr-test/search`,
+            url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
             token: userToken,
             payload: {},
           });
@@ -292,7 +251,7 @@ describe('user: bookings controller - searchProducts', () => {
         it('multiple concurrent requests with slight delays', async () => {
           // NOTE: this is inside of a single block since it needs to count the nunber of times
           const makeRequest = () => doApiPost({
-            url: `/products/${appKey}/${userId}/ttr-test/search`,
+            url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
             token: userToken,
             payload: {},
           });
@@ -322,11 +281,13 @@ describe('user: bookings controller - searchProducts', () => {
           // Plugin should only be called once due to lock mechanism, and with correct context', async () => {
           expect(plugins[0].searchProducts).toHaveBeenCalledWith(
             expect.objectContaining({
-              token: expect.objectContaining({
-                client: 'tourconnect',
-                endpoint: expect.stringContaining('https://api.travelgatex.com'),
+              token: expect.objectContaining({ // This should match structure of shortTTRToken
+                client: 'tourconnect', // Ensure shortTTRToken has this
+                endpoint: expect.stringContaining('https://api.travelgatex.com'), // Ensure shortTTRToken has this
+                apiKey: expect.any(String), // Ensure shortTTRToken has this
+                ttlForProducts: 2, // Ensure shortTTRToken has this
               }),
-              userId: expect.stringContaining(userId),
+              userId: testUserId, // Compare with the specific testUserId
               payload: {},
               typeDefsAndQueries: expect.any(Object)
             })
