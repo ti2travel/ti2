@@ -38,9 +38,9 @@ const worker = ({ plugins: pluginsParam }) => (id, disconnect) => {
       const {
         method,
         url,
-        payload,
-        headers,
-      } = params;
+        payload: jobPayload, // Renamed to avoid confusion with API request body
+        headers: originalJobHeaders, // Renamed to avoid confusion
+      } = params; // params is job.data
       jobLog(`running method ${method} ${url}`)
 
       let code, result, server;
@@ -60,18 +60,20 @@ const worker = ({ plugins: pluginsParam }) => (id, disconnect) => {
         const baseURL = `http://${address}:${port}`;
         jobLog(`Worker internal server for job ${jobId} listening on: ${baseURL}`);
 
-        // Extract token and body from payload
-        const { token, body } = payload || {};
+        // Extract JWT token from jobPayload; the rest of jobPayload is the actual request body.
+        const { token: jwtTokenForHeader, ...requestBodyForWorker } = jobPayload || {};
+
         const requestHeaders = {
-          ...R.omit(['content-length'], headers),
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
+          ...R.omit(['content-length', 'host', 'connection', 'accept-encoding'], originalJobHeaders), // Use headers from job data
+          ...(jwtTokenForHeader ? { Authorization: `Bearer ${jwtTokenForHeader}` } : {})
         };
 
         // Use axios to make the request
         const response = await axios({
           method: method.toLowerCase(),
           url: `${baseURL}${url}`,
-          data: R.omit(['backgroundJob'], payload),
+          // Pass the derived requestBodyForWorker, omitting backgroundJob if present (it's a controller flag)
+          data: R.omit(['backgroundJob'], requestBodyForWorker),
           headers: requestHeaders,
           validateStatus: () => true, // Prevent axios from throwing on non-2xx status
         });

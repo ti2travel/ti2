@@ -127,16 +127,21 @@ const $bookingsProductSearch = plugins => async ({
   appKey,
   userId,
   hint,
-  payload: {
-    searchInput,
-    optionId,
-    forceRefresh,
-    backgroundJob, // To identify calls from background worker
-    ...restPayload
-  },
+  payload: originalRequestBody, // Renamed for clarity, this is req.body
   requestId,
   headers, // To pass original request headers for background job
 }) => {
+  // Extract controller-specific flags from originalRequestBody
+  const {
+    searchInput = '', // Provide defaults
+    optionId = '',
+    forceRefresh = false,
+    backgroundJob = false,
+  } = originalRequestBody;
+
+  // Payload for the plugin function (func) - omit controller-specific flags
+  const payloadForPlugin = R.omit(['forceRefresh', 'backgroundJob'], originalRequestBody);
+
   const app = plugins.find(({ name }) => name === appKey);
   assert(userId, 'userId is required');
   assert(appKey, 'appKey is required');
@@ -164,7 +169,7 @@ const $bookingsProductSearch = plugins => async ({
     let pluginResults;
     try {
       pluginResults = await func({
-        axios, token, payload: restPayload, typeDefsAndQueries, requestId, userId,
+        axios, token, payload: payloadForPlugin, typeDefsAndQueries, requestId, userId,
       });
 
       if (pluginResults && pluginResults.products && pluginResults.products.length > 0) {
@@ -224,11 +229,14 @@ const $bookingsProductSearch = plugins => async ({
       return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
     } else { // Cache is stale and not locked: Serve stale, refresh in background.
       const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
-      const apiCallPayload = { ...restPayload, searchInput, optionId, forceRefresh: true, backgroundJob: true };
+      // Construct the body for the API call the worker will make
+      const backgroundJobApiCallBody = { ...payloadForPlugin, forceRefresh: true, backgroundJob: true };
       const jwtToken = headers && headers.authorization ? headers.authorization.split(' ')[1] : null;
       const jobData = {
         type: 'api', method: 'POST', url: `/products/${appKey}/${userId}/${hint}/search`,
-        payload: { ...apiCallPayload, token: jwtToken },
+        // This jobData.payload is what the worker receives.
+        // It includes the actual body for the API call and the JWT token.
+        payload: { ...backgroundJobApiCallBody, token: jwtToken },
         headers: R.omit(['content-length', 'host', 'connection', 'accept-encoding'], headers),
       };
       await addJob(jobData, { removeOnComplete: true });
