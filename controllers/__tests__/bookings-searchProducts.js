@@ -298,86 +298,84 @@ describe('user: bookings controller - searchProducts', () => {
   });
 
   describe('bookingsProductSearch caching - stale cache on TTR expiry', () => {
-    jest.mock('../../cache'); // Mock cache specifically for this describe block
-    // This test suite uses the main testAppName, testUserId, testHint, userToken, plugins, doApiPost
-    // defined in the beforeAll of the parent describe block.
+    // This suite tests behavior when TTR expires and a refresh yields empty results,
+    // expecting stale cache to be served. It uses a real cache with a short TTL.
 
-    it('should not return empty products when TTR expires and stale cache exists, even if refresh yields empty products', async () => {
-      const cacheModule = require('../../cache'); // Get the mocked cache module
+    const staleCacheTestHint = 'stale-cache-expiry-test-hint';
+    const shortTtlForProducts = 2; // 2 seconds
+    const staleCacheTokenConfig = {
+      endpoint: 'https://api.travelgatex.com/stale-test', // Unique endpoint for clarity
+      apiKey: chance.guid(),
+      client: 'tourconnect-stale-test',
+      ttlForProducts: shortTtlForProducts,
+    };
 
-      const initialProductsInCache = [{ productId: 'cached1', name: 'Cached Product One', optionId: 'opt1' }];
-      const productsFromPluginRefresh = []; // Simulate plugin returning empty on refresh
-
-      // Configure a short TTR for this test via plugin's cacheSettings
-      // This relies on testPluginToken.ttlForProducts being undefined or overridden by cacheSettings
-      const ttrInSeconds = 1;
-      // Ensure plugins[0] exists and then set cacheSettings
-      if (plugins && plugins.length > 0) {
-        plugins[0].cacheSettings = { bookingsProductSearch: { ttr: ttrInSeconds } };
-      } else {
-        throw new Error("Plugins array is not initialized or empty.");
+    beforeEach(async () => {
+      // Clear any existing mocks on searchProducts from other tests or previous runs
+      if (plugins && plugins.length > 0 && plugins[0].searchProducts && plugins[0].searchProducts.mockClear) {
+        plugins[0].searchProducts.mockClear();
       }
 
-
-      const expectedCacheKeyForProducts = hash({
-        // Use variables from the outer scope of bookings-searchProducts.js
+      // Ensure a clean cache state for this specific hint before each test run
+      const cacheKeyForTest = hash({
         userId: testUserId,
-        hint: testHint,
+        hint: staleCacheTestHint,
         operationId: 'bookingsProductSearch',
       });
-      const lastUpdatedKey = `${expectedCacheKeyForProducts}:lastUpdated`;
-      const lockKey = `${expectedCacheKeyForProducts}:lock`;
-
-      cacheModule.get.mockImplementation(async ({ pluginName, key }) => {
-        // Ensure calls are for the correct plugin
-        if (pluginName !== testAppName) return null;
-
-        if (key === expectedCacheKeyForProducts) {
-          return { products: initialProductsInCache };
-        }
-        if (key === lastUpdatedKey) {
-          // Simulate that lastUpdated is older than TTR
-          return Date.now() - (ttrInSeconds * 1000 * 2);
-        }
-        if (key === lockKey) {
-          return null; // No lock exists
-        }
-        return null;
-      });
-
-      // Mock the plugin's underlying product search method
-      if (plugins && plugins.length > 0 && plugins[0].searchProducts) {
-        plugins[0].searchProducts.mockResolvedValue({ products: productsFromPluginRefresh });
-      } else {
-        throw new Error("plugins[0].searchProducts is not available or not a mock function.");
-      }
-
-      const searchPayload = { searchInput: 'test' };
-      const { products: resultProducts } = await doApiPost({
-        url: `/products/${testAppName}/${testUserId}/${testHint}/search`,
+      await cache.drop({ pluginName: testAppName, key: cacheKeyForTest });
+      await cache.drop({ pluginName: testAppName, key: `${cacheKeyForTest}:lastUpdated` });
+      await cache.drop({ pluginName: testAppName, key: `${cacheKeyForTest}:lock` });
+      
+      // Setup the integration with the short TTL for products
+      await doApiPost({
+        url: `/${testAppName}/${testUserId}`,
         token: userToken,
-        payload: searchPayload,
+        payload: {
+          tokenHint: staleCacheTestHint,
+          token: staleCacheTokenConfig,
+        },
+      });
+      // Clear mock calls that might have happened during setup
+      if (plugins && plugins.length > 0 && plugins[0].searchProducts && plugins[0].searchProducts.mockClear) {
+        plugins[0].searchProducts.mockClear();
+      }
+    });
+
+    it('should return stale (non-empty) products when TTR expires and refresh yields empty products', async () => {
+      const initialProductsInCache = [{ productId: 'staleProd1', name: 'Stale Product One', optionId: 'optStale1' }];
+      const productsFromPluginRefresh = []; // Simulate plugin returning empty on refresh
+
+      // 1. First call: Populate the cache with initialProductsInCache
+      plugins[0].searchProducts.mockResolvedValueOnce({ products: initialProductsInCache });
+      const { products: firstCallResult } = await doApiPost({
+        url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
+        token: userToken,
+        payload: { searchInput: 'initial' }, // Use a payload to ensure it's part of cache key if logic implies
       });
 
-      expect(resultProducts).toEqual(initialProductsInCache);
-      expect(resultProducts.length).toBeGreaterThan(0);
+      expect(firstCallResult).toEqual(initialProductsInCache);
+      expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
+      plugins[0].searchProducts.mockClear(); // Clear for the next assertion
 
-      // Verify interactions
-      expect(cacheModule.get).toHaveBeenCalledWith(expect.objectContaining({ pluginName: testAppName, key: expectedCacheKeyForProducts }));
-      expect(cacheModule.get).toHaveBeenCalledWith(expect.objectContaining({ pluginName: testAppName, key: lastUpdatedKey }));
-      expect(cacheModule.get).toHaveBeenCalledWith(expect.objectContaining({ pluginName: testAppName, key: lockKey }));
+      // 2. Wait for TTL to expire (shortTtlForProducts is 2s, wait 3s)
+      await new Promise(resolve => setTimeout(resolve, (shortTtlForProducts + 1) * 1000));
 
-      expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1); // Refresh was attempted
+      // 3. Second call: TTR has expired. Plugin will be called for refresh.
+      //    Mock plugin to return empty results for this refresh attempt.
+      plugins[0].searchProducts.mockResolvedValueOnce({ products: productsFromPluginRefresh });
+      const { products: secondCallResult } = await doApiPost({
+        url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
+        token: userToken,
+        payload: { searchInput: 'initial' }, // Same payload as first call
+      });
 
-      // Verify cache operations for locking and updating
-      expect(cacheModule.save).toHaveBeenCalledWith(expect.objectContaining({ pluginName: testAppName, key: lockKey, value: true }));
-      expect(cacheModule.save).toHaveBeenCalledWith(expect.objectContaining({
-        pluginName: testAppName,
-        key: expectedCacheKeyForProducts,
-        value: { products: productsFromPluginRefresh },
-      }));
-      expect(cacheModule.save).toHaveBeenCalledWith(expect.objectContaining({ pluginName: testAppName, key: lastUpdatedKey }));
-      expect(cacheModule.drop).toHaveBeenCalledWith(expect.objectContaining({ pluginName: testAppName, key: lockKey }));
+      // Assert that the stale data (initialProductsInCache) is returned, not the empty refresh.
+      // This assertion is expected to FAIL with current application logic if it returns the empty refreshed data.
+      expect(secondCallResult).toEqual(initialProductsInCache);
+      expect(secondCallResult.length).toBeGreaterThan(0);
+      
+      // Verify that the plugin's searchProducts was indeed called for the refresh attempt.
+      expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
     });
   });
 });
