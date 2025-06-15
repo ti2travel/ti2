@@ -3,6 +3,7 @@
 const chance = require('chance').Chance();
 const hash = require('object-hash');
 const cache = require('../../cache');
+const { listJobs, jobStatus } = require('../../worker/queue');
 
 // const { env: { adminKey } } = process; // adminKey is handled by appSetup
 
@@ -218,37 +219,116 @@ describe('user: bookings controller - searchProducts', () => {
             setTimeout(resolve, 2100);
           });
         });
-        it('call outside of TTR should have results', async () => {
-          // First call to triger populate cache (and we should haver results)
-          const { products }  = await doApiPost({
+        it('call outside of TTR should serve stale data and queue background refresh', async () => {
+          plugins[0].searchProducts.mockClear(); // Clear before action to ensure clean state for mock call counting
+
+          const { products } = await doApiPost({
             url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
             token: userToken,
             payload: {},
           });
-          // we should have produdcts
+          // This synchronous call should serve stale data.
+          // The plugin should NOT be called by *this* request directly as a background job is queued.
+          expect(plugins[0].searchProducts).not.toHaveBeenCalled();
           expect(Array.isArray(products)).toBeTruthy();
-          expect(products.length).toBe(2);
-          // we no longer need this check since the execution shoudl have been sent to the worker
-          // expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
+          expect(products.length).toBe(2); // Assuming stale data (from initial cache population) is available and has 2 products
         });
-        // TODO : we should have a backgroundJob instantiated to refresh the cache, we should
-        it.todo('make sure the backgroundJob has been aded with the right details and wait for it to be executed')
-        it.skip('wait for the TTR to expire', async () => {
-          // Wait for TTR to expire (2 seconds + buffer)
-          await new Promise(resolve => {
-            setTimeout(resolve, 2100);
-          });
-        });
-        it.skip('call after TTR expired should hit the plugin again', async () => {
-          await doApiPost({
+        it('background job should refresh cache, and subsequent calls use updated cache', async () => {
+          // This test assumes the previous one ('call outside of TTR should serve stale data...')
+          // has served stale data and queued a background job.
+          // We now wait for that background job to complete.
+
+          let jobFoundAndCompletedViaQueueApi = false;
+          const expectedJobUrl = `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`;
+          let backgroundJobId = null;
+
+          // Attempt to find the job using listJobs and wait for its status
+          // Poll for a few seconds to give the job a chance to appear in the queue
+          for (let i = 0; i < 15; i++) { // Approx 4.5 seconds (15 * 300ms)
+            const jobs = await listJobs();
+            const foundJob = jobs.find(
+              job =>
+                job.data.type === 'api' &&
+                job.data.method === 'POST' &&
+                job.data.url === expectedJobUrl &&
+                job.data.payload &&
+                job.data.payload.backgroundJob === true &&
+                job.data.payload.forceRefresh === true
+            );
+
+            if (foundJob) {
+              backgroundJobId = foundJob.id;
+              // Now poll jobStatus for this job
+              for (let j = 0; j < 20; j++) { // Approx 6 seconds (20 * 300ms)
+                const statusResult = await jobStatus({ jobId: backgroundJobId });
+                if (statusResult.status === 'success') {
+                  jobFoundAndCompletedViaQueueApi = true;
+                  break;
+                }
+                if (statusResult.status === 'failed') {
+                  throw new Error(`Background job ${backgroundJobId} failed: ${statusResult.failedReason || JSON.stringify(statusResult)}`);
+                }
+                await global.sleep(300); // Wait before polling jobStatus again
+              }
+              break; // Exit outer loop (listJobs polling) once job is found
+            }
+            await global.sleep(300); // Wait before polling listJobs again
+          }
+
+          // If job wasn't confirmed via listJobs/jobStatus (e.g., completed too fast and removed),
+          // rely on checking the side effect (plugin mock call).
+          // This also serves as the ultimate validation of the job's action.
+          if (!jobFoundAndCompletedViaQueueApi) {
+            // This warning is useful for test debugging/understanding if queue polling is too slow.
+            console.warn(`WARN: Could not confirm background job ${backgroundJobId || '(ID not found)'} completion via listJobs/jobStatus. Proceeding to check for side effects (plugin mock call). This might indicate the job completed very quickly.`);
+            
+            // Poll for the background job's execution (indicated by plugin call)
+            let attempts = 0;
+            // If jobFoundAndCompletedViaQueueApi is true, we expect mock call count to be 1 already.
+            // If not, we poll up to maxAttempts.
+            const maxPollingAttempts = jobFoundAndCompletedViaQueueApi ? 1 : 20; // Max 6 seconds (20 * 300ms)
+            while (plugins[0].searchProducts.mock.calls.length < 1 && attempts < maxPollingAttempts) {
+              await global.sleep(300);
+              attempts++;
+            }
+          }
+          
+          if (plugins[0].searchProducts.mock.calls.length < 1) {
+            const currentJobsForDebug = await listJobs();
+            console.error('DEBUG: Current jobs in queue during failure:', JSON.stringify(currentJobsForDebug, null, 2));
+            throw new Error('Background job did not call searchProducts as expected. Job might not have run, completed successfully, or the mock was not hit.');
+          }
+
+          expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1); // Called once by the background job
+
+          // Verify the payload of the call made by the background job
+          expect(plugins[0].searchProducts).toHaveBeenCalledWith(
+            expect.objectContaining({
+              token: expect.objectContaining({ ttlForProducts: shortTTRToken.ttlForProducts }),
+              // The payload for the plugin function itself should not contain backgroundJob or forceRefresh flags
+              payload: expect.not.objectContaining({ backgroundJob: true, forceRefresh: true }),
+              userId: testUserId,
+              requestId: expect.any(String), // Background job gets its own requestId
+            }),
+          );
+
+          // Clear mock calls before the final cache check
+          plugins[0].searchProducts.mockClear();
+
+          // Now that the background job has run and (presumably) updated the cache,
+          // a new call should get fresh data from the cache without calling the plugin.
+          const { products: freshProductsFromCache } = await doApiPost({
             url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
             token: userToken,
             payload: {},
           });
-          expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
+          expect(plugins[0].searchProducts).not.toHaveBeenCalled(); // Should serve from updated cache
+          expect(Array.isArray(freshProductsFromCache)).toBeTruthy();
+          expect(freshProductsFromCache.length).toBe(2); // Expecting fresh data (mock returns 2 products)
         });
       });
       describe.skip('lock mechanism', () => {
+        // This describe block for lock mechanism was already skipped, keeping it as is.
         it('wait for the TTR to expire', async () => {
           await new Promise(resolve => {
             setTimeout(resolve, 2100);
