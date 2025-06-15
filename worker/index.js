@@ -198,8 +198,8 @@ const worker = ({ plugins: pluginsParam }) => { // pluginsParam are instantiated
 
       } catch (error) {
         jobErr(`Processing failed: ${error.message}`);
-        console.error(error.stack); // Log full stack for debugging
-        throw error; // Re-throw to mark job as failed in Bull
+        if (error.stack) jobErr(error.stack); // Log full stack for debugging
+        throw new Error(error.message) // Re-throw to mark job as failed in Bull (use a summarized mesage)
       }
     });
   };
