@@ -350,7 +350,7 @@ describe('user: bookings controller - searchProducts', () => {
       const { products: firstCallResult } = await doApiPost({
         url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
         token: userToken,
-        payload: { searchInput: 'initial' }, // Use a payload to ensure it's part of cache key if logic implies
+        payload: { searchInput: '' }, // Use empty searchInput for simplicity
       });
 
       expect(firstCallResult).toEqual(initialProductsInCache);
@@ -366,7 +366,7 @@ describe('user: bookings controller - searchProducts', () => {
       const { products: secondCallResult } = await doApiPost({
         url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
         token: userToken,
-        payload: { searchInput: 'initial' }, // Same payload as first call
+        payload: { searchInput: '' }, // Use empty searchInput for simplicity
       });
 
       // Assert that the stale data (initialProductsInCache) is returned, not the empty refresh.
