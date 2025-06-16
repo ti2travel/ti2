@@ -125,9 +125,11 @@ const worker = ({ plugins: pluginsParam }) => { // pluginsParam are instantiated
             if (pluginName && controllerArgs.appKey !== pluginName) {
                 jobErr(`Job data pluginName (${pluginName}) mismatch with args.appKey (${controllerArgs.appKey}). Using args.appKey for plugin context.`);
             }
-
+            // If this job type implies a forced refresh, `forceRefresh: true` should be part of `controllerArgs`.
+            // The `backgroundJob` flag is removed from $bookingsProductSearch.
             const executionPayload = {
               ...controllerArgs, // Contains appKey, userId, hint, payload (for $bps), headers
+                                 // Potentially `forceRefresh: true` if needed for this job type.
               axios: mainAxios,  // Provide the worker's generic axios instance
               requestId: jobId,  // Use job ID for tracing
               // plugins are already available to bookingsCtrl via its factory initialization

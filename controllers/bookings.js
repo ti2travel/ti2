@@ -136,11 +136,11 @@ const $bookingsProductSearch = plugins => async ({
     searchInput = '', // Provide defaults
     optionId = '',
     forceRefresh = false,
-    backgroundJob = false,
+    // backgroundJob = false, // Removed: No longer used
   } = originalRequestBody;
 
   // Payload for the plugin function (func) - omit controller-specific flags
-  const payloadForPlugin = R.omit(['forceRefresh', 'backgroundJob'], originalRequestBody);
+  const payloadForPlugin = R.omit(['forceRefresh'/*, 'backgroundJob'*/], originalRequestBody); // 'backgroundJob' already omitted if not present
 
   const app = plugins.find(({ name }) => name === appKey);
   assert(userId, 'userId is required');
@@ -154,9 +154,8 @@ const $bookingsProductSearch = plugins => async ({
   const func = (app.searchProducts || app.searchProductsForItinerary).bind(app);
 
   const cacheKey = hash({ userId, hint, operationId: 'bookingsProductSearch' });
-  // Fetch actualCacheContent once at the beginning if not a background job that will definitely refresh
-  // For background jobs, actualCacheContent is primarily for context if the refresh fails.
-  const initialActualCacheContent = backgroundJob ? (await app.cache.get({ key: cacheKey })) : (await app.cache.get({ key: cacheKey }));
+  // Fetch actualCacheContent once at the beginning.
+  const initialActualCacheContent = await app.cache.get({ key: cacheKey });
   const lastUpdated = await app.cache.get({ key: `${cacheKey}:lastUpdated` });
   const ttr = token.ttlForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'ttr'], app) || 60 * 60 * 24;
   const isStale = lastUpdated && (Date.now() - lastUpdated > ttr * 1000);
@@ -172,42 +171,27 @@ const $bookingsProductSearch = plugins => async ({
         axios, token, payload: payloadForPlugin, typeDefsAndQueries, requestId, userId,
       });
 
-      // If this is NOT a background job, then this function is responsible for caching.
-      // For background jobs, caching is handled by $updateProductSearchCache via the worker.
-      if (!backgroundJob) { // `backgroundJob` is from the outer scope of $bookingsProductSearch
-        if (pluginResults && pluginResults.products && pluginResults.products.length > 0) {
-          const monthInSeconds = 30 * 24 * 60 * 60;
-          await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
-          await app.cache.save({ key: cacheKey, value: pluginResults, ttl: monthInSeconds });
-          app.events.emit('bookingsProductSearch:cache:save', {
-            cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
-          });
-        }
-        // If !backgroundJob and pluginResults are empty, cache is NOT updated here.
-        // This maintains existing behavior for forceRefresh/initial load paths.
+      // This function is responsible for caching if it fetched good results.
+      // This applies to forceRefresh, initial load, or direct calls that result in a fetch.
+      // The $updateProductSearchCache function handles caching for background jobs queued due to stale data.
+      if (pluginResults && pluginResults.products && pluginResults.products.length > 0) {
+        const monthInSeconds = 30 * 24 * 60 * 60;
+        await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
+        await app.cache.save({ key: cacheKey, value: pluginResults, ttl: monthInSeconds });
+        app.events.emit('bookingsProductSearch:cache:save', {
+          cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
+        });
       }
+      // If pluginResults are empty, cache is NOT updated here by fetchFromPluginAndCache.
+      // This maintains existing behavior for forceRefresh/initial load paths.
+      // $updateProductSearchCache has its own logic for handling empty results from background refresh.
     } finally {
       await app.cache.drop({ key: `${cacheKey}:lock` });
     }
     return pluginResults || { products: [] }; // Ensure products array exists
   };
 
-  // 1. Background job: Always fetch from plugin. Caching is handled by $updateProductSearchCache post-job.
-  if (backgroundJob) {
-    // For a background job, we call fetchFromPluginAndCache which now only executes the plugin method
-    // without immediate caching. The result is then processed by the worker which calls $updateProductSearchCache.
-    // This current $bookingsProductSearch function, when backgroundJob=true, is only responsible for returning
-    // the plugin's direct result, which the worker will then use.
-    // The searchProductList filtering is done here as it's part of the expected synchronous return for this call.
-    // However, the worker will receive the raw plugin result.
-    // This path is primarily for the worker's execution of $bookingsProductSearch.
-    // The controller HTTP endpoint path will queue the job and return stale data, not hit this `if (backgroundJob)` block.
-    const funcResults = await fetchFromPluginAndCache(); // No need to pass initialActualCacheContent
-    const searchResults = $searchProductList(funcResults.products, searchInput, optionId);
-    return { ...funcResults, products: searchResults, ...(token.configuration || {}) };
-  }
-
-  // 2. `doNotCallPluginForProducts` is true, and not `forceRefresh`: Serve from cache or empty.
+  // 1. `doNotCallPluginForProducts` is true, and not `forceRefresh`: Serve from cache or empty.
   if (doNotCallPluginForProducts && !forceRefresh) {
     if (initialActualCacheContent && initialActualCacheContent.products) {
       const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
@@ -216,14 +200,15 @@ const $bookingsProductSearch = plugins => async ({
     return { products: [], ...(token.configuration || {}) };
   }
 
-  // 3. `forceRefresh` is true (and not case 2): Fetch from plugin.
+  // 2. `forceRefresh` is true (and not case 1): Fetch from plugin.
+  //    fetchFromPluginAndCache will handle caching the new results.
   if (forceRefresh) {
-    const funcResults = await fetchFromPluginAndCache(null); // Pass null as currentActualCache context for forceRefresh
+    const funcResults = await fetchFromPluginAndCache();
     const searchResults = $searchProductList(funcResults.products, searchInput, optionId);
     return { ...funcResults, products: searchResults, ...(token.configuration || {}) };
   }
 
-  // 4. Cache exists (initialActualCacheContent):
+  // 3. Cache exists (initialActualCacheContent) and not forceRefresh:
   if (initialActualCacheContent && initialActualCacheContent.products) {
     // Effective staleness check, considering doNotCallPluginForProducts (already implicitly handled if it led here)
     const effectiveIsStale = (lastUpdated && (Date.now() - lastUpdated > ttr * 1000)) && !doNotCallPluginForProducts;
@@ -231,10 +216,10 @@ const $bookingsProductSearch = plugins => async ({
     if (!effectiveIsStale || hasLock) { // Cache is fresh or locked: Serve from cache.
       const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
       return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
-    } else { // Cache is stale and not locked: Serve stale, refresh in background.
+    } else { // Cache is stale and not locked: Serve stale, refresh in background by queueing a new job.
       const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
       
-      // Arguments for the actual plugin method (e.g., searchProducts)
+      // Arguments for the actual plugin method (e.g., searchProducts) for the new background job
       const pluginMethodPayload = { // This will become job.data.payload
         payload: payloadForPlugin, // The inner 'payload' for the plugin method itself
         userId, // Pass userId if the plugin method expects it directly
@@ -263,8 +248,9 @@ const $bookingsProductSearch = plugins => async ({
     }
   }
 
-  // 5. No cache content (and not caught by forceRefresh or doNotCallPluginForProducts): Fetch from plugin.
-  const funcResults = await fetchFromPluginAndCache(); // No need to pass context
+  // 4. No cache content (and not caught by previous conditions like forceRefresh or doNotCallPluginForProducts):
+  //    Fetch from plugin. fetchFromPluginAndCache will handle caching.
+  const funcResults = await fetchFromPluginAndCache();
   const searchResults = $searchProductList(funcResults.products, searchInput, optionId);
   return {
     ...funcResults,
