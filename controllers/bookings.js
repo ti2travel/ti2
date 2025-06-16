@@ -590,24 +590,6 @@ const getCreateBookingFields = plugins => async (req, res, next) => {
   }
 };
 
-module.exports = plugins => ({
-  bookingsSearch: bookingsSearch(plugins),
-  bookingsCancel: bookingsCancel(plugins),
-  $bookingsProductSearch,
-  bookingsProductSearch: bookingsProductSearch(plugins),
-  getProductPackages: getProductPackages(plugins),
-  bookingsAvailabilitySearch: bookingsAvailabilitySearch(plugins),
-  $bookingsAvailabilityCalendar,
-  bookingsAvailabilityCalendar: bookingsAvailabilityCalendar(plugins),
-  searchQuote: searchQuote(plugins),
-  createBooking: createBooking(plugins),
-  getAffiliateAgents: getAffiliateAgents(plugins),
-  getAffiliateDesks: getAffiliateDesks(plugins),
-  getPickupPoints: getPickupPoints(plugins),
-  getCreateBookingFields: getCreateBookingFields(plugins),
-  $updateProductSearchCache: (() => { throw new Error('Attempted to call $updateProductSearchCache before plugins initialized'); }), // Placeholder
-});
-
 const $updateProductSearchCache = plugins => async ({
   appKey,
   userId,
