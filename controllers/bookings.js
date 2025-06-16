@@ -154,17 +154,20 @@ const $bookingsProductSearch = plugins => async ({
   const func = (app.searchProducts || app.searchProductsForItinerary).bind(app);
 
   const cacheKey = hash({ userId, hint, operationId: 'bookingsProductSearch' });
+  const pluginExecutionLockKey = `${cacheKey}:lock`; // Lock for direct plugin execution
+  const jobQueueLockKey = `${cacheKey}:jobLock`;   // Lock for preventing multiple job queues
+
   // Fetch actualCacheContent once at the beginning.
   const initialActualCacheContent = await app.cache.get({ key: cacheKey });
   const lastUpdated = await app.cache.get({ key: `${cacheKey}:lastUpdated` });
   const ttr = token.ttlForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'ttr'], app) || 60 * 60 * 24;
-  const isStale = lastUpdated && (Date.now() - lastUpdated > ttr * 1000);
+  const isStaleByTTR = lastUpdated && (Date.now() - lastUpdated > ttr * 1000);
   const doNotCallPluginForProducts = token.doNotCallPluginForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'doNotCall'], app);
-  const hasLock = await app.cache.get({ key: `${cacheKey}:lock` });
+  const hasPluginExecutionLock = await app.cache.get({ key: pluginExecutionLockKey });
 
   // Helper function to call the plugin, save cache, and return results
   const fetchFromPluginAndCache = async () => {
-    await app.cache.save({ key: `${cacheKey}:lock`, value: true, ttl: 120 });
+    await app.cache.save({ key: pluginExecutionLockKey, value: true, ttl: 120 });
     let pluginResults;
     try {
       pluginResults = await func({
@@ -186,7 +189,7 @@ const $bookingsProductSearch = plugins => async ({
       // This maintains existing behavior for forceRefresh/initial load paths.
       // $updateProductSearchCache has its own logic for handling empty results from background refresh.
     } finally {
-      await app.cache.drop({ key: `${cacheKey}:lock` });
+      await app.cache.drop({ key: pluginExecutionLockKey });
     }
     return pluginResults || { products: [] }; // Ensure products array exists
   };
@@ -210,41 +213,48 @@ const $bookingsProductSearch = plugins => async ({
 
   // 3. Cache exists (initialActualCacheContent) and not forceRefresh:
   if (initialActualCacheContent && initialActualCacheContent.products) {
-    // Effective staleness check, considering doNotCallPluginForProducts (already implicitly handled if it led here)
-    const effectiveIsStale = (lastUpdated && (Date.now() - lastUpdated > ttr * 1000)) && !doNotCallPluginForProducts;
+    // Effective staleness check for deciding if a background refresh is needed.
+    const isEffectivelyStale = isStaleByTTR && !doNotCallPluginForProducts;
 
-    if (!effectiveIsStale || hasLock) { // Cache is fresh or locked: Serve from cache.
+    if (!isEffectivelyStale || hasPluginExecutionLock) {
+      // Cache is fresh OR (is stale BUT a plugin execution is already in progress for refresh): Serve from cache.
       const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
       return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
-    } else { // Cache is stale and not locked: Serve stale, refresh in background by queueing a new job.
-      const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
-      
-      // Arguments for the actual plugin method (e.g., searchProducts) for the new background job
-      const pluginMethodPayload = { // This will become job.data.payload
-        payload: payloadForPlugin, // The inner 'payload' for the plugin method itself
-        userId, // Pass userId if the plugin method expects it directly
-      };
+    } else {
+      // Cache is effectively stale AND no plugin execution is currently in progress.
+      // Try to queue a background job.
+      const hasJobQueueLock = await app.cache.get({ key: jobQueueLockKey });
 
-      const jobData = {
-        type: 'plugin',
-        pluginName: appKey,
-        method: app.searchProducts ? 'searchProducts' : 'searchProductsForItinerary', // Actual plugin method name
-        token, // This will be job.data.token, used by the worker's generic plugin handler
-        payload: pluginMethodPayload, // This will be job.data.payload
-        postProcess: {
-          controller: 'bookings',
-          action: '$updateProductSearchCache', // New function in bookings controller
-          args: { // Static arguments for the $updateProductSearchCache function
-            appKey,
-            userId,
-            hint,
-            // pluginResult and requestId will be added dynamically by the worker
+      if (hasJobQueueLock) {
+        // A background job has recently been queued by another request. Serve stale data.
+        const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
+        return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
+      } else {
+        // No job queue lock. Set one, then queue the job, then serve stale data.
+        await app.cache.save({ key: jobQueueLockKey, value: true, ttl: 60 }); // Lock for 60 seconds
+
+        const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
+        
+        const pluginMethodPayload = {
+          payload: payloadForPlugin,
+          userId,
+        };
+        const jobData = {
+          type: 'plugin',
+          pluginName: appKey,
+          method: app.searchProducts ? 'searchProducts' : 'searchProductsForItinerary',
+          token,
+          payload: pluginMethodPayload,
+          postProcess: {
+            controller: 'bookings',
+            action: '$updateProductSearchCache',
+            args: { appKey, userId, hint },
           },
-        },
-        // inTesting flag is already handled by addJob if process.env.JEST_WORKER_ID is set
-      };
-      await addJob(jobData, { removeOnComplete: true });
-      return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
+        };
+        await addJob(jobData, { removeOnComplete: true });
+        
+        return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
+      }
     }
   }
 

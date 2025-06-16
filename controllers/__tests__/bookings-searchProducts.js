@@ -437,7 +437,7 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
     // The UserAppKey with shortTTRTokenConfig and ttrTestHint is now created by appSetup.
     // No need for an additional doApiPost to create/update it here.
 
-    // Initial cache clear for this specific context. testAppName is 'lockTestApp'.
+    // Initial cache clear for this specific context. testAppName is 'lockTestPlugin'.
     const cacheKey = hash({
       userId: testUserId,
       hint: ttrTestHint,
@@ -445,7 +445,8 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
     });
     await cache.drop({ pluginName: testAppName, key: cacheKey });
     await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lastUpdated` });
-    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lock` });
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lock` }); // pluginExecutionLock
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:jobLock` }); // jobQueueLock
   });
 
   beforeEach(async () => {
