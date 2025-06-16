@@ -260,7 +260,7 @@ describe('user: bookings controller - searchProducts', () => {
             setTimeout(resolve, 2100);
           });
         });
-        it('call outside of TTR should serve stale data and queue background refresh', async () => {
+        it('call outside of TTR should serve stale data and queue background refresh with correct parameters', async () => {
           travelgatePlugin.searchProducts.mockClear(); // Clear before action
           addJob.mockClear(); // Clear addJob mock before this action that should trigger it
 
@@ -274,23 +274,10 @@ describe('user: bookings controller - searchProducts', () => {
           expect(travelgatePlugin.searchProducts).not.toHaveBeenCalled();
           expect(Array.isArray(products)).toBeTruthy();
           expect(products.length).toBe(2); // Assuming stale data (from initial cache population) is available and has 2 products
-          // Check that addJob was called
-          expect(addJob).toHaveBeenCalledTimes(1);
-        });
-        it('should queue a background job with correct parameters when cache is stale', async () => {
-          // This test relies on the previous test having called addJob.
-          // addJob is mocked, so we inspect its calls.
-          // No need to call listJobs() as addJob is directly mocked.
-          // Ensure the previous test ran and called addJob. If not, this test might be flaky.
-          // For robustness, this could be combined with the test above or ensure addJob was called.
-          expect(addJob).toHaveBeenCalledTimes(1); // Assert it was called (likely by previous test)
           
-          if (addJob.mock.calls.length === 0) {
-            // This case should ideally not be hit if the previous test correctly queues a job.
-            // Forcing an error or failing explicitly if addJob wasn't called.
-            throw new Error("addJob was not called as expected by the preceding test, cannot verify parameters.");
-          }
-
+          // Check that addJob was called and verify its parameters
+          expect(addJob).toHaveBeenCalledTimes(1);
+          
           const jobCall = addJob.mock.calls[0]; // Get the first (and only expected) call to addJob
           const jobData = jobCall[0]; // First argument to addJob is the job payload
           const jobParams = jobCall[1]; // Second argument is params like removeOnComplete
@@ -300,9 +287,9 @@ describe('user: bookings controller - searchProducts', () => {
           expect(jobData.type).toBe('plugin');
           expect(jobData.pluginName).toBe(testAppName); // 'travelgate'
           expect(jobData.method).toBe(expectedPluginMethod);
-          expect(jobData.token).toBeDefined();
+          expect(jobData.token).toBeDefined(); // Token passed to the job
           expect(jobData.payload.userId).toBe(testUserId);
-          expect(jobData.payload.payload).toEqual({}); // Original payload was empty
+          expect(jobData.payload.payload).toEqual({}); // Original payload for the plugin method was empty
           expect(jobData.postProcess.controller).toBe('bookings');
           expect(jobData.postProcess.action).toBe('$updateProductSearchCache');
           expect(jobData.postProcess.args.appKey).toBe(testAppName);
