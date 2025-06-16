@@ -446,41 +446,6 @@ describe('user: bookings controller - searchProducts', () => {
           expect(jobData.postProcess.args.userId).toBe(testUserId);
           expect(jobData.postProcess.args.hint).toBe(ttrTestHint);
           expect(jobParams).toEqual({ removeOnComplete: true });
-          // const jd = job.data; // job.data
-            return (
-              jd.type === 'plugin' &&
-              jd.pluginName === testAppName &&
-              jd.method === expectedPluginMethod &&
-              jd.token && // Check that token is present in job.data
-              jd.payload && // Check for job.data.payload
-              jd.payload.userId === testUserId &&
-              // For this test, payloadForPlugin was {}, so jd.payload.payload should be {}
-              (typeof jd.payload.payload === 'object' && Object.keys(jd.payload.payload).length === 0) &&
-              
-              jd.postProcess &&
-              jd.postProcess.controller === 'bookings' &&
-              jd.postProcess.action === '$updateProductSearchCache' &&
-              jd.postProcess.args &&
-              jd.postProcess.args.appKey === testAppName &&
-              jd.postProcess.args.userId === testUserId &&
-              // jd.postProcess.args.hint === ttrTestHint
-            // );
-          // });
-
-          // expect(foundJob).toBeDefined();
-          // if (foundJob) { // Further assertions if foundJob is defined
-            // expect(foundJob.data.type).toBe('plugin');
-            // expect(foundJob.data.pluginName).toBe(testAppName);
-            // expect(foundJob.data.method).toBe(expectedPluginMethod);
-            // expect(foundJob.data.token).toBeDefined(); // Basic check for token presence
-            // expect(foundJob.data.payload.userId).toBe(testUserId);
-            // expect(foundJob.data.payload.payload).toEqual({});
-            // expect(foundJob.data.postProcess.controller).toBe('bookings');
-            // expect(foundJob.data.postProcess.action).toBe('$updateProductSearchCache');
-            // expect(foundJob.data.postProcess.args.appKey).toBe(testAppName);
-            // expect(foundJob.data.postProcess.args.userId).toBe(testUserId);
-            // expect(foundJob.data.postProcess.args.hint).toBe(ttrTestHint);
-          // }
         });
       });
       // The 'lock mechanism (job queuing on stale cache)' describe block has been moved to the top level.
