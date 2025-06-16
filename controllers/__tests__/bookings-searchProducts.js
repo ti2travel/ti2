@@ -10,11 +10,10 @@ const cache = require('../../cache');
 jest.mock('../../worker/queue', () => ({
   ...jest.requireActual('../../worker/queue'), // Import and retain default behavior
   addJob: jest.fn().mockResolvedValue({ id: 'mockJobId' }), // Mock addJob
-  // Provide mocks for listJobs and jobStatus as they might be called by other parts of the code or tests
-  listJobs: jest.fn().mockResolvedValue([]), 
+  // Provide mock for jobStatus as it might be called by other parts of the code or tests
   jobStatus: jest.fn().mockResolvedValue({ status: 'completed', progress: 100, returnValue: null }),
 }));
-const { addJob, listJobs, jobStatus: mockJobStatus } = require('../../worker/queue'); // Now addJob is the mock
+const { addJob, jobStatus: mockJobStatus } = require('../../worker/queue'); // Now addJob is the mock
 
 const testUtils = require('../../test/utils'); // Require the module itself
 
@@ -453,7 +452,6 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
       lockTestPlugin.searchProducts.mockClear();
     }
     // Clear other global mocks if they were used by this suite and need resetting
-    if (listJobs && listJobs.mockClear) listJobs.mockClear();
     if (mockJobStatus && mockJobStatus.mockClear) mockJobStatus.mockClear();
   });
 
