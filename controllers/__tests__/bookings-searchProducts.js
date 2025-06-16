@@ -283,57 +283,74 @@ describe('user: bookings controller - searchProducts', () => {
           }
         });
       });
-      describe.skip('lock mechanism', () => {
-        // This describe block for lock mechanism was already skipped, keeping it as is.
-        it('wait for the TTR to expire', async () => {
-          await new Promise(resolve => {
-            setTimeout(resolve, 2100);
-          });
-        });
-        it('multiple concurrent requests with slight delays', async () => {
-          // NOTE: this is inside of a single block since it needs to count the nunber of times
+      describe('lock mechanism (job queuing on stale cache)', () => {
+        // This describe block tests that when cache is stale, multiple concurrent requests
+        // will result in only one background job being queued for cache refresh.
+        // It assumes that prior tests in 'outside of the TTR period' have run,
+        // meaning cache for ttrTestHint is populated and then became stale.
+        // A job might have already been queued by the preceding tests.
+
+        const countRelevantJobs = async () => {
+          const jobs = await listJobs();
+          const expectedPluginMethod = plugins[0].searchProducts ? 'searchProducts' : 'searchProductsForItinerary';
+          return jobs.filter(job => {
+            const jd = job.data;
+            return (
+              jd.type === 'plugin' &&
+              jd.pluginName === testAppName &&
+              jd.method === expectedPluginMethod &&
+              jd.token && // Check that token is present in job.data
+              jd.payload && // Check for job.data.payload
+              jd.payload.userId === testUserId &&
+              jd.postProcess &&
+              jd.postProcess.controller === 'bookings' &&
+              jd.postProcess.action === '$updateProductSearchCache' &&
+              jd.postProcess.args &&
+              jd.postProcess.args.appKey === testAppName &&
+              jd.postProcess.args.userId === testUserId &&
+              jd.postProcess.args.hint === ttrTestHint // Filter for the specific hint
+            );
+          }).length;
+        };
+
+        it('multiple concurrent requests to stale cache should serve stale data and queue only one new refresh job', async () => {
+          // Ensure plugin mock is clear before these specific calls
+          plugins[0].searchProducts.mockClear();
+
+          // Count relevant jobs already in the queue (possibly from previous tests in this describe block)
+          const jobsBefore = await countRelevantJobs();
+
           const makeRequest = () => doApiPost({
             url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
             token: userToken,
-            payload: {},
+            payload: {}, // No forceRefresh, no specific searchInput for this test
           });
-          expect (plugins[0].searchProducts).not.toHaveBeenCalled();
-          // Start first request
-          const request1 = makeRequest();
-          // Start second request after 10ms
-          await new Promise(resolve => {
-            setTimeout(resolve, 10);
-          });
-          const request2 = makeRequest();
-          // Start third request after another 10ms
-          await new Promise(resolve => {
-            setTimeout(resolve, 10);
-          });
-          const request3 = makeRequest();
 
-          // Wait for all requests to complete
-          const results = await Promise.all([request1, request2, request3]);
+          // Make multiple requests with slight delays to simulate concurrency
+          const requestPromises = [];
+          requestPromises.push(makeRequest());
+          await global.sleep(50); // Small delay
+          requestPromises.push(makeRequest());
+          await global.sleep(50); // Small delay
+          requestPromises.push(makeRequest());
 
-          // All requests should return valid products
+          const results = await Promise.all(requestPromises);
+
+          // 1. All requests should serve stale data (previously cached data)
           results.forEach(({ products }) => {
             expect(Array.isArray(products)).toBeTruthy();
-            expect(products.length).toBe(2); // Based on existing test expectations
+            // Assuming stale data (from initial cache population by 'first call should create the cache' test) has 2 products
+            expect(products.length).toBe(2); 
           });
-          expect (plugins[0].searchProducts).toHaveBeenCalledTimes(1);
-          // Plugin should only be called once due to lock mechanism, and with correct context', async () => {
-          expect(plugins[0].searchProducts).toHaveBeenCalledWith(
-            expect.objectContaining({
-              token: expect.objectContaining({ // This should match structure of shortTTRToken
-                client: 'tourconnect', // Ensure shortTTRToken has this
-                endpoint: expect.stringContaining('https://api.travelgatex.com'), // Ensure shortTTRToken has this
-                apiKey: expect.any(String), // Ensure shortTTRToken has this
-                ttlForProducts: 2, // Ensure shortTTRToken has this
-              }),
-              userId: testUserId, // Compare with the specific testUserId
-              payload: {},
-              typeDefsAndQueries: expect.any(Object)
-            })
-          );
+
+          // 2. The plugin's searchProducts method should NOT have been called by these synchronous requests
+          expect(plugins[0].searchProducts).not.toHaveBeenCalled();
+
+          // 3. Check that only one NEW job was added to the queue
+          // Give a brief moment for all jobs to be potentially (but hopefully not all) added.
+          await global.sleep(200); 
+          const jobsAfter = await countRelevantJobs();
+          expect(jobsAfter).toBe(jobsBefore + 1);
         });
       });
     });
