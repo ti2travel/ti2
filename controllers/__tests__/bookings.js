@@ -108,9 +108,6 @@ describe('user: bookings controller', () => {
       expect(Array.isArray(bookings)).toBeTruthy();
       expect(plugins[0].searchHotelBooking.mock.calls[0][0].payload).toEqual(payload);
       expect(plugins[0].searchHotelBooking.mock.calls[0][0].token).toEqual(token);
-
-      // expect(Array.isArray(retVal.bookings)).toBeTruthy();
-      // expect(retVal.bookings.length > 0).toBeTruthy();
     });
 
   });

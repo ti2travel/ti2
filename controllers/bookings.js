@@ -136,11 +136,10 @@ const $bookingsProductSearch = plugins => async ({
     searchInput = '', // Provide defaults
     optionId = '',
     forceRefresh = false,
-    // backgroundJob = false, // Removed: No longer used
   } = originalRequestBody;
 
   // Payload for the plugin function (func) - omit controller-specific flags
-  const payloadForPlugin = R.omit(['forceRefresh'/*, 'backgroundJob'*/], originalRequestBody); // 'backgroundJob' already omitted if not present
+  const payloadForPlugin = R.omit(['forceRefresh'], originalRequestBody);
 
   const app = plugins.find(({ name }) => name === appKey);
   assert(userId, 'userId is required');

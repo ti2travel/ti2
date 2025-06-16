@@ -37,10 +37,7 @@ afterAll(async () => {
   }
 });
 
-// const { env: { adminKey } } = process; // adminKey is handled by appSetup
-
 describe('user: bookings controller - searchProducts', () => {
-  // This suite will now use the globally initialized utils
   let doApiGet;
   let doApiPost;
   let travelgatePlugin; // Specific plugin instance for this suite
