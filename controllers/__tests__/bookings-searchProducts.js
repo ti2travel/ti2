@@ -3,9 +3,156 @@
 const chance = require('chance').Chance();
 const hash = require('object-hash');
 const cache = require('../../cache');
-const { listJobs, jobStatus } = require('../../worker/queue');
+// Remove direct import of listJobs, jobStatus as we'll mock addJob
+// const { listJobs, jobStatus } = require('../../worker/queue'); 
+
+// Mock the worker/queue module
+jest.mock('../../worker/queue', () => ({
+  ...jest.requireActual('../../worker/queue'), // Import and retain default behavior
+  addJob: jest.fn().mockResolvedValue({ id: 'mockJobId' }), // Mock addJob
+  listJobs: jest.fn().mockResolvedValue([]), // Keep a mock for listJobs if other tests use it
+  jobStatus: jest.fn().mockResolvedValue({ status: 'completed' }), // Keep a mock for jobStatus
+}));
+const { addJob } = require('../../worker/queue'); // Now addJob is the mock
 
 // const { env: { adminKey } } = process; // adminKey is handled by appSetup
+
+describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', () => {
+  const testUtils = require('../../test/utils');
+  let doApiPost;
+  let plugins;
+  let userToken;
+  let testAppName;
+  let testUserId;
+  let ttrTestHint;
+  const shortTTRTokenConfig = {
+    endpoint: 'https://api.travelgatex.com/lock-test',
+    apiKey: chance.guid(),
+    client: 'tourconnect-lock-test',
+    ttlForProducts: 1, // 1 second TTR for faster testing
+  };
+
+  beforeAll(async () => {
+    const utils = await testUtils({ plugins: ['lockTestPlugin'] }); // Use a unique plugin name for isolation
+    doApiPost = utils.doApiPost;
+    plugins = utils.plugins; // This will be an array with one mocked plugin instance
+
+    // Setup a new app, user, and integration specifically for this test suite
+    const setupData = await utils.appSetup({ appName: 'lockTestApp' });
+    testAppName = setupData.newApp.name;
+    testUserId = setupData.userId;
+    userToken = utils.createUserToken(testUserId);
+    ttrTestHint = 'lock-mechanism-hint';
+
+    // Create the integration with short TTR
+    await doApiPost({
+      url: `/${testAppName}/${testUserId}`,
+      token: userToken,
+      payload: {
+        tokenHint: ttrTestHint,
+        token: shortTTRTokenConfig,
+      },
+    });
+
+    // Initial cache clear for this specific context
+    const cacheKey = hash({
+      userId: testUserId,
+      hint: ttrTestHint,
+      operationId: 'bookingsProductSearch',
+    });
+    await cache.drop({ pluginName: testAppName, key: cacheKey });
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lastUpdated` });
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lock` });
+  });
+
+  beforeEach(async () => {
+    // Clear mocks before each test in this suite
+    jest.clearAllMocks(); 
+    // Ensure the mocked plugin's searchProducts is also cleared if it's a Jest mock
+    if (plugins && plugins[0] && plugins[0].searchProducts && plugins[0].searchProducts.mockClear) {
+      plugins[0].searchProducts.mockClear();
+    }
+    // Reset addJob mock calls before each test
+    addJob.mockClear(); 
+  });
+
+  it('multiple concurrent requests to stale cache should serve stale data and queue only one new refresh job', async () => {
+    // 1. First call: Populate the cache
+    // Mock plugin response for initial cache population
+    plugins[0].searchProducts.mockResolvedValueOnce({ products: [{ id: 'prod1', name: 'Initial Product' }] });
+    await doApiPost({
+      url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
+      token: userToken,
+      payload: {},
+    });
+    expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
+    expect(addJob).not.toHaveBeenCalled(); // No job queued on initial population
+    plugins[0].searchProducts.mockClear(); // Clear for next phase
+
+    // 2. Wait for TTR to expire (ttlForProducts is 1s, wait 1.5s)
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    // 3. Make multiple concurrent requests to the now stale cache
+    // Mock plugin response for the background refresh (though it won't be directly called by these API reqs)
+    // This mock is for the job that addJob is supposed to queue.
+    plugins[0].searchProducts.mockResolvedValueOnce({ products: [{ id: 'prod2', name: 'Refreshed Product' }] });
+
+    const makeRequest = () => doApiPost({
+      url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
+      token: userToken,
+      payload: {},
+    });
+
+    const requestPromises = [];
+    requestPromises.push(makeRequest()); // First request hits stale cache, should queue job
+    await global.sleep(50); // Small delay to simulate near concurrency
+    requestPromises.push(makeRequest()); // Second request should also hit stale cache, but not queue another job
+    await global.sleep(50);
+    requestPromises.push(makeRequest()); // Third request
+
+    const results = await Promise.all(requestPromises);
+
+    // Assertions:
+    // a. All requests should serve stale data (the "Initial Product")
+    results.forEach(result => {
+      expect(result.products).toEqual([{ id: 'prod1', name: 'Initial Product' }]);
+    });
+
+    // b. The plugin's searchProducts method should NOT have been called directly by these API requests
+    //    because data is stale and a background job is queued.
+    expect(plugins[0].searchProducts).not.toHaveBeenCalled();
+
+    // c. addJob should have been called exactly once
+    expect(addJob).toHaveBeenCalledTimes(1);
+
+    // d. (Optional but good) Verify arguments of addJob
+    if (addJob.mock.calls.length > 0) {
+      const expectedPluginMethodName = plugins[0].searchProducts ? 'searchProducts' : 'searchProductsForItinerary';
+      expect(addJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'plugin',
+          pluginName: testAppName,
+          method: expectedPluginMethodName,
+          token: expect.objectContaining({ ttlForProducts: shortTTRTokenConfig.ttlForProducts }),
+          payload: expect.objectContaining({
+            payload: {}, // originalRequestBody was empty
+            userId: testUserId,
+          }),
+          postProcess: expect.objectContaining({
+            controller: 'bookings',
+            action: '$updateProductSearchCache',
+            args: expect.objectContaining({
+              appKey: testAppName,
+              userId: testUserId,
+              hint: ttrTestHint,
+            }),
+          }),
+        }),
+        { removeOnComplete: true }
+      );
+    }
+  });
+});
 
 describe('user: bookings controller - searchProducts', () => {
   const testUtils = require('../../test/utils');
@@ -283,76 +430,7 @@ describe('user: bookings controller - searchProducts', () => {
           }
         });
       });
-      describe('lock mechanism (job queuing on stale cache)', () => {
-        // This describe block tests that when cache is stale, multiple concurrent requests
-        // will result in only one background job being queued for cache refresh.
-        // It assumes that prior tests in 'outside of the TTR period' have run,
-        // meaning cache for ttrTestHint is populated and then became stale.
-        // A job might have already been queued by the preceding tests.
-
-        const countRelevantJobs = async () => {
-          const jobs = await listJobs();
-          const expectedPluginMethod = plugins[0].searchProducts ? 'searchProducts' : 'searchProductsForItinerary';
-          return jobs.filter(job => {
-            const jd = job.data;
-            return (
-              jd.type === 'plugin' &&
-              jd.pluginName === testAppName &&
-              jd.method === expectedPluginMethod &&
-              jd.token && // Check that token is present in job.data
-              jd.payload && // Check for job.data.payload
-              jd.payload.userId === testUserId &&
-              jd.postProcess &&
-              jd.postProcess.controller === 'bookings' &&
-              jd.postProcess.action === '$updateProductSearchCache' &&
-              jd.postProcess.args &&
-              jd.postProcess.args.appKey === testAppName &&
-              jd.postProcess.args.userId === testUserId &&
-              jd.postProcess.args.hint === ttrTestHint // Filter for the specific hint
-            );
-          }).length;
-        };
-
-        it('multiple concurrent requests to stale cache should serve stale data and queue only one new refresh job', async () => {
-          // Ensure plugin mock is clear before these specific calls
-          plugins[0].searchProducts.mockClear();
-
-          // Count relevant jobs already in the queue (possibly from previous tests in this describe block)
-          const jobsBefore = await countRelevantJobs();
-
-          const makeRequest = () => doApiPost({
-            url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
-            token: userToken,
-            payload: {}, // No forceRefresh, no specific searchInput for this test
-          });
-
-          // Make multiple requests with slight delays to simulate concurrency
-          const requestPromises = [];
-          requestPromises.push(makeRequest());
-          await global.sleep(50); // Small delay
-          requestPromises.push(makeRequest());
-          await global.sleep(50); // Small delay
-          requestPromises.push(makeRequest());
-
-          const results = await Promise.all(requestPromises);
-
-          // 1. All requests should serve stale data (previously cached data)
-          results.forEach(({ products }) => {
-            expect(Array.isArray(products)).toBeTruthy();
-            // Assuming stale data (from initial cache population by 'first call should create the cache' test) has 2 products
-            expect(products.length).toBe(2); 
-          });
-
-          // 2. The plugin's searchProducts method should NOT have been called by these synchronous requests
-          expect(plugins[0].searchProducts).not.toHaveBeenCalled();
-
-          // 3. Check that only one NEW job was added to the queue
-          // Give a brief moment for all jobs to be potentially (but hopefully not all) added.
-          await global.sleep(200); 
-          const jobsAfter = await countRelevantJobs();
-          expect(jobsAfter).toBe(jobsBefore + 1);
-        });
-      });
+      // The 'lock mechanism (job queuing on stale cache)' describe block has been moved to the top level.
     });
   });
 
