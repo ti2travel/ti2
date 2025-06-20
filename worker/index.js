@@ -165,7 +165,7 @@ const worker = ({ plugins: pluginsParam }) => { // pluginsParam are instantiated
               ...(jobDataPayload || {}), // Spread job.data.payload (e.g., contains inner 'payload' and 'userId')
               token: data.token,         // Pass job.data.token
               plugins: currentJobPlugins,
-              typeDefsAndQueries: require('../controllers/bookings').typeDefsAndQueries, // As per existing pattern
+              typeDefsAndQueries: bookingsControllerFactory.typeDefsAndQueries, // As per existing pattern
               axios: mainAxios,          // Inject worker's axios instance
               requestId: jobId,          // Inject job ID as requestId
             });

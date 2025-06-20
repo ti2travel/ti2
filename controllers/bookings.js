@@ -159,10 +159,8 @@ const $bookingsProductSearch = plugins => async ({
   // Fetch actualCacheContent once at the beginning.
   const initialActualCacheContent = await app.cache.get({ key: cacheKey });
   const lastUpdated = await app.cache.get({ key: `${cacheKey}:lastUpdated` });
-  // const ttr = token.ttlForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'ttr'], app) || 60 * 60 * 24;
-  const ttr = 120
+  const ttr = token.ttlForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'ttr'], app) || 60 * 60 * 24;
   const isStaleByTTR = lastUpdated && (Date.now() - lastUpdated > ttr * 1000);
-  console.log ({ ttr, isStaleByTTR })
   const doNotCallPluginForProducts = token.doNotCallPluginForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'doNotCall'], app);
   const hasPluginExecutionLock = await app.cache.get({ key: pluginExecutionLockKey });
 
@@ -214,10 +212,8 @@ const $bookingsProductSearch = plugins => async ({
 
   // 3. Cache exists (initialActualCacheContent) and not forceRefresh:
   if (initialActualCacheContent && initialActualCacheContent.products) {
-    console.log('here')
     // Effective staleness check for deciding if a background refresh is needed.
     const isEffectivelyStale = isStaleByTTR && !doNotCallPluginForProducts;
-    console.log({ isEffectivelyStale, isStaleByTTR, doNotCallPluginForProducts })
 
     if (!isEffectivelyStale || hasPluginExecutionLock) {
       // Cache is fresh OR (is stale BUT a plugin execution is already in progress for refresh): Serve from cache.
@@ -634,7 +630,7 @@ const $updateProductSearchCache = plugins => async ({
 };
 
 // Update the module.exports to correctly assign the plugin-wrapped function
-module.exports = plugins => {
+const controllerFactory = plugins => {
   const controllerFunctions = {
     bookingsSearch: bookingsSearch(plugins),
     bookingsCancel: bookingsCancel(plugins),
@@ -656,3 +652,8 @@ module.exports = plugins => {
   // This is more of a conceptual note as the factory pattern already handles this.
   return controllerFunctions;
 };
+
+// Add this line to attach typeDefsAndQueries to the factory:
+controllerFactory.typeDefsAndQueries = typeDefsAndQueries;
+
+module.exports = controllerFactory;
