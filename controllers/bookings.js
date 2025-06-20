@@ -2,6 +2,7 @@ const assert = require('assert');
 const hash = require('object-hash');
 const R = require('ramda');
 const { UserAppKey } = require('../models/index');
+const { addJob } = require('../worker/queue');
 const { typeDefs: productTypeDefs, query: productQuery } = require('./graphql-schemas/product');
 const { typeDefs: availTypeDefs, query: availQuery } = require('./graphql-schemas/availability');
 const { typeDefs: bookingTypeDefs, query: bookingQuery } = require('./graphql-schemas/booking');
@@ -126,113 +127,140 @@ const $bookingsProductSearch = plugins => async ({
   appKey,
   userId,
   hint,
-  payload: {
-    searchInput,
-    optionId,
-    forceRefresh,
-    ...restPayload
-  },
+  payload: originalRequestBody, // Renamed for clarity, this is req.body
   requestId,
+  headers, // To pass original request headers for background job
 }) => {
+  // Extract controller-specific flags from originalRequestBody
+  const {
+    searchInput = '', // Provide defaults
+    optionId = '',
+    forceRefresh = false,
+  } = originalRequestBody;
+
+  // Payload for the plugin function (func) - omit controller-specific flags
+  const payloadForPlugin = R.omit(['forceRefresh'], originalRequestBody);
+
   const app = plugins.find(({ name }) => name === appKey);
   assert(userId, 'userId is required');
   assert(appKey, 'appKey is required');
   assert(app.searchProducts || app.searchProductsForItinerary, `searchProducts or searchProductsForItinerary is not available for ${appKey}`);
   const userAppKeys = (await UserAppKey.findOne({
-    where: {
-      userId,
-      integrationId: appKey,
-      ...(hint ? { hint } : {}),
-    },
+    where: { userId, integrationId: appKey, ...(hint ? { hint } : {}) },
   }));
   assert(userAppKeys, 'could not find the app key');
   const token = await userAppKeys.token;
   const func = (app.searchProducts || app.searchProductsForItinerary).bind(app);
-  // NOTE: this is intend to cache the entire product list
-  const cacheKey = hash({
-    userId,
-    hint,
-    operationId: 'bookingsProductSearch',
-  });
-  // Check cache first if not forcing refresh
-  const cacheValue = forceRefresh ? null : await app.cache.get({
-    key: cacheKey,
-  });
-  const lastUpdated = await app.cache.get({
-    key: `${cacheKey}:lastUpdated`,
-  });
-  // refresh every 24 hours
+
+  const cacheKey = hash({ userId, hint, operationId: 'bookingsProductSearch' });
+  const pluginExecutionLockKey = `${cacheKey}:lock`; // Lock for direct plugin execution
+  const jobQueueLockKey = `${cacheKey}:jobLock`;   // Lock for preventing multiple job queues
+
+  // Fetch actualCacheContent once at the beginning.
+  const initialActualCacheContent = await app.cache.get({ key: cacheKey });
+  const lastUpdated = await app.cache.get({ key: `${cacheKey}:lastUpdated` });
   const ttr = token.ttlForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'ttr'], app) || 60 * 60 * 24;
-  let isStale = lastUpdated && (Date.now() - lastUpdated > ttr * 1000);
-  const doNotCallPluginForProducts = token.doNotCallPluginForProducts
-    || R.path(['cacheSettings', 'bookingsProductSearch', 'doNotCall'], app);
-  // if a company says never to call the plugin (their booking system)
-  // we will never treat their cache as stale
-  if (doNotCallPluginForProducts) {
-    isStale = false;
-  }
-  const hasLock = await app.cache.get({
-    key: `${cacheKey}:lock`,
-  });
-  // when there is a lock (meaning another request is already fetching the products)
-  // return stale cache during this short window
-  if (cacheValue && cacheValue.products && (hasLock || !isStale)) {
-    const searchResults = $searchProductList(cacheValue.products, searchInput, optionId);
-    return {
-      ...cacheValue,
-      products: searchResults,
-      // this is for sending the product filters specifically being used by pyfilematch
-      ...(token.configuration || {}),
-    };
-  }
+  const isStaleByTTR = lastUpdated && (Date.now() - lastUpdated > ttr * 1000);
+  const doNotCallPluginForProducts = token.doNotCallPluginForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'doNotCall'], app);
+  const hasPluginExecutionLock = await app.cache.get({ key: pluginExecutionLockKey });
+
+  // Helper function to call the plugin, save cache, and return results
+  const fetchFromPluginAndCache = async () => {
+    await app.cache.save({ key: pluginExecutionLockKey, value: true, ttl: 120 });
+    let pluginResults;
+    try {
+      pluginResults = await func({
+        axios, token, payload: payloadForPlugin, typeDefsAndQueries, requestId, userId,
+      });
+
+      // This function is responsible for caching if it fetched good results.
+      // This applies to forceRefresh, initial load, or direct calls that result in a fetch.
+      // The $updateProductSearchCache function handles caching for background jobs queued due to stale data.
+      if (pluginResults && pluginResults.products && pluginResults.products.length > 0) {
+        const monthInSeconds = 30 * 24 * 60 * 60;
+        await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
+        await app.cache.save({ key: cacheKey, value: pluginResults, ttl: monthInSeconds });
+        app.events.emit('bookingsProductSearch:cache:save', {
+          cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
+        });
+      }
+      // If pluginResults are empty, cache is NOT updated here by fetchFromPluginAndCache.
+      // This maintains existing behavior for forceRefresh/initial load paths.
+      // $updateProductSearchCache has its own logic for handling empty results from background refresh.
+    } finally {
+      await app.cache.drop({ key: pluginExecutionLockKey });
+    }
+    return pluginResults || { products: [] }; // Ensure products array exists
+  };
+
+  // 1. `doNotCallPluginForProducts` is true, and not `forceRefresh`: Serve from cache or empty.
   if (doNotCallPluginForProducts && !forceRefresh) {
-    return { products: [] };
+    if (initialActualCacheContent && initialActualCacheContent.products) {
+      const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
+      return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
+    }
+    return { products: [], ...(token.configuration || {}) };
   }
-  // create a lock with 2 minute TTL
-  await app.cache.save({
-    key: `${cacheKey}:lock`,
-    value: true,
-    ttl: 120,
-  });
-  const funcResults = await func({
-    axios,
-    token,
-    payload: restPayload,
-    typeDefsAndQueries,
-    requestId,
-    userId,
-  });
-  // save cache if products are found
-  if (funcResults && funcResults.products && funcResults.products.length > 0) {
-    // I initially wanted to let the cache live forever
-    // but just in case user left TC or something, we don't want to keep the cache forever
-    // so we set the TTL to 30 days, within 30 days,
-    // we will refresh the cache every 24 hours(or specified by the user) without deleting the stale cache
-    const monthInSeconds = 30 * 24 * 60 * 60;
-    await app.cache.save({
-      key: `${cacheKey}:lastUpdated`,
-      value: Date.now(),
-      ttl: monthInSeconds,
-    });
-    await app.cache.save({
-      key: cacheKey,
-      value: funcResults,
-      ttl: monthInSeconds,
-    });
-    app.events.emit('bookingsProductSearch:cache:save', {
-      cacheKey,
-      userId,
-      hint,
-      operationId: 'bookingsProductSearch',
-      requestId,
-      pluginName: app.name,
-    });
+
+  // 2. `forceRefresh` is true (and not case 1): Fetch from plugin.
+  //    fetchFromPluginAndCache will handle caching the new results.
+  if (forceRefresh) {
+    const funcResults = await fetchFromPluginAndCache();
+    const searchResults = $searchProductList(funcResults.products, searchInput, optionId);
+    return { ...funcResults, products: searchResults, ...(token.configuration || {}) };
   }
-  // release the lock
-  await app.cache.drop({
-    key: `${cacheKey}:lock`,
-  });
-  const searchResults = $searchProductList(R.pathOr([], ['products'], funcResults), searchInput, optionId);
+
+  // 3. Cache exists (initialActualCacheContent) and not forceRefresh:
+  if (initialActualCacheContent && initialActualCacheContent.products) {
+    // Effective staleness check for deciding if a background refresh is needed.
+    const isEffectivelyStale = isStaleByTTR && !doNotCallPluginForProducts;
+
+    if (!isEffectivelyStale || hasPluginExecutionLock) {
+      // Cache is fresh OR (is stale BUT a plugin execution is already in progress for refresh): Serve from cache.
+      const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
+      return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
+    } else {
+      // Cache is effectively stale AND no plugin execution is currently in progress.
+      // Try to queue a background job.
+      const hasJobQueueLock = await app.cache.get({ key: jobQueueLockKey });
+
+      if (hasJobQueueLock) {
+        // A background job has recently been queued by another request. Serve stale data.
+        const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
+        return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
+      } else {
+        // No job queue lock. Set one, then queue the job, then serve stale data.
+        await app.cache.save({ key: jobQueueLockKey, value: true, ttl: 60 }); // Lock for 60 seconds
+
+        const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
+        
+        const pluginMethodPayload = {
+          payload: payloadForPlugin,
+          userId,
+        };
+        const jobData = {
+          type: 'plugin',
+          pluginName: appKey,
+          method: app.searchProducts ? 'searchProducts' : 'searchProductsForItinerary',
+          token,
+          payload: pluginMethodPayload,
+          postProcess: {
+            controller: 'bookings',
+            action: '$updateProductSearchCache',
+            args: { appKey, userId, hint },
+          },
+        };
+        await addJob(jobData, { removeOnComplete: true });
+        
+        return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
+      }
+    }
+  }
+
+  // 4. No cache content (and not caught by previous conditions like forceRefresh or doNotCallPluginForProducts):
+  //    Fetch from plugin. fetchFromPluginAndCache will handle caching.
+  const funcResults = await fetchFromPluginAndCache();
+  const searchResults = $searchProductList(funcResults.products, searchInput, optionId);
   return {
     ...funcResults,
     products: searchResults,
@@ -253,6 +281,7 @@ const bookingsProductSearch = plugins => async (req, res, next) => {
       ...params,
       payload,
       requestId,
+      headers: req.headers, // Pass original request headers
     }));
   } catch (err) {
     return next(err);
@@ -561,19 +590,70 @@ const getCreateBookingFields = plugins => async (req, res, next) => {
   }
 };
 
-module.exports = plugins => ({
-  bookingsSearch: bookingsSearch(plugins),
-  bookingsCancel: bookingsCancel(plugins),
-  $bookingsProductSearch,
-  bookingsProductSearch: bookingsProductSearch(plugins),
-  getProductPackages: getProductPackages(plugins),
-  bookingsAvailabilitySearch: bookingsAvailabilitySearch(plugins),
-  $bookingsAvailabilityCalendar,
-  bookingsAvailabilityCalendar: bookingsAvailabilityCalendar(plugins),
-  searchQuote: searchQuote(plugins),
-  createBooking: createBooking(plugins),
-  getAffiliateAgents: getAffiliateAgents(plugins),
-  getAffiliateDesks: getAffiliateDesks(plugins),
-  getPickupPoints: getPickupPoints(plugins),
-  getCreateBookingFields: getCreateBookingFields(plugins),
-});
+const $updateProductSearchCache = plugins => async ({
+  appKey,
+  userId,
+  hint,
+  pluginResult, // Result from the plugin method call
+  requestId,
+  // 'plugins' is available via the factory closure
+}) => {
+  const app = plugins.find(({ name }) => name === appKey);
+  if (!app) {
+    console.error(`[$updateProductSearchCache][requestId: ${requestId}] Plugin ${appKey} not found.`);
+    return; // Or throw error
+  }
+
+  const cacheKey = hash({ userId, hint, operationId: 'bookingsProductSearch' });
+  const monthInSeconds = 30 * 24 * 60 * 60;
+
+  // Always update lastUpdated to prevent immediate re-trigger of background jobs
+  // even if the plugin returned empty results.
+  await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
+
+  if (pluginResult && pluginResult.products && pluginResult.products.length > 0) {
+    await app.cache.save({ key: cacheKey, value: pluginResult, ttl: monthInSeconds });
+    app.events.emit('bookingsProductSearch:cache:save', {
+      cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
+    });
+    console.log(`[$updateProductSearchCache][requestId: ${requestId}] Saved products to cache for ${appKey}, user ${userId}, hint ${hint}.`);
+  } else {
+    // If plugin returned no products, update the cache to reflect this.
+    // This prevents serving stale data indefinitely if the source truly has no products anymore.
+    await app.cache.save({ key: cacheKey, value: { products: [] }, ttl: monthInSeconds });
+    app.events.emit('bookingsProductSearch:cache:emptyRefresh', {
+      cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
+      pluginResult, // Log what the plugin returned
+    });
+    console.log(`[$updateProductSearchCache][requestId: ${requestId}] Plugin returned empty/no products. Cached empty for ${appKey}, user ${userId}, hint ${hint}.`);
+  }
+};
+
+// Update the module.exports to correctly assign the plugin-wrapped function
+const controllerFactory = plugins => {
+  const controllerFunctions = {
+    bookingsSearch: bookingsSearch(plugins),
+    bookingsCancel: bookingsCancel(plugins),
+    $bookingsProductSearch: $bookingsProductSearch(plugins),
+    bookingsProductSearch: bookingsProductSearch(plugins),
+    getProductPackages: getProductPackages(plugins),
+    bookingsAvailabilitySearch: bookingsAvailabilitySearch(plugins),
+    $bookingsAvailabilityCalendar: $bookingsAvailabilityCalendar(plugins),
+    bookingsAvailabilityCalendar: bookingsAvailabilityCalendar(plugins),
+    searchQuote: searchQuote(plugins),
+    createBooking: createBooking(plugins),
+    getAffiliateAgents: getAffiliateAgents(plugins),
+    getAffiliateDesks: getAffiliateDesks(plugins),
+    getPickupPoints: getPickupPoints(plugins),
+    getCreateBookingFields: getCreateBookingFields(plugins),
+    $updateProductSearchCache: $updateProductSearchCache(plugins), // Add the new function here
+  };
+  // Ensure $bookingsProductSearch can be called internally by worker with plugins already bound
+  // This is more of a conceptual note as the factory pattern already handles this.
+  return controllerFunctions;
+};
+
+// Add this line to attach typeDefsAndQueries to the factory:
+controllerFactory.typeDefsAndQueries = typeDefsAndQueries;
+
+module.exports = controllerFactory;

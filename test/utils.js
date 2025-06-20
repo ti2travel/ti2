@@ -71,51 +71,51 @@ module.exports = async (appParams = {}) => {
   const doApiPut = params => doApi({ ...params, verb: 'put' });
   const doApiDelete = params => doApi({ ...params, verb: 'delete' });
 
-  const appSetup = async ({ userId: userIdParam, appName: appNameParam } = {}) => {
+  const appSetup = async ({ userId: userIdParam, appName: appNameParam, token: tokenDataParam, tokenHint: hintParam } = {}) => {
     const userId = userIdParam || chance.guid();
-    const appName1 = appNameParam || slugify(
-      chance.company(),
-    ).toLowerCase();
-    const newApp = {
-      name: appName1,
-      packageName: `ti2-${appName1}`,
-      adminEmail: chance.email(),
+    const appName = appNameParam || slugify(chance.company()).toLowerCase();
+
+    const integrationDetails = { // Details for the Integration (app) to be created/ensured
+      name: appName,
+      packageName: `ti2-${appName}`, // Default package name
+      adminEmail: chance.email(),   // Default admin email
     };
-    const apiKey1 = chance.guid();
-    const token = {
-      endpoint: chance.url(),
-      apiKey: apiKey1,
-    };
-    
-    let appKey;
-    
-    // Only create a new app if appNameParam is not provided
-    if (!appNameParam) {
-      const { body: { value: newAppKey } } = await request(app)
-        .post('/app')
-        .set('Authorization', `Bearer ${adminKey}`)
-        .send(newApp);
-      appKey = newAppKey;
-    } else {
-      // If appNameParam is provided, we'll use the adminKey directly
-      // This avoids the need for a GET /app/{appName} endpoint
-      appKey = adminKey;
-    }
-    
-    // Create user token for the app
-    const hint = token.apiKey.split('-')[0];
+
+    // Ensure the Integration (app) record exists.
+    // POST /app is an admin endpoint to create an Integration.
+    // This call ensures the 'Integrations' table has the required 'appName'.
+    // It's assumed this endpoint can be called safely even if the integration already exists.
     await request(app)
-      .post(`/${newApp.name}/${userId}`)
-      .set('Authorization', `Bearer ${appKey}`)
+      .post('/app')
+      .set('Authorization', `Bearer ${adminKey}`) // Admin key to authorize Integration creation
+      .send(integrationDetails)
+      .expect(200); // Or handle potential non-200 responses if it errors on duplicate
+
+    // Prepare the token content for the UserAppKey.
+    // If tokenDataParam is provided by the test, use it; otherwise, generate default content.
+    const userAppKeyTokenContent = tokenDataParam || {
+      endpoint: chance.url(),
+      apiKey: chance.guid(),
+    };
+
+    // Determine the hint for the UserAppKey.
+    // If hintParam is provided, use it; otherwise, derive from apiKey or generate a random word.
+    const hint = hintParam || (userAppKeyTokenContent.apiKey ? userAppKeyTokenContent.apiKey.split('-')[0] : chance.word({ length: 8 }));
+    
+    // Create the UserAppKey, linking the user to the integration with specific token data and hint.
+    // This call depends on the Integration (appName) existing.
+    await request(app)
+      .post(`/${appName}/${userId}`) // URL uses the Integration's name (appName)
+      .set('Authorization', `Bearer ${adminKey}`) // Admin key to authorize UserAppKey creation
       .send({
         tokenHint: hint,
-        token,
-      });
+        token: userAppKeyTokenContent, // This is the data to be stored in UserAppKey.appKey (will be encrypted)
+      })
+      .expect(200); // Expect success for UserAppKey creation
     
     return {
-      newApp,
-      token,
-      appKey,
+      newApp: integrationDetails, // Information about the integration that was ensured/created
+      token: userAppKeyTokenContent,  // The plaintext content that was intended for UserAppKey.appKey
       userId,
       hint,
     };
@@ -131,5 +131,6 @@ module.exports = async (appParams = {}) => {
     createUserToken,
     slugify,
     plugins: app.plugins,
+    sqldb, // Expose sqldb for direct DB interaction if needed in tests (e.g., cleanup)
   };
 };

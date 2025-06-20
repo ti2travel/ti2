@@ -142,25 +142,28 @@ const createAppToken = async (req, res, next) => {
           if (existing) {
             const bullJob = await queue.getJob(job.bullJobId);
             if (!bullJob) {
-              bullJobId = await addJob(jobPayload, jobParams);
-              existing.bullJobId = bullJobId;
+              let rawBullJobId = await addJob(jobPayload, jobParams);
+              existing.bullJobId = (rawBullJobId && typeof rawBullJobId === 'object' && rawBullJobId.id) ? rawBullJobId.id : rawBullJobId;
               await existing.save();
             } else {
               // make sure the cron is the same
+              // bullJobId here is from existing.bullJobId, which should be a string.
+              // The queue.getJob expects a string ID.
               const bullCron = R.path(
                 ['opts', 'repeat', 'cron'],
-                await queue.getJob(bullJobId),
+                await queue.getJob(existing.bullJobId), // Use existing.bullJobId
               );
               if (bullCron !== job.cron) {
-                await queue.removeJobs(bullJobId);
-                bullJobId = await addJob(jobPayload, jobParams);
-                existing.bullJobId = bullJobId;
+                await queue.removeJobs(existing.bullJobId); // Use existing.bullJobId
+                let rawBullJobId = await addJob(jobPayload, jobParams);
+                existing.bullJobId = (rawBullJobId && typeof rawBullJobId === 'object' && rawBullJobId.id) ? rawBullJobId.id : rawBullJobId;
                 await existing.save();
               }
             }
           } else {
-            bullJobId = await addJob(jobPayload, jobParams);
-            await sqldb.CronJobs.create({ ...where, bullJobId });
+            let rawBullJobId = await addJob(jobPayload, jobParams);
+            const actualBullJobId = (rawBullJobId && typeof rawBullJobId === 'object' && rawBullJobId.id) ? rawBullJobId.id : rawBullJobId;
+            await sqldb.CronJobs.create({ ...where, bullJobId: actualBullJobId });
           }
         });
       }
