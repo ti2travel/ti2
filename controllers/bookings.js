@@ -457,6 +457,15 @@ const createBooking = plugins => async (req, res, next) => {
       typeDefsAndQueries,
       requestId: req.requestId,
     });
+
+    app.events.emit('bookingsCreateBooking', {
+      userId,
+      hint,
+      operationId: 'createBooking',
+      requestId: req.requestId,
+      pluginName: app.name,
+      payload: results,
+    });
     return res.json(results);
   } catch (err) {
     return next(err);
