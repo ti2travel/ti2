@@ -15,6 +15,7 @@ const EventEmitter = require('eventemitter2');
 const axios = require('axios');
 const curlirize = require('axios-curlirize');
 const { addJob } = require('./worker/queue');
+const { configureAxiosSSL } = require('./lib/sslConfig');
 
 const cacheSettings = {
   '*': [
@@ -78,6 +79,10 @@ module.exports = async ({
       const nuName = attr.replace(/_/g, '-').replace(`ti2-${pluginName}-`, '');
       params[nuName] = value;
     });
+    // Create a new axios instance for this plugin and configure SSL if needed
+    const pluginAxios = axios.create();
+    configureAxiosSSL(pluginAxios, process.env.SSL_INSECURE_ALLOWED_DOMAINS);
+    
     const pluginInstance = await new Plugin({
       cache: {
         drop: args => cache.drop({ ...args, pluginName }),
@@ -85,7 +90,7 @@ module.exports = async ({
         getOrExec: args => cache.getOrExec({ ...args, pluginName }),
         save: args => cache.save({ ...args, pluginName }),
       },
-      axios,
+      axios: pluginAxios,
       events: ti2Events,
       name: pluginName,
       ...params,

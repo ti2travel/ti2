@@ -29,6 +29,7 @@ A MySQl instance is required and the following environment variables are require
 - jwtKey (a key to encrypt user sessions request)
 - frontendKey (an additional optional key to validate the origin of the requests)
 - PORT (an optional port to run the http server, in case a port is not specified as a parameter)
+- SSL_INSECURE_ALLOWED_DOMAINS (optional, pipe-separated list of domains where SSL certificate verification is skipped)
 
 ```
 DB_URL=mysql://root:@mysqlserver/ti2development
@@ -38,6 +39,25 @@ jwtSecret=C8k0mrHVfWVTP7pIoZEHRrvFgTULhw3E4swDq1aoDH4P
 frontendKey=IpOiLahrGQxsQimwoK7Z
 adminKey=bCviyz7iKyuEBoOVlODn
 ```
+
+#### SSL Configuration for Development/Testing
+
+For development or testing environments where you need to connect to APIs with self-signed or invalid SSL certificates, you can use the `SSL_INSECURE_ALLOWED_DOMAINS` environment variable:
+
+```bash
+# Skip SSL verification for specific domains
+SSL_INSECURE_ALLOWED_DOMAINS="localhost|staging.api.com|192.168.1.100"
+
+# Multiple domains separated by pipe
+SSL_INSECURE_ALLOWED_DOMAINS="dev.example.com|test.example.com"
+```
+
+This configuration will:
+- Skip SSL certificate verification for the specified domains
+- Apply only to plugin axios instances (external API calls)
+- Maintain normal SSL verification for all other domains
+
+**⚠️ Warning**: Only use this in development/testing environments. Never skip SSL verification in production for security reasons.
 
 ### Initialize a new NodeJS project
 
