@@ -4,6 +4,10 @@ const R = require('ramda');
 const { queue, saveResult } = require('./queue');
 const bookingsControllerFactory = require('../controllers/bookings');
 const mainAxios = require('axios'); // Generic axios instance for direct calls
+const { configureAxiosSSL } = require('../lib/sslConfig');
+
+// Configure SSL for the main axios instance
+configureAxiosSSL(mainAxios, process.env.SSL_INSECURE_ALLOWED_DOMAINS);
 
 const workers = process.env.WEB_CONCURRENCY || 2;
 const maxJobsPerWorker = process.env.MAX_JOBS_PER_WORKER || 1;
