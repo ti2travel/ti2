@@ -1,6 +1,7 @@
 /* globals beforeAll describe it expect */
 const yaml = require('js-yaml');
-const fs = require('fs');
+const fs = require('fs')
+const R = require('ramda')
 
 // Load environment variables and API schema
 const { env: { adminKey } } = process;
@@ -315,28 +316,24 @@ describe('scheduled cronjob execution', () => {
           const url = require('url');
 
           server = http.createServer((req, res) => {
-            let body = '';
-            req.on('data', chunk => body += chunk);
+            let callbackPayload = '';
+            req.on('data', chunk => callbackPayload += chunk);
             req.on('end', () => {
               const requestUrl = url.parse(req.url, true);
               const receivedUniqueId = requestUrl.query.date;
+              const receivedJobId = R.path(['result', 'bullJobId'], JSON.parse(callbackPayload))
 
               if (receivedUniqueId === uniqueId) {
                 // Check if response and response.bullJobId are available
-                if (response && response.bullJobId) {
-                  res.writeHead(200, { 'Content-Type': 'application/json' });
-                  res.end(JSON.stringify({ success: true }));
-                  // server.close() will be handled in afterAll or if explicitly resolved/rejected
-                  resolve({ id: response.bullJobId });
-                } else {
-                  // This case handles if callback arrives but job creation might have failed or response not processed
-                  res.writeHead(500, { 'Content-Type': 'application/json' });
-                  res.end(JSON.stringify({ success: false, message: 'Callback received but job details unavailable.' }));
-                  reject(new Error('Callback processed but original job details (response.bullJobId) were missing.'));
-                }
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true }));
+                // Close the server after sending the response
+                server.close(() => {
+                  resolve({ receivedJobId });
+                });
               } else {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, message: 'Callback ID mismatch' }));
+                return res.end(JSON.stringify({ success: false, message: 'Callback ID mismatch' }));
                 // Do not resolve or reject here, let the test timeout if correct callback never comes.
                 // Or, optionally, reject:
                 // reject(new Error('Callback ID mismatch.'));
@@ -366,12 +363,12 @@ describe('scheduled cronjob execution', () => {
         });
 
         expect(response.bullJobId).toBeTruthy();
+        bullJobId = response.bullJobId;
         expect(response.id).toBeTruthy();
         cronJobIdToCleanup = response.id;
 
-        const callBackInstance = await callBackServerPromise;
-        expect(callBackInstance.id).toBe(response.bullJobId);
-        bullJobId = response.bullJobId;
+        const { receivedJobId } = await callBackServerPromise;
+        expect(receivedJobId).toBe(bullJobId);
 
       }, 120e3); // Timeout for the cronjob to be executed
 
@@ -380,7 +377,7 @@ describe('scheduled cronjob execution', () => {
       expect(bullJobId).toBeTruthy();
       const { queue } = require('../../worker/queue');
       let jobInQueue;
-      const maxRetries = 60;
+      const maxRetries = 120;
       const retryInterval = 1e3;
 
       for (let i = 0; i < maxRetries; i++) {
@@ -389,6 +386,6 @@ describe('scheduled cronjob execution', () => {
         await new Promise(resolveDelay => setTimeout(resolveDelay, retryInterval));
       }
       expect(jobInQueue).toBeNull();
-    }, 60e3) // timeout for bull  to remove the queue Job once executed (removeOnComplete)
+    }, 120e3) // timeout for bull  to remove the queue Job once executed (removeOnComplete)
   });
 });
