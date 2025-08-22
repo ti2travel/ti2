@@ -450,14 +450,19 @@ const createBooking = plugins => async (req, res, next) => {
     assert(userAppKeys, 'could not find the app key');
     const token = await userAppKeys.token;
     const func = (app.createBooking || app.addServiceToItinerary).bind(app);
-    const results = await func({
-      axios,
-      token,
-      payload,
-      typeDefsAndQueries,
-      requestId: req.requestId,
-    });
-
+    let results;
+    if (payload.mock) {
+      results = { mock: true, success: true, bookingId: '1234567890' };
+    } else {
+      results = await func({
+        axios,
+        token,
+        payload,
+        typeDefsAndQueries,
+        requestId: req.requestId,
+      });
+    }
+    console.log(`emitting bookingsCreateBooking event for ${appKey}, user ${userId}, hint ${hint}, results: ${JSON.stringify(results)}`);
     app.events.emit('bookingsCreateBooking', {
       userId,
       hint,
