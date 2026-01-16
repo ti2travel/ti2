@@ -138,8 +138,8 @@ const $bookingsProductSearch = plugins => async ({
     forceRefresh = false,
   } = originalRequestBody;
 
-  // Payload for the plugin function (func) - omit controller-specific flags
-  const payloadForPlugin = R.omit(['forceRefresh'], originalRequestBody);
+  // Payload for the plugin function (func) - pass forceRefresh so plugins can trigger background cache rebuilds
+  const payloadForPlugin = { ...R.omit(['forceRefresh'], originalRequestBody), forceRefresh };
 
   const app = plugins.find(({ name }) => name === appKey);
   assert(userId, 'userId is required');
