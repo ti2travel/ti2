@@ -585,6 +585,7 @@ class Plugin {
    * @property {string} optionName - Option name
    * @property {string} comment - Option comment
    * @property {number} [lastUpdateTimestamp] - Last update time
+   * @property {number} [duration] - Duration of the service option in 24 hour periods (returned only if greater than 1). For most options this field is not relevant. Examples of options where duration is greater than one are multi-day packages, and multi-day sightseeing trips (river cruises for example).
    * @property {string} serviceType - Type of service, one of 'Accommodation', 'Activity', 'Transfer'
    * @property {Array<Extra>} extras - Extras allowed for this product option
    * @property {Array<ItineraryProductUnit>} units - Available units
