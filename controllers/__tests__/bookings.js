@@ -168,4 +168,86 @@ describe('user: bookings controller', () => {
     expect(plugins[0].createBooking.mock.calls[0][0].payload).toEqual(payload);
     expect(plugins[0].createBooking.mock.calls[0][0].token).toEqual(token);
   });
+
+  describe('product search with empty cache', () => {
+    const productSearchCacheKey = hash({
+      userId,
+      hint: 'testingToken',
+      operationId: 'bookingsProductSearch',
+    });
+
+    beforeEach(async () => {
+      // Clear cache before each test
+      await cache.drop({ pluginName: appKey, key: productSearchCacheKey });
+      await cache.drop({ pluginName: appKey, key: `${productSearchCacheKey}:lock` });
+      await cache.drop({ pluginName: appKey, key: `${productSearchCacheKey}:lastUpdated` });
+      await cache.drop({ pluginName: appKey, key: `${productSearchCacheKey}:jobLock` });
+      jest.clearAllMocks();
+    });
+
+    it('should fetch from plugin when cache is empty and no search filter', async () => {
+      // First call: set up empty cache
+      plugins[0].searchProducts.mockImplementationOnce(() => ({ products: [] }));
+      await doApiPost({
+        url: `/products/${appKey}/${userId}/testingToken/search`,
+        token: userToken,
+        payload: {},
+      });
+
+      // Second call: cache is empty, no filter - should call plugin again
+      plugins[0].searchProducts.mockImplementationOnce(() => ({
+        products: [{ productId: '999', productName: 'Fresh Product' }],
+      }));
+      const { products } = await doApiPost({
+        url: `/products/${appKey}/${userId}/testingToken/search`,
+        token: userToken,
+        payload: {},
+      });
+
+      expect(plugins[0].searchProducts).toHaveBeenCalledTimes(2);
+      expect(products).toHaveLength(1);
+      expect(products[0].productName).toBe('Fresh Product');
+    });
+
+    it('should return empty when searching with filter on empty cache', async () => {
+      // Set up empty cache first
+      plugins[0].searchProducts.mockImplementationOnce(() => ({ products: [] }));
+      await doApiPost({
+        url: `/products/${appKey}/${userId}/testingToken/search`,
+        token: userToken,
+        payload: {},
+      });
+
+      // Search with filter on empty cache - should return empty (filter finds nothing)
+      const { products } = await doApiPost({
+        url: `/products/${appKey}/${userId}/testingToken/search`,
+        token: userToken,
+        payload: { searchInput: 'nonexistent' },
+      });
+
+      expect(products).toHaveLength(0);
+    });
+
+    it('should return cached products when cache has data', async () => {
+      // Set up cache with products
+      plugins[0].searchProducts.mockImplementationOnce(() => ({
+        products: [{ productId: '123', productName: 'Cached Product' }],
+      }));
+      await doApiPost({
+        url: `/products/${appKey}/${userId}/testingToken/search`,
+        token: userToken,
+        payload: {},
+      });
+
+      // Second call - should return cached data
+      const { products } = await doApiPost({
+        url: `/products/${appKey}/${userId}/testingToken/search`,
+        token: userToken,
+        payload: {},
+      });
+
+      expect(products).toHaveLength(1);
+      expect(products[0].productName).toBe('Cached Product');
+    });
+  });
 });
