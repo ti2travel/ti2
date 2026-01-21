@@ -212,48 +212,47 @@ const $bookingsProductSearch = plugins => async ({
 
   // 3. Cache exists (initialActualCacheContent) and not forceRefresh:
   if (initialActualCacheContent && initialActualCacheContent.products) {
-    // Effective staleness check for deciding if a background refresh is needed.
-    const isEffectivelyStale = isStaleByTTR && !doNotCallPluginForProducts;
+    const cacheIsEmpty = !initialActualCacheContent.products.length;
+    const trimmedSearch = (searchInput || '').trim();
+    const searchFilterIsEmpty = (!trimmedSearch || trimmedSearch === '*') && !(optionId && optionId.length);
 
-    if (!isEffectivelyStale || hasPluginExecutionLock) {
-      // Cache is fresh OR (is stale BUT a plugin execution is already in progress for refresh): Serve from cache.
-      const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
-      return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
-    } else {
-      // Cache is effectively stale AND no plugin execution is currently in progress.
-      // Try to queue a background job.
-      const hasJobQueueLock = await app.cache.get({ key: jobQueueLockKey });
-
-      if (hasJobQueueLock) {
-        // A background job has recently been queued by another request. Serve stale data.
+    // If cache is empty and no search filter, skip to case 4 to fetch fresh data
+    const shouldSkipEmptyCache = cacheIsEmpty && searchFilterIsEmpty;
+    if (!shouldSkipEmptyCache) {
+      const returnCachedResults = () => {
         const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
         return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
-      } else {
-        // No job queue lock. Set one, then queue the job, then serve stale data.
-        await app.cache.save({ key: jobQueueLockKey, value: true, ttl: 60 }); // Lock for 60 seconds
+      };
 
-        const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
-        
-        const pluginMethodPayload = {
-          payload: payloadForPlugin,
-          userId,
-        };
-        const jobData = {
-          type: 'plugin',
-          pluginName: appKey,
-          method: app.searchProducts ? 'searchProducts' : 'searchProductsForItinerary',
-          token,
-          payload: pluginMethodPayload,
-          postProcess: {
-            controller: 'bookings',
-            action: '$updateProductSearchCache',
-            args: { appKey, userId, hint },
-          },
-        };
-        await addJob(jobData, { removeOnComplete: true });
-        
-        return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
+      const isEffectivelyStale = isStaleByTTR && !doNotCallPluginForProducts;
+
+      // Cache is fresh or plugin execution in progress: serve from cache
+      if (!isEffectivelyStale || hasPluginExecutionLock) {
+        return returnCachedResults();
       }
+
+      // Cache is stale - check if background job already queued
+      const hasJobQueueLock = await app.cache.get({ key: jobQueueLockKey });
+      if (hasJobQueueLock) {
+        return returnCachedResults();
+      }
+
+      // Queue background refresh job and serve stale data
+      await app.cache.save({ key: jobQueueLockKey, value: true, ttl: 60 });
+      await addJob({
+        type: 'plugin',
+        pluginName: appKey,
+        method: app.searchProducts ? 'searchProducts' : 'searchProductsForItinerary',
+        token,
+        payload: { payload: payloadForPlugin, userId },
+        postProcess: {
+          controller: 'bookings',
+          action: '$updateProductSearchCache',
+          args: { appKey, userId, hint },
+        },
+      }, { removeOnComplete: true });
+
+      return returnCachedResults();
     }
   }
 

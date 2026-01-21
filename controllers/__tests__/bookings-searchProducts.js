@@ -285,7 +285,7 @@ describe('user: bookings controller - searchProducts', () => {
           expect(jobData.method).toBe(expectedPluginMethod);
           expect(jobData.token).toBeDefined(); // Token passed to the job
           expect(jobData.payload.userId).toBe(testUserId);
-          expect(jobData.payload.payload).toEqual({}); // Original payload for the plugin method was empty
+          expect(jobData.payload.payload).toEqual({ forceRefresh: false }); // Original payload for the plugin method
           expect(jobData.postProcess.controller).toBe('bookings');
           expect(jobData.postProcess.action).toBe('$updateProductSearchCache');
           expect(jobData.postProcess.args.appKey).toBe(testAppName);
@@ -512,7 +512,7 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
           method: expectedPluginMethodName,
           token: expect.objectContaining({ ttlForProducts: shortTTRTokenConfig.ttlForProducts }),
           payload: expect.objectContaining({
-            payload: {}, // originalRequestBody was empty for the product search
+            payload: { forceRefresh: false }, // originalRequestBody was empty for the product search
             userId: testUserId,
           }),
           postProcess: expect.objectContaining({
