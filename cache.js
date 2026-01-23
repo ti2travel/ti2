@@ -93,6 +93,26 @@ const drop = async ({
 
 const keys = async () => cache.keys('*');
 
+const scan = ({
+  pluginName,
+  pattern,
+  count = 1000,
+}) => new Promise((resolve, reject) => {
+  const fullPattern = `${pluginName}:${pattern}`;
+  const foundKeys = [];
+  const prefixLength = pluginName.length + 1; // +1 for the colon
+
+  const stream = cache.scanStream({ match: fullPattern, count });
+  stream.on('data', keys => {
+    keys.forEach(key => {
+      // Return keys without the plugin prefix
+      foundKeys.push(key.slice(prefixLength));
+    });
+  });
+  stream.on('end', () => resolve(foundKeys));
+  stream.on('error', reject);
+});
+
 module.exports = {
   cache,
   save,
@@ -100,4 +120,5 @@ module.exports = {
   drop,
   get,
   keys,
+  scan,
 };

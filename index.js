@@ -89,6 +89,7 @@ module.exports = async ({
         get: args => cache.get({ ...args, pluginName }),
         getOrExec: args => cache.getOrExec({ ...args, pluginName }),
         save: args => cache.save({ ...args, pluginName }),
+        scan: args => cache.scan({ ...args, pluginName }),
       },
       axios: pluginAxios,
       events: ti2Events,
