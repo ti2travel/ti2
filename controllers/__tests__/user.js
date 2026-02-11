@@ -184,7 +184,7 @@ describe('user', () => {
         token: userKey,
         expectStatusCode: 404,
       });
-      expect(returnValue.message).toContain('User integratio is not found');
+      expect(returnValue.message).toContain('User integration is not found');
     } finally {
       consoleErrorSpy.mockRestore();
     }
@@ -241,6 +241,15 @@ describe('user', () => {
   it('should return 422 when stored app token is corrupted', async () => {
     const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const [originalRows] = await sqldb.query(
+      'SELECT id, appKey FROM UserAppKeys WHERE integrationId = :integrationId AND userId = :userId',
+      {
+        replacements: {
+          integrationId: appName,
+          userId,
+        },
+      },
+    );
     await sqldb.query(
       'UPDATE UserAppKeys SET appKey = :appKey WHERE integrationId = :integrationId AND userId = :userId',
       {
@@ -259,6 +268,15 @@ describe('user', () => {
       });
       expect(returnValue.message).toBe('Stored integration token is invalid. Please re-save credentials.');
     } finally {
+      await Promise.all(originalRows.map(currentRow => sqldb.query(
+        'UPDATE UserAppKeys SET appKey = :appKey WHERE id = :id',
+        {
+          replacements: {
+            id: currentRow.id,
+            appKey: currentRow.appKey,
+          },
+        },
+      )));
       consoleWarnSpy.mockRestore();
       consoleErrorSpy.mockRestore();
     }
@@ -266,6 +284,27 @@ describe('user', () => {
   it('should return 422 when stored app token is corrupted for hinted endpoint', async () => {
     const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const [originalRows] = await sqldb.query(
+      'SELECT id, appKey FROM UserAppKeys WHERE integrationId = :integrationId AND userId = :userId AND hint = :hint',
+      {
+        replacements: {
+          integrationId: appName,
+          userId,
+          hint: apiKey2.split('-')[1],
+        },
+      },
+    );
+    await sqldb.query(
+      'UPDATE UserAppKeys SET appKey = :appKey WHERE integrationId = :integrationId AND userId = :userId AND hint = :hint',
+      {
+        replacements: {
+          appKey: 'corrupted-token-without-delimiter',
+          integrationId: appName,
+          userId,
+          hint: apiKey2.split('-')[1],
+        },
+      },
+    );
     try {
       const returnValue = await doApiGet({
         url: `/${appName}/${userId}/${apiKey2.split('-')[1]}/token`,
@@ -274,6 +313,15 @@ describe('user', () => {
       });
       expect(returnValue.message).toBe('Stored integration token is invalid. Please re-save credentials.');
     } finally {
+      await Promise.all(originalRows.map(currentRow => sqldb.query(
+        'UPDATE UserAppKeys SET appKey = :appKey WHERE id = :id',
+        {
+          replacements: {
+            id: currentRow.id,
+            appKey: currentRow.appKey,
+          },
+        },
+      )));
       consoleWarnSpy.mockRestore();
       consoleErrorSpy.mockRestore();
     }

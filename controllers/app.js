@@ -480,43 +480,6 @@ const getAppSettings = async (req, res, next) => {
   return res.json({ settings: userIntegrationSettings.settings });
 };
 
-const isCorruptedStoredTokenError = err => {
-  if (!err) return false;
-
-  const message = typeof err.message === 'string'
-    ? err.message.toLowerCase()
-    : '';
-  const stack = typeof err.stack === 'string'
-    ? err.stack.toLowerCase()
-    : '';
-  const tokenPathInStack = stack.includes('lib/security.js')
-    || stack.includes('models/userappkey.js');
-  const knownCryptoErrors = [
-    'invalid initialization vector',
-    'bad decrypt',
-    'wrong final block length',
-  ];
-
-  if (err.code === 'ERR_INVALID_ARG_TYPE') return true;
-  if (knownCryptoErrors.some(knownError => message.includes(knownError))) return true;
-  if (tokenPathInStack && err.name === 'SyntaxError') return true;
-  if (tokenPathInStack && message.includes('unexpected')) return true;
-
-  return false;
-};
-
-const logInvalidStoredToken = ({ req, integrationId, userId, hint, err }) => {
-  console.warn('Invalid stored integration token', {
-    requestId: req.requestId,
-    integrationId,
-    userId,
-    hint,
-    errorCode: err.code,
-    errorName: err.name,
-    message: err.message,
-  });
-};
-
 const getAppToken = async (req, res, next) => {
   const {
     params: {
@@ -537,23 +500,10 @@ const getAppToken = async (req, res, next) => {
       },
     });
     if (!userAppKey) {
-      return next({ status: 404, message: `User integratio is not found for ${integrationId}:${userId}:${hint}` });
+      return next({ status: 404, message: `User integration is not found for ${integrationId}:${userId}:${hint}` });
     }
     return res.json({ token: await userAppKey.token });
   } catch (err) {
-    if (isCorruptedStoredTokenError(err)) {
-      logInvalidStoredToken({
-        req,
-        integrationId,
-        userId,
-        hint,
-        err,
-      });
-      return next({
-        status: 422,
-        message: 'Stored integration token is invalid. Please re-save credentials.',
-      });
-    }
     return next(err);
   }
 };
