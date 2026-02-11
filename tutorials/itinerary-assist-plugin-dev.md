@@ -267,8 +267,9 @@ No, we don't have a specific test scenarios, but we recommend you to cover the f
   quoteName: String,
   rateId: String,           // Optional
   quoteId: String,          // Optional
-  optionId: String,
-  startDate: String,        // YYYY-MM-DD
+  shellOnly: Boolean,       // Optional. If true, create/update quote header only and skip service insertion
+  optionId: String,         // Required unless shellOnly is true
+  startDate: String,        // YYYY-MM-DD, required unless shellOnly is true
   reference: String,        // Optional
   paxConfigs: [{
     roomType: String,       // Optional
@@ -280,7 +281,7 @@ No, we don't have a specific test scenarios, but we recommend you to cover the f
       dob: String,            // Optional, YYYY-MM-DD
       personId: String        // Optional
     }]
-  }],
+  }],                       // Required unless shellOnly is true
   extras: [{                // Optional
     selectedExtra: {
       id: String

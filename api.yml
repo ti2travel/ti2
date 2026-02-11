@@ -451,6 +451,9 @@ components:
         id:
           type: string
           description: a quote Id to make a reservation for
+        shellOnly:
+          type: boolean
+          description: Optional itinerary-assist flag to create/update booking header only without adding a service line
     settingsBody:
       type: object
       required: true
