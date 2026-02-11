@@ -48,6 +48,7 @@ const rebuild = fn => obj =>
   Object.fromEntries(Object.entries(obj).flatMap(([k, v]) => fn(k, v)));
 
 const isNumber = value => !Number.isNaN(Number(value));
+const isCorruptedTokenError = err => R.pathOr(false, ['code'], err) === 'CORRUPTED_TOKEN';
 
 const axiosSafeRequest = R.pick(['headers', 'method', 'url', 'data']);
 const axiosSafeResponse = response => {
@@ -163,6 +164,7 @@ module.exports = async ({
     if (apiDocs) {
       app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(allSchema));
     }
+    app.options('*', middleware.CORS(), (_req, res) => res.sendStatus(204));
     app.use(
       middleware.metadata(),
       middleware.CORS(),
@@ -373,6 +375,17 @@ module.exports = async ({
     app.use(middleware.mock());
     // global error Handling
     app.use((err, req, res, next) => {
+      if (isCorruptedTokenError(err) && !process.env.JEST_WORKER_ID) {
+        console.warn('Invalid stored integration token', {
+          requestId: req.requestId,
+          integrationId: R.path(['context', 'integrationId'], err),
+          userId: R.path(['context', 'userId'], err),
+          hint: R.path(['context', 'hint'], err),
+          errorCode: R.path(['cause', 'code'], err),
+          errorName: R.path(['cause', 'name'], err),
+          message: R.path(['cause', 'message'], err),
+        });
+      }
       if (process.env.CONSOLE_ERRORS || process.env.JEST_WORKER_ID) {
         console.error(R.pathOr(err, ['response', 'data'], err));
       }

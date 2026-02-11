@@ -1,10 +1,9 @@
-const jwt = require('jsonwebtoken');
 const Sequelize = require('sequelize');
 const R = require('ramda');
 const { encrypt, decrypt } = require('../lib/security');
+const buildCorruptedTokenError = require('../lib/corrupted-token-error');
 const db = require('./db');
 
-const { env: { dbCryptoKey } } = process;
 const removeEmptyAttributes = obj => R.reject(R.anyPass([R.isEmpty, R.isNil]))(obj);
 
 const UserAppKey = db.define('UserAppKey', {
@@ -50,13 +49,27 @@ const UserAppKey = db.define('UserAppKey', {
   token: {
     type: Sequelize.VIRTUAL,
     async get() {
-      if (!this.getDataValue('appKey')) return {};
-      if (!decrypt(this.getDataValue('appKey'))) return {};
+      const encryptedAppKey = this.getDataValue('appKey');
+      if (!encryptedAppKey) return {};
+
+      let appKey;
+      try {
+        const decryptedAppKey = decrypt(encryptedAppKey);
+        if (!decryptedAppKey) return {};
+        appKey = JSON.parse(decryptedAppKey);
+      } catch (err) {
+        throw buildCorruptedTokenError({
+          integrationId: this.getDataValue('integrationId'),
+          userId: this.getDataValue('userId'),
+          hint: this.getDataValue('hint'),
+          cause: err,
+        });
+      }
+
       const sqldb = require('./index');
       const userIntegrationSettings = await sqldb.UserIntegrationSettings.findOne({
         where: { userId: this.getDataValue('userId'), integrationId: this.getDataValue('integrationId') },
       });
-      const appKey = JSON.parse(decrypt(this.getDataValue('appKey')));
       return {
         ...R.pathOr({}, ['settings'], userIntegrationSettings),
         ...removeEmptyAttributes(appKey),

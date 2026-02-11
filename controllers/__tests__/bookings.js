@@ -32,6 +32,7 @@ describe('user: bookings controller', () => {
   let userToken;
   let appSetup;
   let createUserToken;
+  let sqldb;
   
   beforeAll(async () => {
     ({
@@ -41,6 +42,7 @@ describe('user: bookings controller', () => {
       plugins,
       appSetup,
       createUserToken,
+      sqldb,
     } = await testUtils({
       plugins: [newApp.name],
     }));
@@ -167,6 +169,56 @@ describe('user: bookings controller', () => {
     expect(plugins[0].createBooking).toHaveBeenCalled();
     expect(plugins[0].createBooking.mock.calls[0][0].payload).toEqual(payload);
     expect(plugins[0].createBooking.mock.calls[0][0].token).toEqual(token);
+  });
+  it('should return 422 when stored app token is corrupted on bookings endpoint', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const [originalRows] = await sqldb.query(
+      'SELECT id, appKey FROM UserAppKeys WHERE integrationId = :integrationId AND userId = :userId AND hint = :hint',
+      {
+        replacements: {
+          integrationId: appKey,
+          userId,
+          hint: 'testingToken',
+        },
+      },
+    );
+    await sqldb.query(
+      'UPDATE UserAppKeys SET appKey = :appKey WHERE integrationId = :integrationId AND userId = :userId AND hint = :hint',
+      {
+        replacements: {
+          appKey: 'corrupted-token-without-delimiter',
+          integrationId: appKey,
+          userId,
+          hint: 'testingToken',
+        },
+      },
+    );
+    try {
+      const returnValue = await doApiPost({
+        url: `/bookings/${appKey}/${userId}/testingToken/search`,
+        token: userToken,
+        payload: {
+          bookingId: '',
+          supplierBookingId: '',
+          name: '',
+        },
+        expectStatusCode: 422,
+      });
+      expect(returnValue.message).toBe(
+        'Stored integration token is invalid. Please re-save credentials.',
+      );
+    } finally {
+      await Promise.all(originalRows.map(currentRow => sqldb.query(
+        'UPDATE UserAppKeys SET appKey = :appKey WHERE id = :id',
+        {
+          replacements: {
+            id: currentRow.id,
+            appKey: currentRow.appKey,
+          },
+        },
+      )));
+      consoleErrorSpy.mockRestore();
+    }
   });
 
   describe('product search with empty cache', () => {

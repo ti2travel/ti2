@@ -2,6 +2,7 @@
 
 const R = require('ramda');
 const chance = require('chance').Chance();
+const request = require('supertest');
 const slugify = require('../../test/slugify');
 
 const { env: { adminKey } } = process;
@@ -18,6 +19,8 @@ describe('user', () => {
   };
   let doApiGet; let doApiPost; let
     doApiDelete;
+  let app;
+  let sqldb;
   let appKey;
   const userId = chance.guid();
   let apiKey = chance.guid();
@@ -29,6 +32,8 @@ describe('user', () => {
   let plugins;
   beforeAll(async () => {
     ({
+      app,
+      sqldb,
       doApiDelete,
       doApiGet,
       doApiPost,
@@ -162,6 +167,28 @@ describe('user', () => {
     });
     expect(returnValue.token).toEqual(token2);
   });
+  it('should return a preflight response for token endpoint', async () => {
+    const response = await request(app)
+      .options(`/${appName}/${userId}/token`)
+      .set('Origin', 'https://tcoutlook.tourconnect.dev')
+      .set('Access-Control-Request-Method', 'GET');
+    expect([200, 204]).toContain(response.statusCode);
+    expect(response.headers['access-control-allow-origin']).toBeTruthy();
+  });
+  it('should keep returning 404 for a missing token hint', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const missingHint = chance.guid();
+    try {
+      const returnValue = await doApiGet({
+        url: `/${appName}/${userId}/${missingHint}/token`,
+        token: userKey,
+        expectStatusCode: 404,
+      });
+      expect(returnValue.message).toContain('User integration is not found');
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
   it('should be able to create an app setting', async () => {
     const returnValue = await doApiPost({
       url: `/settings/${appName}/${userId}`,
@@ -210,5 +237,93 @@ describe('user', () => {
         'validateToken', 'getProduct',
       ]),
     );
+  });
+  it('should return 422 when stored app token is corrupted', async () => {
+    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const [originalRows] = await sqldb.query(
+      'SELECT id, appKey FROM UserAppKeys WHERE integrationId = :integrationId AND userId = :userId',
+      {
+        replacements: {
+          integrationId: appName,
+          userId,
+        },
+      },
+    );
+    await sqldb.query(
+      'UPDATE UserAppKeys SET appKey = :appKey WHERE integrationId = :integrationId AND userId = :userId',
+      {
+        replacements: {
+          appKey: 'corrupted-token-without-delimiter',
+          integrationId: appName,
+          userId,
+        },
+      },
+    );
+    try {
+      const returnValue = await doApiGet({
+        url: `/${appName}/${userId}/token`,
+        token: userKey,
+        expectStatusCode: 422,
+      });
+      expect(returnValue.message).toBe('Stored integration token is invalid. Please re-save credentials.');
+    } finally {
+      await Promise.all(originalRows.map(currentRow => sqldb.query(
+        'UPDATE UserAppKeys SET appKey = :appKey WHERE id = :id',
+        {
+          replacements: {
+            id: currentRow.id,
+            appKey: currentRow.appKey,
+          },
+        },
+      )));
+      consoleWarnSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    }
+  });
+  it('should return 422 when stored app token is corrupted for hinted endpoint', async () => {
+    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const [originalRows] = await sqldb.query(
+      'SELECT id, appKey FROM UserAppKeys WHERE integrationId = :integrationId AND userId = :userId AND hint = :hint',
+      {
+        replacements: {
+          integrationId: appName,
+          userId,
+          hint: apiKey2.split('-')[1],
+        },
+      },
+    );
+    await sqldb.query(
+      'UPDATE UserAppKeys SET appKey = :appKey WHERE integrationId = :integrationId AND userId = :userId AND hint = :hint',
+      {
+        replacements: {
+          appKey: 'corrupted-token-without-delimiter',
+          integrationId: appName,
+          userId,
+          hint: apiKey2.split('-')[1],
+        },
+      },
+    );
+    try {
+      const returnValue = await doApiGet({
+        url: `/${appName}/${userId}/${apiKey2.split('-')[1]}/token`,
+        token: userKey,
+        expectStatusCode: 422,
+      });
+      expect(returnValue.message).toBe('Stored integration token is invalid. Please re-save credentials.');
+    } finally {
+      await Promise.all(originalRows.map(currentRow => sqldb.query(
+        'UPDATE UserAppKeys SET appKey = :appKey WHERE id = :id',
+        {
+          replacements: {
+            id: currentRow.id,
+            appKey: currentRow.appKey,
+          },
+        },
+      )));
+      consoleWarnSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    }
   });
 });

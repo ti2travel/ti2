@@ -488,20 +488,24 @@ const getAppToken = async (req, res, next) => {
       hint,
     },
   } = req;
-  // check if the user exists
-  const userRecord = await sqldb.User.findOne({ where: { userId } });
-  if (!userRecord) return next({ status: 404, message: 'User does not exists' });
-  const userAppKey = await sqldb.UserAppKey.findOne({
-    where: {
-      userId,
-      integrationId,
-      ...(hint ? { hint } : {}),
-    },
-  });
-  if (!userAppKey) {
-    return next({ status: 404, message: `User integratio is not found for ${integrationId}:${userId}:${hint}` });
+  try {
+    // check if the user exists
+    const userRecord = await sqldb.User.findOne({ where: { userId } });
+    if (!userRecord) return next({ status: 404, message: 'User does not exists' });
+    const userAppKey = await sqldb.UserAppKey.findOne({
+      where: {
+        userId,
+        integrationId,
+        ...(hint ? { hint } : {}),
+      },
+    });
+    if (!userAppKey) {
+      return next({ status: 404, message: `User integration is not found for ${integrationId}:${userId}:${hint}` });
+    }
+    return res.json({ token: await userAppKey.token });
+  } catch (err) {
+    return next(err);
   }
-  return res.json({ token: await userAppKey.token });
 };
 
 const createCronjob = async (req, res, next) => {
