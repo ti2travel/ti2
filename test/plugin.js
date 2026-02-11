@@ -718,12 +718,13 @@ class Plugin {
    * @param {string} args.payload.QB - 'Q' for quote, 'B' for booking
    * @param {string} args.payload.quoteName - Name of the booking/quote
    * @param {string} [args.payload.quoteId] - identifier of the booking/quote, if one is provided, we are expecting the service line to be inserted to an existing booking/quote
+   * @param {boolean} [args.payload.shellOnly] - Optional flag to create/update booking header only and skip service-line insertion
    * @param {string} [args.payload.lineId] - identifier of the service line in the booking/quote, if one is provided, we are expecting an existing service line to be updated
    * @param {string} [args.payload.rateId] - Rate identifier, we are sending 'Default' if no rates are provided by the check availability call
-   * @param {string} args.payload.optionId - Option identifier of the service line
-   * @param {string} args.payload.startDate - Start date always in (YYYY-MM-DD) format
+   * @param {string} args.payload.optionId - Option identifier of the service line (required unless shellOnly is true)
+   * @param {string} args.payload.startDate - Start date always in (YYYY-MM-DD) format (required unless shellOnly is true)
    * @param {string} [args.payload.reference] - Reference number from external system
-   * @param {Array<PaxConfig>} args.payload.paxConfigs - Passenger configurations
+   * @param {Array<PaxConfig>} args.payload.paxConfigs - Passenger configurations (required unless shellOnly is true)
    * @param {Array<Object>} [args.payload.extras] - Additional extras
    * @param {Extra} args.payload.extras.selectedExtra - Selected extra
    * @param {number} args.payload.extras.quantity - quantity
