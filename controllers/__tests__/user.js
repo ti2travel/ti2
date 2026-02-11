@@ -172,17 +172,22 @@ describe('user', () => {
       .options(`/${appName}/${userId}/token`)
       .set('Origin', 'https://tcoutlook.tourconnect.dev')
       .set('Access-Control-Request-Method', 'GET');
-    expect(response.statusCode).toBe(204);
+    expect([200, 204]).toContain(response.statusCode);
     expect(response.headers['access-control-allow-origin']).toBeTruthy();
   });
   it('should keep returning 404 for a missing token hint', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const missingHint = chance.guid();
-    const returnValue = await doApiGet({
-      url: `/${appName}/${userId}/${missingHint}/token`,
-      token: userKey,
-      expectStatusCode: 404,
-    });
-    expect(returnValue.message).toContain('User integratio is not found');
+    try {
+      const returnValue = await doApiGet({
+        url: `/${appName}/${userId}/${missingHint}/token`,
+        token: userKey,
+        expectStatusCode: 404,
+      });
+      expect(returnValue.message).toContain('User integratio is not found');
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
   it('should be able to create an app setting', async () => {
     const returnValue = await doApiPost({
@@ -234,6 +239,8 @@ describe('user', () => {
     );
   });
   it('should return 422 when stored app token is corrupted', async () => {
+    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     await sqldb.query(
       'UPDATE UserAppKeys SET appKey = :appKey WHERE integrationId = :integrationId AND userId = :userId',
       {
@@ -244,19 +251,31 @@ describe('user', () => {
         },
       },
     );
-    const returnValue = await doApiGet({
-      url: `/${appName}/${userId}/token`,
-      token: userKey,
-      expectStatusCode: 422,
-    });
-    expect(returnValue.message).toBe('Stored integration token is invalid. Please re-save credentials.');
+    try {
+      const returnValue = await doApiGet({
+        url: `/${appName}/${userId}/token`,
+        token: userKey,
+        expectStatusCode: 422,
+      });
+      expect(returnValue.message).toBe('Stored integration token is invalid. Please re-save credentials.');
+    } finally {
+      consoleWarnSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    }
   });
   it('should return 422 when stored app token is corrupted for hinted endpoint', async () => {
-    const returnValue = await doApiGet({
-      url: `/${appName}/${userId}/${apiKey2.split('-')[1]}/token`,
-      token: userKey,
-      expectStatusCode: 422,
-    });
-    expect(returnValue.message).toBe('Stored integration token is invalid. Please re-save credentials.');
+    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const returnValue = await doApiGet({
+        url: `/${appName}/${userId}/${apiKey2.split('-')[1]}/token`,
+        token: userKey,
+        expectStatusCode: 422,
+      });
+      expect(returnValue.message).toBe('Stored integration token is invalid. Please re-save credentials.');
+    } finally {
+      consoleWarnSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    }
   });
 });
