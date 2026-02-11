@@ -163,6 +163,7 @@ module.exports = async ({
     if (apiDocs) {
       app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(allSchema));
     }
+    app.options('*', middleware.CORS(), (_req, res) => res.sendStatus(204));
     app.use(
       middleware.metadata(),
       middleware.CORS(),

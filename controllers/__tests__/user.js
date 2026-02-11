@@ -2,6 +2,7 @@
 
 const R = require('ramda');
 const chance = require('chance').Chance();
+const request = require('supertest');
 const slugify = require('../../test/slugify');
 
 const { env: { adminKey } } = process;
@@ -18,6 +19,8 @@ describe('user', () => {
   };
   let doApiGet; let doApiPost; let
     doApiDelete;
+  let app;
+  let sqldb;
   let appKey;
   const userId = chance.guid();
   let apiKey = chance.guid();
@@ -29,6 +32,8 @@ describe('user', () => {
   let plugins;
   beforeAll(async () => {
     ({
+      app,
+      sqldb,
       doApiDelete,
       doApiGet,
       doApiPost,
@@ -162,6 +167,23 @@ describe('user', () => {
     });
     expect(returnValue.token).toEqual(token2);
   });
+  it('should return a preflight response for token endpoint', async () => {
+    const response = await request(app)
+      .options(`/${appName}/${userId}/token`)
+      .set('Origin', 'https://tcoutlook.tourconnect.dev')
+      .set('Access-Control-Request-Method', 'GET');
+    expect(response.statusCode).toBe(204);
+    expect(response.headers['access-control-allow-origin']).toBeTruthy();
+  });
+  it('should keep returning 404 for a missing token hint', async () => {
+    const missingHint = chance.guid();
+    const returnValue = await doApiGet({
+      url: `/${appName}/${userId}/${missingHint}/token`,
+      token: userKey,
+      expectStatusCode: 404,
+    });
+    expect(returnValue.message).toContain('User integratio is not found');
+  });
   it('should be able to create an app setting', async () => {
     const returnValue = await doApiPost({
       url: `/settings/${appName}/${userId}`,
@@ -210,5 +232,31 @@ describe('user', () => {
         'validateToken', 'getProduct',
       ]),
     );
+  });
+  it('should return 422 when stored app token is corrupted', async () => {
+    await sqldb.query(
+      'UPDATE UserAppKeys SET appKey = :appKey WHERE integrationId = :integrationId AND userId = :userId',
+      {
+        replacements: {
+          appKey: 'corrupted-token-without-delimiter',
+          integrationId: appName,
+          userId,
+        },
+      },
+    );
+    const returnValue = await doApiGet({
+      url: `/${appName}/${userId}/token`,
+      token: userKey,
+      expectStatusCode: 422,
+    });
+    expect(returnValue.message).toBe('Stored integration token is invalid. Please re-save credentials.');
+  });
+  it('should return 422 when stored app token is corrupted for hinted endpoint', async () => {
+    const returnValue = await doApiGet({
+      url: `/${appName}/${userId}/${apiKey2.split('-')[1]}/token`,
+      token: userKey,
+      expectStatusCode: 422,
+    });
+    expect(returnValue.message).toBe('Stored integration token is invalid. Please re-save credentials.');
   });
 });
