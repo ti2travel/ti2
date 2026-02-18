@@ -47,7 +47,7 @@ describe('app', () => {
     }));
     expect(appKey).toBeTruthy();
   });
-  it('should encode an airbitrary object', async () => {
+  it('should encode an arbitrary object', async () => {
     ({ value: encodedKey } = await doApiPut({
       url: `/app/encode/${appName}`,
       token: appKey,
@@ -96,7 +96,7 @@ describe('app', () => {
           cron: '0 9 * * *',
         });
     });
-    it.todo('if a new version of the plugin has a different set of scheduled tasks, they shoul dbe re-syncjed');
+    it.todo('if a new version of the plugin has a different set of scheduled tasks, they should be re-synced');
     let jobId;
     it('should be able to run a job', async () => {
       let status;
@@ -141,5 +141,50 @@ describe('app', () => {
         }),
       ]),
     );
+  });
+
+  describe('token and settings merge', () => {
+    const hint = apiKey.split('-')[0];
+    const settingsOverrideEndpoint = 'https://settings-override.example.com';
+
+    it('getAppToken returns token with appKey payload (endpoint, apiKey)', async () => {
+      // No settings created yet – token is purely from appKey.
+      const body = await doApiGet({
+        url: `/${appName}/${userId}/${hint}/token`,
+        token: appKey,
+        payload: {},
+      });
+      expect(body.token).toEqual(expect.objectContaining({
+        endpoint: token.endpoint,
+        apiKey: token.apiKey,
+      }));
+    });
+
+    it('createAppSettings updates user settings for the app', async () => {
+      await doApiPost({
+        url: `/settings/${appName}/${userId}`,
+        token: adminKey,
+        payload: {
+          settings: {
+            endpoint: settingsOverrideEndpoint,
+            onlyInSettings: true,
+          },
+        },
+      });
+    });
+
+    it('getAppToken returns merged token with settings overriding appKey for same keys', async () => {
+      const body = await doApiGet({
+        url: `/${appName}/${userId}/${hint}/token`,
+        token: appKey,
+        payload: {},
+      });
+      // Settings override: endpoint from appKey is overridden by UserIntegrationSettings.settings
+      expect(body.token.endpoint).toBe(settingsOverrideEndpoint);
+      // Settings add new keys
+      expect(body.token.onlyInSettings).toBe(true);
+      // appKey-only keys still present
+      expect(body.token.apiKey).toBe(token.apiKey);
+    });
   });
 });
