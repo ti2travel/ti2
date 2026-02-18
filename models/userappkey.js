@@ -1,5 +1,6 @@
 const Sequelize = require('sequelize');
 const R = require('ramda');
+const jwt = require('jsonwebtoken');
 const { encrypt, decrypt } = require('../lib/security');
 const buildCorruptedTokenError = require('../lib/corrupted-token-error');
 const db = require('./db');
@@ -53,28 +54,52 @@ const UserAppKey = db.define('UserAppKey', {
       if (!encryptedAppKey) return {};
 
       let appKey;
-      try {
-        const decryptedAppKey = decrypt(encryptedAppKey);
-        if (!decryptedAppKey) return {};
-        appKey = JSON.parse(decryptedAppKey);
-      } catch (err) {
-        throw buildCorruptedTokenError({
-          integrationId: this.getDataValue('integrationId'),
-          userId: this.getDataValue('userId'),
-          hint: this.getDataValue('hint'),
-          cause: err,
-        });
+      if (encryptedAppKey.includes('%')) {
+        try {
+          const decryptedAppKey = decrypt(encryptedAppKey);
+          if (!decryptedAppKey) return {};
+          appKey = JSON.parse(decryptedAppKey);
+        } catch (err) {
+          throw buildCorruptedTokenError({
+            integrationId: this.getDataValue('integrationId'),
+            userId: this.getDataValue('userId'),
+            hint: this.getDataValue('hint'),
+            cause: err,
+          });
+        }
+      } else {
+        // Legacy unencrypted JWT stored in appKey – decode payload as token object
+        try {
+          const decodedAppKey = jwt.decode(encryptedAppKey);
+          if (!decodedAppKey) {
+            throw buildCorruptedTokenError({
+              integrationId: this.getDataValue('integrationId'),
+              userId: this.getDataValue('userId'),
+              hint: this.getDataValue('hint'),
+              cause: new Error('Invalid or corrupted JWT'),
+            });
+          }
+          appKey = decodedAppKey;
+        } catch (err) {
+          if (err.name === 'CorruptedTokenError') throw err;
+          throw buildCorruptedTokenError({
+            integrationId: this.getDataValue('integrationId'),
+            userId: this.getDataValue('userId'),
+            hint: this.getDataValue('hint'),
+            cause: err,
+          });
+        }
       }
 
       const sqldb = require('./index');
       const userIntegrationSettings = await sqldb.UserIntegrationSettings.findOne({
         where: { userId: this.getDataValue('userId'), integrationId: this.getDataValue('integrationId') },
       });
-      return {
-        ...R.pathOr({}, ['settings'], userIntegrationSettings),
-        ...removeEmptyAttributes(appKey),
-        ...(this.getDataValue('configuration') ? { configuration: this.getDataValue('configuration') } : {}),
-      };
+      return UserAppKey.mergeTokenPayload(
+        appKey,
+        R.pathOr({}, ['settings'], userIntegrationSettings),
+        this.getDataValue('configuration'),
+      );
     },
   },
   configuration: {
@@ -82,6 +107,19 @@ const UserAppKey = db.define('UserAppKey', {
     allowNull: true,
   },
 }, {});
+
+/** Merge order: appKey base, then settings (so updated UserIntegrationSettings are used), then configuration. */
+UserAppKey.mergeTokenPayload = (appKey, settings, configuration) => {
+  const base = appKey ? removeEmptyAttributes(appKey) : {};
+  const settingsObj = settings || {};
+  const configPart = configuration != null ? { configuration } : {};
+  return {
+    ...base,
+    ...settingsObj,
+    ...configPart,
+  };
+};
+
 UserAppKey.associate = models => {
   UserAppKey.belongsTo(models.User, {
     foreignKey: 'userId',
