@@ -257,7 +257,7 @@ module.exports = async ({
             requestId: req.requestId,
             err: errMsg,
             ...(err.request ? { request: axiosSafeRequest(err.request) } : {}),
-            ...(err.response ? { response: axiosSafeRequest(err.response) } : {}),
+            ...(err.response ? { response: axiosSafeResponse(err.response) } : {}),
           });
         }
         return Promise.reject(errMsg);
