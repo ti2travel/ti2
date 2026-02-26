@@ -51,13 +51,19 @@ const tokenTemplate = async (req, res, next) => {
     const thePlugin = req.app.plugins.find(({ name }) => name === pluginName);
     assert(thePlugin);
     let template = thePlugin.tokenTemplate();
-    const safeRegExp = el => ({
-      ...el,
-      regExp: {
-        flags: el.regExp.flags,
-        source: el.regExp.source,
-      },
-    });
+    const safeRegExp = el => {
+      if (!el || !(el.regExp instanceof RegExp)) {
+        return el;
+      }
+
+      return {
+        ...el,
+        regExp: {
+          flags: el.regExp.flags,
+          source: el.regExp.source,
+        },
+      };
+    };
     template = R.map(safeRegExp, template);
     return res.json({
       template: {

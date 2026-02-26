@@ -123,6 +123,11 @@ class Plugin {
         regExp: /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/,
         description: 'Api Key',
       },
+      testMode: {
+        type: 'boolean',
+        default: false,
+        description: 'Use test mode',
+      },
     }));
     this.errorPathsAxiosErrors = jestPlugin.fn(() => ([
       ['response', 'data', 'what'],
