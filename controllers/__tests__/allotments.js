@@ -72,6 +72,8 @@ describe('allotment', () => {
     const call = plugins[0].queryAllotment.mock.calls[0][0];
     expect(call.payload).toEqual(payload);
     expect(call.token).toEqual(token);
+    expect(call.userId).toEqual(userId);
+    expect(call.hint).toBeUndefined();
   });
   it('should be able to get some allotments with a hint', async () => {
     const { allotments } = await doApiGet({
@@ -81,9 +83,11 @@ describe('allotment', () => {
     });
     expect(plugins[0].queryAllotment).toHaveBeenCalled();
     expect(Array.isArray(allotments)).toBeTruthy();
-    const call = plugins[0].queryAllotment.mock.calls[0][0];
+    const call = plugins[0].queryAllotment.mock.calls[plugins[0].queryAllotment.mock.calls.length - 1][0];
     expect(call.payload).toEqual(payload);
     expect(call.token).toEqual(token);
+    expect(call.userId).toEqual(userId);
+    expect(call.hint).toEqual(newIntegration.tokenHint);
   });
   it('should be able to receive an axios error', async () => {
     // Temporarily silence console.error for this test since we're expecting an error

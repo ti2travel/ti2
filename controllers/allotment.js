@@ -29,6 +29,8 @@ const queryAllotment = plugins => async (req, res, next) => {
       axios,
       token,
       payload: query,
+      userId,
+      hint,
       requestId: req.requestId,
     });
     return res.json(results);
