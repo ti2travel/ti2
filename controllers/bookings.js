@@ -30,6 +30,7 @@ const typeDefsAndQueries = {
 
 const getAppAndToken = async ({ plugins, appKey, userId, hint }) => {
   const app = plugins.find(({ name }) => name === appKey);
+  assert(app, 'could not find the app ' + appKey);
   const userAppKeys = await UserAppKey.findOne({
     where: {
       userId,
@@ -211,15 +212,6 @@ const $bookingsProductSearch = plugins => async ({
     await app.cache.save({ key: pluginExecutionLockKey, value: true, ttl: 120 });
     let pluginResults;
     try {
-      await maybeReceiveCredentials({
-        app,
-        axios,
-        token,
-        payload: payloadForPlugin,
-        userId,
-        hint,
-        requestId,
-      });
       pluginResults = await func({
         axios,
         token,
@@ -523,7 +515,7 @@ const createBooking = plugins => async (req, res, next) => {
         requestId: req.requestId,
       });
     }
-    console.log(`emitting bookingsCreateBooking event for ${appKey}, user ${userId}, hint ${hint}, results: ${JSON.stringify(results)}`);
+    console.debug(`emitting bookingsCreateBooking event for ${appKey}, user ${userId}, hint ${hint}, results: ${JSON.stringify(results)}`);
     app.events.emit('bookingsCreateBooking', {
       userId,
       hint,
@@ -579,6 +571,15 @@ const getAffiliateDesks = plugins => async (req, res, next) => {
   try {
     const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
     assert(app.getAffiliateDesks, `getAffiliateDesks is not available for ${appKey}`);
+    await maybeReceiveCredentials({
+      app,
+      axios,
+      token,
+      payload,
+      userId,
+      hint,
+      requestId: req.requestId,
+    });
     const results = await app.getAffiliateDesks({
       axios,
       token,
@@ -602,6 +603,15 @@ const getPickupPoints = plugins => async (req, res, next) => {
   try {
     const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
     assert(app.getPickupPoints, `getPickupPoints is not available for ${appKey}`);
+    await maybeReceiveCredentials({
+      app,
+      axios,
+      token,
+      payload,
+      userId,
+      hint,
+      requestId: req.requestId,
+    });
     const results = await app.getPickupPoints({
       axios,
       token,
@@ -609,6 +619,7 @@ const getPickupPoints = plugins => async (req, res, next) => {
       typeDefsAndQueries,
       userId,
       hint,
+      requestId: req.requestId,
     });
     return res.json(results);
   } catch (err) {

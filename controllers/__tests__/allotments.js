@@ -1,4 +1,4 @@
-/* globals beforeAll describe it expect jest */
+/* globals beforeAll beforeEach describe it expect jest */
 const axios = require('axios');
 const MockAdapter = require('axios-mock-adapter');
 const chance = require('chance').Chance();
@@ -28,6 +28,9 @@ describe('allotment', () => {
   let doApiPost;
   let plugins;
   let userToken;
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
   beforeAll(async () => {
     ({
       doApiGet,
@@ -83,7 +86,7 @@ describe('allotment', () => {
     });
     expect(plugins[0].queryAllotment).toHaveBeenCalled();
     expect(Array.isArray(allotments)).toBeTruthy();
-    const call = plugins[0].queryAllotment.mock.calls[plugins[0].queryAllotment.mock.calls.length - 1][0];
+    const call = plugins[0].queryAllotment.mock.calls[0][0];
     expect(call.payload).toEqual(payload);
     expect(call.token).toEqual(token);
     expect(call.userId).toEqual(userId);

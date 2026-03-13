@@ -350,5 +350,26 @@ describe('user: bookings controller', () => {
       expect(products).toHaveLength(1);
       expect(products[0].productName).toBe('Cached Product');
     });
+
+    it('should receive inline credentials only once before product search', async () => {
+      const payload = {
+        credentials: {
+          sessionValue: 'product-credential',
+        },
+      };
+
+      await doApiPost({
+        url: `/products/${appKey}/${userId}/testingToken/search`,
+        token: userToken,
+        payload,
+      });
+
+      expect(plugins[0].receiveCredentials).toHaveBeenCalledTimes(1);
+      expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
+      expect(plugins[0].searchProducts.mock.calls[0][0].payload).toEqual({
+        ...payload,
+        forceRefresh: false,
+      });
+    });
   });
 });
