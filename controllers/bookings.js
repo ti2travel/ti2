@@ -35,7 +35,7 @@ const getAppAndToken = async ({ plugins, appKey, userId, hint }) => {
     where: {
       userId,
       integrationId: appKey,
-      ...(hint ? { hint } : {}),
+      ...(hint && { hint }),
     },
   });
   assert(userAppKeys, 'could not find the app key');

@@ -19,7 +19,7 @@ const queryAllotment = plugins => async (req, res, next) => {
       where: {
         userId,
         integrationId: appKey,
-        ...(hint ? { hint } : {}),
+        ...(hint && { hint }),
       },
     });
     assert(userAppKeys, 'could not find the app key');
