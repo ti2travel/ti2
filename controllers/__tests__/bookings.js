@@ -170,7 +170,7 @@ describe('user: bookings controller', () => {
     expect(plugins[0].createBooking.mock.calls[0][0].payload).toEqual(payload);
     expect(plugins[0].createBooking.mock.calls[0][0].token).toEqual(token);
   });
-  it('should forward inline credentials to receiveCredentials before create booking', async () => {
+  it('should forward inline credentials directly to create booking', async () => {
     const payload = {
       id: chance.guid(),
       credentials: {
@@ -182,9 +182,8 @@ describe('user: bookings controller', () => {
       token: userToken,
       payload,
     });
-    expect(plugins[0].receiveCredentials).toHaveBeenCalledTimes(1);
-    expect(plugins[0].receiveCredentials.mock.calls[0][0].payload).toEqual(payload);
     expect(plugins[0].createBooking).toHaveBeenCalled();
+    expect(plugins[0].createBooking.mock.calls[0][0].payload).toEqual(payload);
   });
   it('should support POST affiliate agents with inline credentials', async () => {
     const payload = {
@@ -198,7 +197,6 @@ describe('user: bookings controller', () => {
       payload,
     });
     expect(Array.isArray(agents)).toBeTruthy();
-    expect(plugins[0].receiveCredentials).toHaveBeenCalledTimes(1);
     expect(plugins[0].getAffiliateAgents).toHaveBeenCalledTimes(1);
     expect(plugins[0].getAffiliateAgents.mock.calls[0][0].payload).toEqual(payload);
   });
@@ -215,7 +213,6 @@ describe('user: bookings controller', () => {
       payload,
     });
     expect(response.customFields).toEqual([]);
-    expect(plugins[0].receiveCredentials).toHaveBeenCalledTimes(1);
     expect(plugins[0].getCreateItineraryFields).toHaveBeenCalledTimes(1);
     expect(plugins[0].getCreateItineraryFields.mock.calls[0][0].payload).toEqual(payload);
   });
@@ -351,7 +348,7 @@ describe('user: bookings controller', () => {
       expect(products[0].productName).toBe('Cached Product');
     });
 
-    it('should receive inline credentials only once before product search', async () => {
+    it('should forward inline credentials directly to product search', async () => {
       const payload = {
         credentials: {
           sessionValue: 'product-credential',
@@ -364,7 +361,6 @@ describe('user: bookings controller', () => {
         payload,
       });
 
-      expect(plugins[0].receiveCredentials).toHaveBeenCalledTimes(1);
       expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
       expect(plugins[0].searchProducts.mock.calls[0][0].payload).toEqual({
         ...payload,

@@ -75,7 +75,6 @@ class Plugin {
     });
     this.searchQuote = jestPlugin.fn(() => ({ quote: [{ id: chance.guid() }] }));
     this.createBooking = jestPlugin.fn(() => {});
-    this.receiveCredentials = jestPlugin.fn(() => ({}));
     this.getAffiliateAgents = jestPlugin.fn(() => ({ agents: [] }));
     this.searchItineraries = jestPlugin.fn(() => ({ bookings: [] }));
     this.searchProductsForItinerary = jestPlugin.fn(() => ({ products: [] }));
