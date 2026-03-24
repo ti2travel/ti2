@@ -28,6 +28,21 @@ const typeDefsAndQueries = {
   itineraryBookingQuery,
 };
 
+const getAppAndToken = async ({ plugins, appKey, userId, hint }) => {
+  const app = plugins.find(({ name }) => name === appKey);
+  assert(app, 'could not find the app ' + appKey);
+  const userAppKeys = await UserAppKey.findOne({
+    where: {
+      userId,
+      integrationId: appKey,
+      ...(hint && { hint }),
+    },
+  });
+  assert(userAppKeys, 'could not find the app key');
+  const token = await userAppKeys.token;
+  return { app, token };
+};
+
 const bookingsSearch = plugins => async (req, res, next) => {
   const {
     axios,
@@ -35,16 +50,7 @@ const bookingsSearch = plugins => async (req, res, next) => {
     body,
   } = req;
   try {
-    const app = plugins.find(({ name }) => name === appKey);
-    const userAppKeys = await UserAppKey.findOne({
-      where: {
-        userId,
-        integrationId: appKey,
-        ...(hint ? { hint } : {}),
-      },
-    });
-    assert(userAppKeys, 'could not find the app key');
-    const token = await userAppKeys.token;
+    const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
     assert(app.searchItineraries || app.searchHotelBooking || app.searchBooking, `searchItineraries or searchHotelBooking or searchBooking is not available for ${appKey}`);
     const search = (app.searchHotelBooking || app.searchBooking || app.searchItineraries).bind(app);
     const results = await search({
@@ -52,6 +58,8 @@ const bookingsSearch = plugins => async (req, res, next) => {
       token,
       payload: body,
       typeDefsAndQueries,
+      userId,
+      hint,
       requestId: req.requestId,
     });
     return res.json(results);
@@ -67,22 +75,14 @@ const bookingsCancel = plugins => async (req, res, next) => {
     body,
   } = req;
   try {
-    const app = plugins.find(({ name }) => name === appKey);
-    // const app = load(appKey);
-    const userAppKeys = (await UserAppKey.findOne({
-      where: {
-        userId,
-        integrationId: appKey,
-        ...(hint ? { hint } : {}),
-      },
-    }));
-    assert(userAppKeys, 'could not find the app key');
-    const token = await userAppKeys.token;
+    const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
     const results = await app.cancelBooking({
       axios,
       token,
       payload: body,
       typeDefsAndQueries,
+      userId,
+      hint,
       requestId: req.requestId,
     });
     return res.json(results);
@@ -140,16 +140,12 @@ const $bookingsProductSearch = plugins => async ({
 
   // Payload for the plugin function (func) - pass forceRefresh so plugins can trigger background cache rebuilds
   const payloadForPlugin = { ...R.omit(['forceRefresh'], originalRequestBody), forceRefresh };
+  const payloadForBackgroundJob = R.omit(['credentials'], payloadForPlugin);
 
-  const app = plugins.find(({ name }) => name === appKey);
+  const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
   assert(userId, 'userId is required');
   assert(appKey, 'appKey is required');
   assert(app.searchProducts || app.searchProductsForItinerary, `searchProducts or searchProductsForItinerary is not available for ${appKey}`);
-  const userAppKeys = (await UserAppKey.findOne({
-    where: { userId, integrationId: appKey, ...(hint ? { hint } : {}) },
-  }));
-  assert(userAppKeys, 'could not find the app key');
-  const token = await userAppKeys.token;
   const func = (app.searchProducts || app.searchProductsForItinerary).bind(app);
 
   const cacheKey = hash({ userId, hint, operationId: 'bookingsProductSearch' });
@@ -170,7 +166,13 @@ const $bookingsProductSearch = plugins => async ({
     let pluginResults;
     try {
       pluginResults = await func({
-        axios, token, payload: payloadForPlugin, typeDefsAndQueries, requestId, userId,
+        axios,
+        token,
+        payload: payloadForPlugin,
+        typeDefsAndQueries,
+        requestId,
+        userId,
+        hint,
       });
 
       // This function is responsible for caching if it fetched good results.
@@ -244,7 +246,7 @@ const $bookingsProductSearch = plugins => async ({
         pluginName: appKey,
         method: app.searchProducts ? 'searchProducts' : 'searchProductsForItinerary',
         token,
-        payload: { payload: payloadForPlugin, userId },
+        payload: { payload: payloadForBackgroundJob, userId, hint },
         postProcess: {
           controller: 'bookings',
           action: '$updateProductSearchCache',
@@ -294,23 +296,15 @@ const getProductPackages = plugins => async (req, res, next) => {
     body: payload,
   } = req;
   try {
-    const app = plugins.find(({ name }) => name === appKey);
-    // const app = load(appKey);
-    const userAppKeys = (await UserAppKey.findOne({
-      where: {
-        userId,
-        integrationId: appKey,
-        ...(hint ? { hint } : {}),
-      },
-    }));
-    assert(userAppKeys, 'could not find the app key');
+    const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
     assert(app.getProductPackages, `getProductPackages is not available for ${appKey}`);
-    const token = await userAppKeys.token;
     const results = await app.getProductPackages({
       axios,
       token,
       payload,
       typeDefsAndQueries,
+      userId,
+      hint,
       requestId: req.requestId,
     });
     return res.json(results);
@@ -326,23 +320,15 @@ const bookingsAvailabilitySearch = plugins => async (req, res, next) => {
     body: payload,
   } = req;
   try {
-    const app = plugins.find(({ name }) => name === appKey);
-    // const app = load(appKey);
-    const userAppKeys = (await UserAppKey.findOne({
-      where: {
-        userId,
-        integrationId: appKey,
-        ...(hint ? { hint } : {}),
-      },
-    }));
-    assert(userAppKeys, 'could not find the app key');
-    const token = await userAppKeys.token;
+    const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
     const func = (app.searchAvailability || app.searchAvailabilityForItinerary).bind(app);
     const results = await func({
       axios,
       token,
       payload,
       typeDefsAndQueries,
+      userId,
+      hint,
       requestId: req.requestId,
     });
     return res.json(results);
@@ -359,23 +345,15 @@ const $bookingsAvailabilityCalendar = plugins => async ({
   payload,
   requestId,
 }) => {
-  const app = plugins.find(({ name }) => name === appKey);
-  // const app = load(appKey);
-  const userAppKeys = (await UserAppKey.findOne({
-    where: {
-      userId,
-      integrationId: appKey,
-      ...(hint ? { hint } : {}),
-    },
-  }));
-  assert(userAppKeys, 'could not find the app key');
+  const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
   assert(app.availabilityCalendar, `availabilityCalendar is not available for ${appKey}`);
-  const token = await userAppKeys.token;
   return app.availabilityCalendar({
     axios,
     token,
     payload,
     typeDefsAndQueries,
+    userId,
+    hint,
     requestId,
   });
 };
@@ -406,22 +384,14 @@ const searchQuote = plugins => async (req, res, next) => {
     body: payload,
   } = req;
   try {
-    const app = plugins.find(({ name }) => name === appKey);
-    // const app = load(appKey);
-    const userAppKeys = (await UserAppKey.findOne({
-      where: {
-        userId,
-        integrationId: appKey,
-        ...(hint ? { hint } : {}),
-      },
-    }));
-    assert(userAppKeys, 'could not find the app key');
-    const token = await userAppKeys.token;
+    const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
     const results = await app.searchQuote({
       axios,
       token,
       payload,
       typeDefsAndQueries,
+      userId,
+      hint,
       requestId: req.requestId,
     });
     return res.json(results);
@@ -437,17 +407,7 @@ const createBooking = plugins => async (req, res, next) => {
     body: payload,
   } = req;
   try {
-    const app = plugins.find(({ name }) => name === appKey);
-    // const app = load(appKey);
-    const userAppKeys = (await UserAppKey.findOne({
-      where: {
-        userId,
-        integrationId: appKey,
-        ...(hint ? { hint } : {}),
-      },
-    }));
-    assert(userAppKeys, 'could not find the app key');
-    const token = await userAppKeys.token;
+    const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
     const func = (app.createBooking || app.addServiceToItinerary).bind(app);
     let results;
     if (payload.mock) {
@@ -458,10 +418,12 @@ const createBooking = plugins => async (req, res, next) => {
         token,
         payload,
         typeDefsAndQueries,
+        userId,
+        hint,
         requestId: req.requestId,
       });
     }
-    console.log(`emitting bookingsCreateBooking event for ${appKey}, user ${userId}, hint ${hint}, results: ${JSON.stringify(results)}`);
+    console.debug(`emitting bookingsCreateBooking event for ${appKey}, user ${userId}, hint ${hint}, results: ${JSON.stringify(results)}`);
     app.events.emit('bookingsCreateBooking', {
       userId,
       hint,
@@ -483,22 +445,14 @@ const getAffiliateAgents = plugins => async (req, res, next) => {
     body: payload,
   } = req;
   try {
-    const app = plugins.find(({ name }) => name === appKey);
-    // const app = load(appKey);
-    const userAppKeys = (await UserAppKey.findOne({
-      where: {
-        userId,
-        integrationId: appKey,
-        ...(hint ? { hint } : {}),
-      },
-    }));
-    assert(userAppKeys, 'could not find the app key');
-    const token = await userAppKeys.token;
+    const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
     assert(app.getAffiliateAgents, `getAffiliateAgents is not available for ${appKey}`);
     const results = await app.getAffiliateAgents({
       axios,
       token,
       payload,
+      userId,
+      hint,
       requestId: req.requestId,
     });
     return res.json(results);
@@ -514,22 +468,14 @@ const getAffiliateDesks = plugins => async (req, res, next) => {
     body: payload,
   } = req;
   try {
-    const app = plugins.find(({ name }) => name === appKey);
-    // const app = load(appKey);
-    const userAppKeys = (await UserAppKey.findOne({
-      where: {
-        userId,
-        integrationId: appKey,
-        ...(hint ? { hint } : {}),
-      },
-    }));
-    assert(userAppKeys, 'could not find the app key');
-    const token = await userAppKeys.token;
+    const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
     assert(app.getAffiliateDesks, `getAffiliateDesks is not available for ${appKey}`);
     const results = await app.getAffiliateDesks({
       axios,
       token,
       payload,
+      userId,
+      hint,
       requestId: req.requestId,
     });
     return res.json(results);
@@ -545,23 +491,16 @@ const getPickupPoints = plugins => async (req, res, next) => {
     body: payload,
   } = req;
   try {
-    const app = plugins.find(({ name }) => name === appKey);
-    // const app = load(appKey);
-    const userAppKeys = (await UserAppKey.findOne({
-      where: {
-        userId,
-        integrationId: appKey,
-        ...(hint ? { hint } : {}),
-      },
-    }));
-    assert(userAppKeys, 'could not find the app key');
-    const token = await userAppKeys.token;
+    const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
     assert(app.getPickupPoints, `getPickupPoints is not available for ${appKey}`);
     const results = await app.getPickupPoints({
       axios,
       token,
       payload,
       typeDefsAndQueries,
+      userId,
+      hint,
+      requestId: req.requestId,
     });
     return res.json(results);
   } catch (err) {
@@ -577,17 +516,7 @@ const getCreateBookingFields = plugins => async (req, res, next) => {
     body: payload,
   } = req;
   try {
-    const app = plugins.find(({ name }) => name === appKey);
-    // const app = load(appKey);
-    const userAppKeys = (await UserAppKey.findOne({
-      where: {
-        userId,
-        integrationId: appKey,
-        ...(hint ? { hint } : {}),
-      },
-    }));
-    assert(userAppKeys, 'could not find the app key');
-    const token = await userAppKeys.token;
+    const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
     assert(app.getCreateBookingFields || app.getCreateItineraryFields, `getCreateBookingFields or getCreateItineraryFields is not available for ${appKey}`);
     const func = (app.getCreateItineraryFields || app.getCreateBookingFields).bind(app);
     const results = await func({
@@ -596,6 +525,9 @@ const getCreateBookingFields = plugins => async (req, res, next) => {
       payload,
       query,
       typeDefsAndQueries,
+      userId,
+      hint,
+      requestId: req.requestId,
     });
     return res.json(results);
   } catch (err) {

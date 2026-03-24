@@ -170,6 +170,52 @@ describe('user: bookings controller', () => {
     expect(plugins[0].createBooking.mock.calls[0][0].payload).toEqual(payload);
     expect(plugins[0].createBooking.mock.calls[0][0].token).toEqual(token);
   });
+  it('should forward inline credentials directly to create booking', async () => {
+    const payload = {
+      id: chance.guid(),
+      credentials: {
+        sessionValue: 'abc123',
+      },
+    };
+    await doApiPost({
+      url: `/bookings/${appKey}/${userId}/testingToken/booking`,
+      token: userToken,
+      payload,
+    });
+    expect(plugins[0].createBooking).toHaveBeenCalled();
+    expect(plugins[0].createBooking.mock.calls[0][0].payload).toEqual(payload);
+  });
+  it('should support POST affiliate agents with inline credentials', async () => {
+    const payload = {
+      credentials: {
+        sessionValue: 'agent-credential',
+      },
+    };
+    const { agents } = await doApiPost({
+      url: `/affiliate/${appKey}/${userId}/testingToken/agents`,
+      token: userToken,
+      payload,
+    });
+    expect(Array.isArray(agents)).toBeTruthy();
+    expect(plugins[0].getAffiliateAgents).toHaveBeenCalledTimes(1);
+    expect(plugins[0].getAffiliateAgents.mock.calls[0][0].payload).toEqual(payload);
+  });
+  it('should support POST custom-fields with inline credentials', async () => {
+    const payload = {
+      productId: 'prod-1',
+      credentials: {
+        sessionValue: 'fields-credential',
+      },
+    };
+    const response = await doApiPost({
+      url: `/bookings/${appKey}/${userId}/testingToken/custom-fields`,
+      token: userToken,
+      payload,
+    });
+    expect(response.customFields).toEqual([]);
+    expect(plugins[0].getCreateItineraryFields).toHaveBeenCalledTimes(1);
+    expect(plugins[0].getCreateItineraryFields.mock.calls[0][0].payload).toEqual(payload);
+  });
   it('should return 422 when stored app token is corrupted on bookings endpoint', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const [originalRows] = await sqldb.query(
@@ -300,6 +346,26 @@ describe('user: bookings controller', () => {
 
       expect(products).toHaveLength(1);
       expect(products[0].productName).toBe('Cached Product');
+    });
+
+    it('should forward inline credentials directly to product search', async () => {
+      const payload = {
+        credentials: {
+          sessionValue: 'product-credential',
+        },
+      };
+
+      await doApiPost({
+        url: `/products/${appKey}/${userId}/testingToken/search`,
+        token: userToken,
+        payload,
+      });
+
+      expect(plugins[0].searchProducts).toHaveBeenCalledTimes(1);
+      expect(plugins[0].searchProducts.mock.calls[0][0].payload).toEqual({
+        ...payload,
+        forceRefresh: false,
+      });
     });
   });
 });

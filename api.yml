@@ -151,6 +151,10 @@ components:
         payload:
           type: object
           example: random lorem
+    integrationCredentials:
+      description: Optional external-session credentials forwarded by the client
+      type: object
+      additionalProperties: true
     UserApp:
       description: A user + App configuration
       type: object
@@ -385,6 +389,9 @@ components:
           required: false
           description: Product Name wildcard match
           example: '*bus*'
+        credentials:
+          required: false
+          $ref: '#/components/schemas/integrationCredentials'
     bookingsProductSearchReturn:
       type: object
       additionalProperties: true
@@ -454,6 +461,9 @@ components:
         shellOnly:
           type: boolean
           description: Optional itinerary-assist flag to create/update booking header only without adding a service line
+        credentials:
+          required: false
+          $ref: '#/components/schemas/integrationCredentials'
     settingsBody:
       type: object
       required: true
@@ -1410,6 +1420,7 @@ paths:
                       $ref: '#/components/schemas/desk'
   /affiliate/{appKey}/{userId}/agents:
     get:
+      deprecated: true
       security:
         - bearerAuth: ['admin', 'user']
       tags:
@@ -1442,8 +1453,49 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/agent'
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Gets all agents for this affiliate
+      operationId: getAffiliateAgents
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to get the agents for (defaults to first token found)
+          required: true
+          example: 'fareharbor'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Optional request metadata
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnyValue'
+      responses:
+        '200':
+          description: agents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/agent'
   /affiliate/{appKey}/{userId}/{hint}/agents:
     get:
+      deprecated: true
       security:
         - bearerAuth: ['admin', 'user']
       tags:
@@ -1471,6 +1523,53 @@ paths:
           example: 'fareharbor-helloworld'
           schema:
             type: string
+      responses:
+        '200':
+          description: agents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/agent'
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Gets all agents for this affiliate
+      operationId: getAffiliateAgents
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to get the agents for the token using the hint
+          required: true
+          example: 'fareharbor'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'fareharbor-helloworld'
+          schema:
+            type: string
+      requestBody:
+        description: Optional request metadata
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnyValue'
       responses:
         '200':
           description: agents
@@ -2256,6 +2355,7 @@ paths:
                 $ref: '#/components/schemas/AnyValue'
   /bookings/{appKey}/{userId}/custom-fields:
     get:
+      deprecated: true
       security:
         - bearerAuth: ['admin', 'user']
       tags:
@@ -2286,8 +2386,47 @@ paths:
                 properties:
                   fields:
                     type: array
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Gets all custom fields for creating a booking
+      operationId: getCreateBookingFields
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to get the resource for (defaults to first token found)
+          required: true
+          example: 'fareharbor'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Optional field context and credentials
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnyValue'
+      responses:
+        '200':
+          description: fields
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fields:
+                    type: array
   /bookings/{appKey}/{userId}/{hint}/custom-fields:
     get:
+      deprecated: true
       security:
         - bearerAuth: ['admin', 'user']
       tags:
@@ -2315,6 +2454,51 @@ paths:
           example: 'xola-helloworld'
           schema:
             type: string
+      responses:
+        '200':
+          description: fields
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fields:
+                    type: array
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Gets all custom fields for creating a booking
+      operationId: getCreateBookingFields
+      parameters:
+        - name: appKey
+          in: path
+          description: name of the app to get the resource for the token using the hint
+          required: true
+          example: 'xola'
+          schema:
+            type: string
+        - name: userId
+          in: path
+          description: the user/company that the appKey belongs to
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          description: a specific token hint to be used
+          required: true
+          example: 'xola-helloworld'
+          schema:
+            type: string
+      requestBody:
+        description: Optional field context and credentials
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnyValue'
       responses:
         '200':
           description: fields

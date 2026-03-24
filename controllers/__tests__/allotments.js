@@ -1,4 +1,4 @@
-/* globals beforeAll describe it expect jest */
+/* globals beforeAll beforeEach describe it expect jest */
 const axios = require('axios');
 const MockAdapter = require('axios-mock-adapter');
 const chance = require('chance').Chance();
@@ -28,6 +28,9 @@ describe('allotment', () => {
   let doApiPost;
   let plugins;
   let userToken;
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
   beforeAll(async () => {
     ({
       doApiGet,
@@ -72,6 +75,8 @@ describe('allotment', () => {
     const call = plugins[0].queryAllotment.mock.calls[0][0];
     expect(call.payload).toEqual(payload);
     expect(call.token).toEqual(token);
+    expect(call.userId).toEqual(userId);
+    expect(call.hint).toBeUndefined();
   });
   it('should be able to get some allotments with a hint', async () => {
     const { allotments } = await doApiGet({
@@ -84,6 +89,8 @@ describe('allotment', () => {
     const call = plugins[0].queryAllotment.mock.calls[0][0];
     expect(call.payload).toEqual(payload);
     expect(call.token).toEqual(token);
+    expect(call.userId).toEqual(userId);
+    expect(call.hint).toEqual(newIntegration.tokenHint);
   });
   it('should be able to receive an axios error', async () => {
     // Temporarily silence console.error for this test since we're expecting an error
