@@ -1,3 +1,6 @@
+/**
+ * SDL + document for ti2 plugins
+ */
 const typeDefs = `
   type Passenger {
     firstName: String
@@ -16,8 +19,15 @@ const typeDefs = `
     passengers: [Passenger]
   }
 
+  type PuDoInfo {
+    date: String
+    time: String
+    remarks: String
+  }
+
   type ServiceLine {
     serviceLineId: ID!
+    serviceLineUpdateCount: Int
     optionId: String!
     optionName: String
     linePrice: String
@@ -28,14 +38,20 @@ const typeDefs = `
     paxList: [Passenger]
     paxConfigs: [PaxConfig]
     status: String
+    puInfo: PuDoInfo
+    doInfo: PuDoInfo
   }
 
   type Query {
     bookingId: ID!
     name: String!
     bookingStatus: String
+    bookingStatusId: String
+    isBooking: Boolean
+    bookingAgent: String
     ref: String!
     agentRef: String
+    agentId: String
     totalPrice: String!
     currency: String!
     travelDate: String!
@@ -49,8 +65,12 @@ const query = `{
   name
   bookingId
   bookingStatus
+  bookingStatusId
+  isBooking
+  bookingAgent
   ref
   agentRef
+  agentId
   totalPrice
   currency
   travelDate
@@ -58,15 +78,25 @@ const query = `{
   canEdit
   serviceLines {
     serviceLineId
+    serviceLineUpdateCount
     linePrice
     quantity
     optionId
     optionName
     supplierId
     supplierName
-    supplierId
     startDate
     status
+    puInfo {
+      date
+      time
+      remarks
+    }
+    doInfo {
+      date
+      time
+      remarks
+    }
     paxConfigs {
       roomType
       adults
