@@ -219,6 +219,9 @@ describe('user', () => {
     expect(plugins[0].validateToken).toHaveBeenCalled();
     expect(valid).toBe(true);
     expect(plugins[0].validateToken.mock.calls[0][0].token).toEqual({ custom: true, ...token });
+    expect(plugins[0].validateToken.mock.calls[0][0].payload).toEqual({
+      tokenHint: apiKey.split('-')[0],
+    });
   });
   it('should be able to delete an app settings', async () => {
     const returnValue = await doApiDelete({
