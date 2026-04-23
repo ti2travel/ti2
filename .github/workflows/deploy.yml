@@ -2,16 +2,6 @@ name: Release Workflow
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Release version. Leave blank to tag the next patch after the latest v* tag.'
-        required: false
-        type: string
-      publish:
-        description: 'Publish to npm after creating the tag.'
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: write
@@ -32,37 +22,12 @@ jobs:
         with:
           node-version: 20
 
-      - name: Configure git
-        run: |
-          git config user.name "Github Action Job"
-          git config user.email "engineering@tourconnect.com"
-
       - name: Determine release version
         id: version
-        env:
-          INPUT_VERSION: ${{ inputs.version }}
         run: |
           node <<'NODE' >> "$GITHUB_OUTPUT"
-          const { execSync } = require('child_process')
-
-          const inputVersion = (process.env.INPUT_VERSION || '').trim().replace(/^v/, '')
+          const version = require('./package.json').version
           const isSemver = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
-
-          let version = inputVersion
-
-          if (!version) {
-            const latestStableTag = execSync("git tag --list 'v*' --sort=-version:refname", { encoding: 'utf8' })
-              .split('\n')
-              .map((tag) => tag.trim())
-              .find((tag) => /^v\d+\.\d+\.\d+$/.test(tag))
-
-            if (latestStableTag) {
-              const [major, minor, patch] = latestStableTag.slice(1).split('.').map(Number)
-              version = `${major}.${minor}.${patch + 1}`
-            } else {
-              version = require('./package.json').version
-            }
-          }
 
           if (!isSemver.test(version)) {
             throw new Error(`Invalid version: ${version}. Use semver like 1.2.3 or 1.2.3-beta.0`)
@@ -74,7 +39,6 @@ jobs:
 
       - name: Create release tag
         env:
-          VERSION: ${{ steps.version.outputs.version }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           git fetch --tags origin
@@ -84,27 +48,5 @@ jobs:
             exit 1
           fi
 
-          npm version "$VERSION" --no-git-tag-version
-          git add package.json package-lock.json
-          git commit -m "$TAG"
           git tag "$TAG"
           git push origin "refs/tags/$TAG"
-
-  publish:
-    if: ${{ inputs.publish }}
-    needs: tag
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.tag.outputs.tag }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          registry-url: https://registry.npmjs.org
-
-      - name: Publish package
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
