@@ -1,29 +1,110 @@
-name: Deploy Workflow
+name: Release Workflow
 
 on:
-  workflow_run:
-    workflows: Tests Workflow
-    branches: main
-    types: completed
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version. Leave blank to tag the next patch after the latest v* tag.'
+        required: false
+        type: string
+      publish:
+        description: 'Publish to npm after creating the tag.'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
 
 jobs:
   tag:
-    if: github.event.workflow_run.conclusion == 'success' && github.repository == 'ti2travel/ti2'
+    if: github.ref_name == 'main' && github.repository == 'ti2travel/ti2'
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
-      - uses: actions/checkout@master
-      - uses: tool3/bump@master
+      - uses: actions/checkout@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          user: 'Github Action Job'
-          email: 'engineering@tourconnect.com'
-          branch: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Configure git
+        run: |
+          git config user.name "Github Action Job"
+          git config user.email "engineering@tourconnect.com"
+
+      - name: Determine release version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          node <<'NODE' >> "$GITHUB_OUTPUT"
+          const { execSync } = require('child_process')
+
+          const inputVersion = (process.env.INPUT_VERSION || '').trim().replace(/^v/, '')
+          const isSemver = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+
+          let version = inputVersion
+
+          if (!version) {
+            const latestStableTag = execSync("git tag --list 'v*' --sort=-version:refname", { encoding: 'utf8' })
+              .split('\n')
+              .map((tag) => tag.trim())
+              .find((tag) => /^v\d+\.\d+\.\d+$/.test(tag))
+
+            if (latestStableTag) {
+              const [major, minor, patch] = latestStableTag.slice(1).split('.').map(Number)
+              version = `${major}.${minor}.${patch + 1}`
+            } else {
+              version = require('./package.json').version
+            }
+          }
+
+          if (!isSemver.test(version)) {
+            throw new Error(`Invalid version: ${version}. Use semver like 1.2.3 or 1.2.3-beta.0`)
+          }
+
+          console.log(`version=${version}`)
+          console.log(`tag=v${version}`)
+          NODE
+
+      - name: Create release tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git fetch --tags origin
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists"
+            exit 1
+          fi
+
+          npm version "$VERSION" --no-git-tag-version
+          git add package.json package-lock.json
+          git commit -m "$TAG"
+          git tag "$TAG"
+          git push origin "refs/tags/$TAG"
+
   publish:
+    if: ${{ inputs.publish }}
     needs: tag
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
-      - uses: JS-DevTools/npm-publish@v1
+      - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.NPM_TOKEN }}
+          ref: ${{ needs.tag.outputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Publish package
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
