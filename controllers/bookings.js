@@ -52,7 +52,8 @@ const bookingsSearch = plugins => async (req, res, next) => {
   try {
     const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
     assert(app.searchItineraries || app.searchHotelBooking || app.searchBooking, `searchItineraries or searchHotelBooking or searchBooking is not available for ${appKey}`);
-    const search = (app.searchHotelBooking || app.searchBooking || app.searchItineraries).bind(app);
+    // Prefer the dedicated itinerary endpoint so date/filter payloads used by mining are preserved.
+    const search = (app.searchItineraries || app.searchHotelBooking || app.searchBooking).bind(app);
     const results = await search({
       axios,
       token,
