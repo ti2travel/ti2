@@ -106,10 +106,10 @@ describe('user: bookings controller', () => {
         token: userToken,
         payload,
       });
-      expect(plugins[0].searchHotelBooking).toHaveBeenCalled();
+      expect(plugins[0].searchItineraries).toHaveBeenCalled();
       expect(Array.isArray(bookings)).toBeTruthy();
-      expect(plugins[0].searchHotelBooking.mock.calls[0][0].payload).toEqual(payload);
-      expect(plugins[0].searchHotelBooking.mock.calls[0][0].token).toEqual(token);
+      expect(plugins[0].searchItineraries.mock.calls[0][0].payload).toEqual(payload);
+      expect(plugins[0].searchItineraries.mock.calls[0][0].token).toEqual(token);
     });
 
   });
