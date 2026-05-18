@@ -222,6 +222,19 @@ describe('user', () => {
     expect(plugins[0].validateToken.mock.calls[0][0].payload).toEqual({
       tokenHint: apiKey.split('-')[0],
     });
+    expect(plugins[0].validateToken.mock.calls[0][0].userId).toBe(userId);
+    expect(plugins[0].validateToken.mock.calls[0][0].hint).toBe(apiKey.split('-')[0]);
+  });
+  it('testing the user token should not infer a hint when no hint is provided', async () => {
+    const { valid } = await doApiPost({
+      url: `/${appName}/${userId}/validate`,
+      token: userKey,
+      payload: {},
+    });
+    expect(plugins[0].validateToken).toHaveBeenCalled();
+    expect(valid).toBe(true);
+    expect(plugins[0].validateToken.mock.calls[0][0].userId).toBe(userId);
+    expect(plugins[0].validateToken.mock.calls[0][0].hint).toBeUndefined();
   });
   it('should be able to delete an app settings', async () => {
     const returnValue = await doApiDelete({

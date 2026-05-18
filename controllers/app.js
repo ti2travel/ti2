@@ -261,6 +261,8 @@ const validateAppToken = plugins => async (req, res, next) => {
       axios,
       token,
       payload: req.body,
+      userId,
+      hint,
       requestId: req.requestId,
     });
     return res.json({ valid });
