@@ -774,4 +774,94 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
     expect(lockTestPlugin.searchProducts).toHaveBeenCalledTimes(1);
     expect(addJob).not.toHaveBeenCalled();
   });
+
+  it('multiple concurrent requests with no cache should share an empty plugin result', async () => {
+    const cacheKey = hash({
+      userId: testUserId,
+      hint: ttrTestHint,
+      operationId: 'bookingsProductSearch',
+    });
+    await cache.drop({ pluginName: testAppName, key: cacheKey });
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lastUpdated` });
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lock` });
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:jobLock` });
+
+    lockTestPlugin.searchProducts.mockReset();
+    const releasePluginFetches = [];
+    const pluginFetchStarted = new Promise(resolve => {
+      lockTestPlugin.searchProducts.mockImplementation(() => {
+        resolve();
+        return new Promise(pluginResolve => {
+          releasePluginFetches.push(() => pluginResolve({ products: [] }));
+        });
+      });
+    });
+
+    const makeRequest = () => doApiPost({
+      url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
+      token: userToken,
+      payload: {},
+    });
+
+    const requestPromises = [makeRequest(), makeRequest(), makeRequest()];
+    await pluginFetchStarted;
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    releasePluginFetches.forEach(releasePluginFetch => releasePluginFetch());
+    const results = await Promise.all(requestPromises);
+
+    results.forEach(result => {
+      expect(result.products).toEqual([]);
+    });
+    expect(lockTestPlugin.searchProducts).toHaveBeenCalledTimes(1);
+    expect(addJob).not.toHaveBeenCalled();
+  });
+
+  it('multiple concurrent requests with no cache should fail when the leader throws', async () => {
+    const cacheKey = hash({
+      userId: testUserId,
+      hint: ttrTestHint,
+      operationId: 'bookingsProductSearch',
+    });
+    await cache.drop({ pluginName: testAppName, key: cacheKey });
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lastUpdated` });
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lock` });
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:jobLock` });
+
+    lockTestPlugin.searchProducts.mockReset();
+    let rejectPluginFetch;
+    const pluginFetchStarted = new Promise(resolve => {
+      lockTestPlugin.searchProducts.mockImplementation(() => {
+        resolve();
+        return new Promise((_, reject) => {
+          rejectPluginFetch = () => reject(new Error('boom'));
+        });
+      });
+    });
+
+    const makeRequest = () => doApiPost({
+      url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
+      token: userToken,
+      payload: {},
+    });
+
+    const requestPromises = [makeRequest(), makeRequest(), makeRequest()]
+      .map(requestPromise => requestPromise
+        .then(result => ({ status: 'fulfilled', result }))
+        .catch(error => ({ status: 'rejected', error })));
+    await pluginFetchStarted;
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    rejectPluginFetch();
+    const results = await Promise.all(requestPromises);
+
+    results.forEach(result => {
+      expect(result.status).toBe('rejected');
+    });
+    expect(lockTestPlugin.searchProducts).toHaveBeenCalledTimes(1);
+    expect(addJob).not.toHaveBeenCalled();
+
+    const statuses = results.map(result => result.error.response.status).sort();
+    expect(statuses).toEqual([500, 503, 503]);
+  });
 });

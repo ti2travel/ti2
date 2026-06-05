@@ -5,6 +5,23 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
 const cache = new Redis(`${REDIS_URL}/2`);
 const defaultTTL = 60 * 60; // 1 hour
 
+const normalizeKey = ({
+  key: keyParam,
+  fn,
+  fnParams,
+  useFunctionFallback = false,
+}) => {
+  if (useFunctionFallback && !keyParam) {
+    return hash({ fn, fnParams });
+  }
+  if (typeof keyParam !== 'string') {
+    return hash(keyParam);
+  }
+  return keyParam;
+};
+
+const buildKey = ({ pluginName, ...args }) => `${pluginName}:${normalizeKey(args)}`;
+
 const save = async ({
   pluginName,
   key: keyParam,
@@ -12,12 +29,7 @@ const save = async ({
   skipTTL,
   ttl = defaultTTL,
 }) => {
-  const key = `${pluginName}:${(() => {
-    if (typeof keyParam !== 'string') {
-      return hash(keyParam);
-    }
-    return keyParam;
-  })()}`;
+  const key = buildKey({ pluginName, key: keyParam });
   // console.log('saving key', key);
   await cache.set(key, JSON.stringify(value));
   if (!skipTTL) {
@@ -31,12 +43,7 @@ const saveIfNotExists = async ({
   value,
   ttl = defaultTTL,
 }) => {
-  const key = `${pluginName}:${(() => {
-    if (typeof keyParam !== 'string') {
-      return hash(keyParam);
-    }
-    return keyParam;
-  })()}`;
+  const key = buildKey({ pluginName, key: keyParam });
   const result = await cache.set(key, JSON.stringify(value), 'EX', ttl, 'NX');
   return result === 'OK';
 };
@@ -45,12 +52,7 @@ const get = async ({
   pluginName,
   key: keyParam,
 }) => {
-  const key = `${pluginName}:${(() => {
-    if (typeof keyParam !== 'string') {
-      return hash(keyParam);
-    }
-    return keyParam;
-  })()}`;
+  const key = buildKey({ pluginName, key: keyParam });
   const storeVal = await cache.get(key);
   if (!storeVal) return storeVal;
   return JSON.parse(storeVal);
@@ -64,15 +66,7 @@ const getOrExec = async ({
   fnParams,
   forceRefresh,
 }) => {
-  const key = (() => {
-    if (!keyParam) {
-      return hash({ fn, fnParams });
-    }
-    if (typeof keyParam !== 'string') {
-      return hash(keyParam);
-    }
-    return keyParam;
-  })();
+  const key = normalizeKey({ key: keyParam, fn, fnParams, useFunctionFallback: true });
   let value;
   if (!forceRefresh) {
     value = await get({ pluginName, key });
@@ -94,15 +88,13 @@ const drop = async ({
   fn,
   fnParams,
 }) => {
-  const key = `${pluginName}:${(() => {
-    if (!keyParam) {
-      return hash({ fn, fnParams });
-    }
-    if (typeof keyParam !== 'string') {
-      return hash(keyParam);
-    }
-    return keyParam;
-  })()}`;
+  const key = buildKey({
+    pluginName,
+    key: keyParam,
+    fn,
+    fnParams,
+    useFunctionFallback: true,
+  });
   // console.log('dropping key', key);
   await cache.del(key);
 };
