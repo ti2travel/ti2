@@ -3,7 +3,6 @@
 const chance = require('chance').Chance();
 const hash = require('object-hash');
 const cache = require('../../cache');
-const bookingsControllerFactory = require('../bookings');
 // Remove direct import of listJobs, jobStatus as we'll mock addJob
 // const { listJobs, jobStatus } = require('../../worker/queue');
 
@@ -17,6 +16,7 @@ jest.mock('../../worker/queue', () => ({
 const { addJob, jobStatus: mockJobStatus } = require('../../worker/queue'); // Now addJob is the mock
 
 const testUtils = require('../../test/utils'); // Require the module itself
+const bookingsControllerFactory = require('../bookings');
 
 // Global setup for the entire test file
 let globalDoApiPost, globalPlugins, globalUtils, globalSqldb;
@@ -346,9 +346,14 @@ describe('user: bookings controller - searchProducts', () => {
       if (addJob.mockClear) addJob.mockClear();
     });
 
-    it('should return stale (non-empty) products when TTR expires and refresh yields empty products', async () => {
+    it('should return stale products and preserve the cache when refresh yields empty products', async () => {
       const initialProductsInCache = [{ productId: 'staleProd1', name: 'Stale Product One', optionId: 'optStale1' }];
       const productsFromPluginRefresh = []; // Simulate plugin returning empty on refresh
+      const cacheKeyForTest = hash({
+        userId: testUserId,
+        hint: staleCacheTestHint,
+        operationId: 'bookingsProductSearch',
+      });
 
       // 1. First call: Populate the cache with initialProductsInCache
       travelgatePlugin.searchProducts.mockResolvedValueOnce({ products: initialProductsInCache });
@@ -718,5 +723,55 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
         { removeOnComplete: true }
       );
     }
+  });
+
+  it('multiple concurrent requests with no cache should wait for one plugin fetch', async () => {
+    const cacheKey = hash({
+      userId: testUserId,
+      hint: ttrTestHint,
+      operationId: 'bookingsProductSearch',
+    });
+    await cache.drop({ pluginName: testAppName, key: cacheKey });
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lastUpdated` });
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lock` });
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:jobLock` });
+
+    const coldProducts = [{
+      productId: 'cold-product',
+      productName: 'Cold Product',
+      options: [{
+        optionId: 'cold-option',
+        optionName: 'Cold Option',
+      }],
+    }];
+    lockTestPlugin.searchProducts.mockReset();
+    const releasePluginFetches = [];
+    const pluginFetchStarted = new Promise(resolve => {
+      lockTestPlugin.searchProducts.mockImplementation(() => {
+        resolve();
+        return new Promise(pluginResolve => {
+          releasePluginFetches.push(() => pluginResolve({ products: coldProducts }));
+        });
+      });
+    });
+
+    const makeRequest = () => doApiPost({
+      url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
+      token: userToken,
+      payload: {},
+    });
+
+    const requestPromises = [makeRequest(), makeRequest(), makeRequest()];
+    await pluginFetchStarted;
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    releasePluginFetches.forEach(releasePluginFetch => releasePluginFetch());
+    const results = await Promise.all(requestPromises);
+
+    results.forEach(result => {
+      expect(result.products).toEqual(coldProducts);
+    });
+    expect(lockTestPlugin.searchProducts).toHaveBeenCalledTimes(1);
+    expect(addJob).not.toHaveBeenCalled();
   });
 });

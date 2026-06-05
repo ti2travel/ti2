@@ -15,6 +15,30 @@ describe('cache', () => {
   });
 
 
+  describe('saveIfNotExists', () => {
+    it('should only save the first value for a key', async () => {
+      const key = 'lock:test';
+      testKeys.push(key);
+
+      const firstSaved = await cache.saveIfNotExists({
+        pluginName: testPluginName,
+        key,
+        value: { owner: 'first' },
+        ttl: 60,
+      });
+      const secondSaved = await cache.saveIfNotExists({
+        pluginName: testPluginName,
+        key,
+        value: { owner: 'second' },
+        ttl: 60,
+      });
+
+      expect(firstSaved).toBe(true);
+      expect(secondSaved).toBe(false);
+      expect(await cache.get({ pluginName: testPluginName, key })).toEqual({ owner: 'first' });
+    });
+  });
+
   describe('scan', () => {
     it('should return keys matching the pattern without plugin prefix', async () => {
       // Save some test keys

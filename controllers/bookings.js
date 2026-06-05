@@ -28,6 +28,17 @@ const typeDefsAndQueries = {
   itineraryBookingQuery,
 };
 
+const productSearchLockTtlSeconds = 120;
+const productSearchLockWaitMs = 110 * 1000;
+const productSearchLockPollMs = 250;
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+const createProductSearchInProgressError = () => {
+  const err = new Error('Product search cache refresh is already in progress');
+  err.status = 503;
+  return err;
+};
+
 const getAppAndToken = async ({ plugins, appKey, userId, hint }) => {
   const app = plugins.find(({ name }) => name === appKey);
   assert(app, 'could not find the app ' + appKey);
@@ -177,9 +188,53 @@ const $bookingsProductSearch = plugins => async ({
   const doNotCallPluginForProducts = token.doNotCallPluginForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'doNotCall'], app);
   const hasPluginExecutionLock = await app.cache.get({ key: pluginExecutionLockKey });
 
+  const getCachedProductSearchResults = async () => {
+    const cacheContent = await app.cache.get({ key: cacheKey });
+    if (cacheContent && cacheContent.products) return cacheContent;
+    return null;
+  };
+
+  const waitForProductSearchCache = async () => {
+    const timeoutAt = Date.now() + productSearchLockWaitMs;
+    while (Date.now() < timeoutAt) {
+      const cacheContent = await getCachedProductSearchResults();
+      if (cacheContent) return cacheContent;
+
+      const lockStillActive = await app.cache.get({ key: pluginExecutionLockKey });
+      if (!lockStillActive) return null;
+
+      await sleep(productSearchLockPollMs);
+    }
+
+    return getCachedProductSearchResults();
+  };
+
+  const acquirePluginExecutionLock = async () => {
+    if (app.cache.saveIfNotExists) {
+      return app.cache.saveIfNotExists({
+        key: pluginExecutionLockKey,
+        value: true,
+        ttl: productSearchLockTtlSeconds,
+      });
+    }
+
+    if (await app.cache.get({ key: pluginExecutionLockKey })) return false;
+    await app.cache.save({ key: pluginExecutionLockKey, value: true, ttl: productSearchLockTtlSeconds });
+    return true;
+  };
+
   // Helper function to call the plugin, save cache, and return results
-  const fetchFromPluginAndCache = async () => {
-    await app.cache.save({ key: pluginExecutionLockKey, value: true, ttl: 120 });
+  const fetchFromPluginAndCache = async ({ waitForExistingFetch = true } = {}) => {
+    const lockAcquired = await acquirePluginExecutionLock();
+    if (!lockAcquired) {
+      if (waitForExistingFetch) {
+        const cacheContent = await waitForProductSearchCache();
+        if (cacheContent) return cacheContent;
+      }
+
+      throw createProductSearchInProgressError();
+    }
+
     let pluginResults;
     try {
       pluginResults = await func({

@@ -25,6 +25,22 @@ const save = async ({
   }
 };
 
+const saveIfNotExists = async ({
+  pluginName,
+  key: keyParam,
+  value,
+  ttl = defaultTTL,
+}) => {
+  const key = `${pluginName}:${(() => {
+    if (typeof keyParam !== 'string') {
+      return hash(keyParam);
+    }
+    return keyParam;
+  })()}`;
+  const result = await cache.set(key, JSON.stringify(value), 'EX', ttl, 'NX');
+  return result === 'OK';
+};
+
 const get = async ({
   pluginName,
   key: keyParam,
@@ -116,6 +132,7 @@ const scan = ({
 module.exports = {
   cache,
   save,
+  saveIfNotExists,
   getOrExec,
   drop,
   get,
