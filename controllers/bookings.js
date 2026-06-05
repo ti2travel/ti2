@@ -211,13 +211,11 @@ const $bookingsProductSearch = plugins => async ({
     return getCachedProductSearchResults();
   };
 
-  const acquirePluginExecutionLock = async () => {
-    return app.cache.saveIfNotExists({
-      key: pluginExecutionLockKey,
-      value: true,
-      ttl: productSearchLockTtlSeconds,
-    });
-  };
+  const acquirePluginExecutionLock = async () => app.cache.saveIfNotExists({
+    key: pluginExecutionLockKey,
+    value: true,
+    ttl: productSearchLockTtlSeconds,
+  });
 
   // Helper function to call the plugin, save cache, and return results
   const fetchFromPluginAndCache = async () => {

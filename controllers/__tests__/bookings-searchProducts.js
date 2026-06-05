@@ -640,6 +640,24 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
     await cache.drop({ pluginName: testAppName, key: `${cacheKey}:jobLock` }); // jobQueueLock
   });
 
+  const clearProductSearchCache = async () => {
+    const cacheKey = hash({
+      userId: testUserId,
+      hint: ttrTestHint,
+      operationId: 'bookingsProductSearch',
+    });
+    await cache.drop({ pluginName: testAppName, key: cacheKey });
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lastUpdated` });
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lock` });
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:jobLock` });
+  };
+
+  const makeProductSearchRequest = () => doApiPost({
+    url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
+    token: userToken,
+    payload: {},
+  });
+
   beforeEach(async () => {
     // Clear mocks before each test in this suite
     addJob.mockClear(); // Reset addJob mock calls
@@ -726,15 +744,7 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
   });
 
   it('multiple concurrent requests with no cache should wait for one plugin fetch', async () => {
-    const cacheKey = hash({
-      userId: testUserId,
-      hint: ttrTestHint,
-      operationId: 'bookingsProductSearch',
-    });
-    await cache.drop({ pluginName: testAppName, key: cacheKey });
-    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lastUpdated` });
-    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lock` });
-    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:jobLock` });
+    await clearProductSearchCache();
 
     const coldProducts = [{
       productId: 'cold-product',
@@ -755,13 +765,7 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
       });
     });
 
-    const makeRequest = () => doApiPost({
-      url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
-      token: userToken,
-      payload: {},
-    });
-
-    const requestPromises = [makeRequest(), makeRequest(), makeRequest()];
+    const requestPromises = [makeProductSearchRequest(), makeProductSearchRequest(), makeProductSearchRequest()];
     await pluginFetchStarted;
     await new Promise(resolve => setTimeout(resolve, 50));
 
@@ -776,15 +780,7 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
   });
 
   it('multiple concurrent requests with no cache should share an empty plugin result', async () => {
-    const cacheKey = hash({
-      userId: testUserId,
-      hint: ttrTestHint,
-      operationId: 'bookingsProductSearch',
-    });
-    await cache.drop({ pluginName: testAppName, key: cacheKey });
-    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lastUpdated` });
-    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lock` });
-    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:jobLock` });
+    await clearProductSearchCache();
 
     lockTestPlugin.searchProducts.mockReset();
     const releasePluginFetches = [];
@@ -797,13 +793,7 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
       });
     });
 
-    const makeRequest = () => doApiPost({
-      url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
-      token: userToken,
-      payload: {},
-    });
-
-    const requestPromises = [makeRequest(), makeRequest(), makeRequest()];
+    const requestPromises = [makeProductSearchRequest(), makeProductSearchRequest(), makeProductSearchRequest()];
     await pluginFetchStarted;
     await new Promise(resolve => setTimeout(resolve, 50));
 
@@ -818,15 +808,7 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
   });
 
   it('multiple concurrent requests with no cache should fail when the leader throws', async () => {
-    const cacheKey = hash({
-      userId: testUserId,
-      hint: ttrTestHint,
-      operationId: 'bookingsProductSearch',
-    });
-    await cache.drop({ pluginName: testAppName, key: cacheKey });
-    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lastUpdated` });
-    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lock` });
-    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:jobLock` });
+    await clearProductSearchCache();
 
     lockTestPlugin.searchProducts.mockReset();
     let rejectPluginFetch;
@@ -839,13 +821,7 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
       });
     });
 
-    const makeRequest = () => doApiPost({
-      url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
-      token: userToken,
-      payload: {},
-    });
-
-    const requestPromises = [makeRequest(), makeRequest(), makeRequest()]
+    const requestPromises = [makeProductSearchRequest(), makeProductSearchRequest(), makeProductSearchRequest()]
       .map(requestPromise => requestPromise
         .then(result => ({ status: 'fulfilled', result }))
         .catch(error => ({ status: 'rejected', error })));
