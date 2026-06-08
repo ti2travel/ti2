@@ -28,9 +28,15 @@ const typeDefsAndQueries = {
   itineraryBookingQuery,
 };
 
-const productSearchLockTtlSeconds = 120;
-const productSearchLockWaitMs = 25 * 1000;
-const productSearchLockPollMs = 250;
+const getPositiveIntegerEnv = (name, defaultValue) => {
+  const value = Number(process.env[name]);
+  const integerValue = Math.floor(value);
+  return Number.isFinite(value) && integerValue > 0 ? integerValue : defaultValue;
+};
+
+const productSearchLockTtlSeconds = getPositiveIntegerEnv('PRODUCT_SEARCH_LOCK_TTL_SECONDS', 120);
+const productSearchLockWaitMs = getPositiveIntegerEnv('PRODUCT_SEARCH_LOCK_WAIT_MS', 25 * 1000);
+const productSearchLockPollMs = getPositiveIntegerEnv('PRODUCT_SEARCH_LOCK_POLL_MS', 250);
 const emptyProductSearchCacheTtlSeconds = 60;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
