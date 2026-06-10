@@ -451,7 +451,9 @@ describe('user: bookings controller - searchProducts', () => {
       });
 
       const cached = await cache.get({ pluginName: testAppName, key: cacheKeyForTest });
+      const lastUpdated = await cache.get({ pluginName: testAppName, key: `${cacheKeyForTest}:lastUpdated` });
       expect(cached).toBeFalsy();
+      expect(lastUpdated).toBeTruthy();
     });
 
     it('should keep existing non-empty cache when background refresh returns partial products', async () => {

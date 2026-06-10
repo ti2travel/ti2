@@ -123,6 +123,8 @@ const $searchProductList = (products, searchInput = '', optionId = '') => {
   return filteredProducts;
 };
 
+// Plugins may flag incomplete catalog responses with `catalogPartial` or `partial`;
+// both must suppress cache writes so a partial result does not replace a complete cache.
 const hasCacheableProductResults = pluginResults => Boolean(
   pluginResults
   && pluginResults.products
@@ -589,6 +591,7 @@ const $updateProductSearchCache = plugins => async ({
     }
 
     if (isPartialRefresh) {
+      await markRefreshAttempted();
       emitCacheEvent('bookingsProductSearch:cache:partialRefreshSkipped', { pluginResult });
       console.log(`[$updateProductSearchCache][requestId: ${requestId}] Plugin returned partial products. Cache not updated for ${appKey}, user ${userId}, hint ${hint}.`);
       return;
