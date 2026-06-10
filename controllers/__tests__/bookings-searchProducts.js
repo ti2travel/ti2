@@ -404,6 +404,13 @@ describe('user: bookings controller - searchProducts', () => {
         value: { products: initialProductsInCache },
         ttl: 60,
       });
+      await cache.save({
+        pluginName: testAppName,
+        key: `${cacheKeyForTest}:lastUpdated`,
+        value: 1,
+        ttl: 60,
+      });
+      const emitSpy = jest.spyOn(travelgatePlugin.events, 'emit');
 
       await bookingsControllerFactory(globalPlugins).$updateProductSearchCache({
         appKey: testAppName,
@@ -414,7 +421,14 @@ describe('user: bookings controller - searchProducts', () => {
       });
 
       const cached = await cache.get({ pluginName: testAppName, key: cacheKeyForTest });
+      const lastUpdated = await cache.get({ pluginName: testAppName, key: `${cacheKeyForTest}:lastUpdated` });
       expect(cached.products).toEqual(initialProductsInCache);
+      expect(lastUpdated).toBeGreaterThan(1);
+      expect(emitSpy).toHaveBeenCalledWith(
+        'bookingsProductSearch:cache:emptyRefreshSkipped',
+        expect.objectContaining({ pluginResult: { products: [] } }),
+      );
+      emitSpy.mockRestore();
     });
 
     it('should not cache partial product refreshes as complete results', async () => {
@@ -438,6 +452,91 @@ describe('user: bookings controller - searchProducts', () => {
 
       const cached = await cache.get({ pluginName: testAppName, key: cacheKeyForTest });
       expect(cached).toBeFalsy();
+    });
+
+    it('should keep existing non-empty cache when background refresh returns partial products', async () => {
+      const initialProductsInCache = [{ productId: 'staleProd1', name: 'Stale Product One', optionId: 'optStale1' }];
+      const pluginResult = {
+        catalogPartial: true,
+        products: [{ productId: 'partialProd1' }],
+      };
+      const cacheKeyForTest = hash({
+        userId: testUserId,
+        hint: staleCacheTestHint,
+        operationId: 'bookingsProductSearch',
+      });
+      await cache.save({
+        pluginName: testAppName,
+        key: cacheKeyForTest,
+        value: { products: initialProductsInCache },
+        ttl: 60,
+      });
+      await cache.save({
+        pluginName: testAppName,
+        key: `${cacheKeyForTest}:lastUpdated`,
+        value: 1,
+        ttl: 60,
+      });
+      const emitSpy = jest.spyOn(travelgatePlugin.events, 'emit');
+
+      await bookingsControllerFactory(globalPlugins).$updateProductSearchCache({
+        appKey: testAppName,
+        userId: testUserId,
+        hint: staleCacheTestHint,
+        pluginResult,
+        requestId: 'partial-refresh-test',
+      });
+
+      const cached = await cache.get({ pluginName: testAppName, key: cacheKeyForTest });
+      const lastUpdated = await cache.get({ pluginName: testAppName, key: `${cacheKeyForTest}:lastUpdated` });
+      expect(cached.products).toEqual(initialProductsInCache);
+      expect(lastUpdated).toBeGreaterThan(1);
+      expect(emitSpy).toHaveBeenCalledWith(
+        'bookingsProductSearch:cache:partialRefreshSkipped',
+        expect.objectContaining({ pluginResult }),
+      );
+      emitSpy.mockRestore();
+    });
+
+    it('should not cache empty products if non-empty cache appears before the empty save', async () => {
+      const cacheKeyForTest = hash({
+        userId: 'race-user',
+        hint: 'race-hint',
+        operationId: 'bookingsProductSearch',
+      });
+      const pluginResult = { products: [] };
+      const fakePlugin = {
+        name: 'racePlugin',
+        cache: {
+          get: jest.fn()
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ products: [{ productId: 'raceProd1' }] }),
+          save: jest.fn(async () => {}),
+        },
+        events: {
+          emit: jest.fn(),
+        },
+      };
+
+      await bookingsControllerFactory([fakePlugin]).$updateProductSearchCache({
+        appKey: fakePlugin.name,
+        userId: 'race-user',
+        hint: 'race-hint',
+        pluginResult,
+        requestId: 'race-refresh-test',
+      });
+
+      expect(fakePlugin.cache.save).toHaveBeenCalledWith(expect.objectContaining({
+        key: `${cacheKeyForTest}:lastUpdated`,
+      }));
+      expect(fakePlugin.cache.save).not.toHaveBeenCalledWith(expect.objectContaining({
+        key: cacheKeyForTest,
+        value: { products: [] },
+      }));
+      expect(fakePlugin.events.emit).toHaveBeenCalledWith(
+        'bookingsProductSearch:cache:emptyRefreshSkipped',
+        expect.objectContaining({ pluginResult }),
+      );
     });
   });
 });

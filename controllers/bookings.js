@@ -560,38 +560,52 @@ const $updateProductSearchCache = plugins => async ({
 
   const cacheKey = hash({ userId, hint, operationId: 'bookingsProductSearch' });
   const monthInSeconds = 30 * 24 * 60 * 60;
+  const markRefreshAttempted = () => app.cache.save({
+    key: `${cacheKey}:lastUpdated`,
+    value: Date.now(),
+    ttl: monthInSeconds,
+  });
+  const emitCacheEvent = (eventName, extra = {}) => app.events.emit(eventName, {
+    cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
+    ...extra,
+  });
 
   if (hasCacheableProductResults(pluginResult)) {
-    await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
+    await markRefreshAttempted();
     await app.cache.save({ key: cacheKey, value: pluginResult, ttl: monthInSeconds });
-    app.events.emit('bookingsProductSearch:cache:save', {
-      cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
-    });
+    emitCacheEvent('bookingsProductSearch:cache:save');
     console.log(`[$updateProductSearchCache][requestId: ${requestId}] Saved products to cache for ${appKey}, user ${userId}, hint ${hint}.`);
   } else {
+    const isPartialRefresh = pluginResult && (pluginResult.catalogPartial || pluginResult.partial);
     const existingCacheContent = await app.cache.get({ key: cacheKey });
     if (existingCacheContent && existingCacheContent.products && existingCacheContent.products.length > 0) {
-      app.events.emit('bookingsProductSearch:cache:emptyRefreshSkipped', {
-        cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
-      });
+      await markRefreshAttempted();
+      emitCacheEvent(
+        isPartialRefresh ? 'bookingsProductSearch:cache:partialRefreshSkipped' : 'bookingsProductSearch:cache:emptyRefreshSkipped',
+        { pluginResult },
+      );
       console.log(`[$updateProductSearchCache][requestId: ${requestId}] Plugin returned empty/partial products. Keeping existing non-empty cache for ${appKey}, user ${userId}, hint ${hint}.`);
       return;
     }
 
-    if (pluginResult && (pluginResult.catalogPartial || pluginResult.partial)) {
-      app.events.emit('bookingsProductSearch:cache:partialRefreshSkipped', {
-        cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
-      });
+    if (isPartialRefresh) {
+      emitCacheEvent('bookingsProductSearch:cache:partialRefreshSkipped', { pluginResult });
       console.log(`[$updateProductSearchCache][requestId: ${requestId}] Plugin returned partial products. Cache not updated for ${appKey}, user ${userId}, hint ${hint}.`);
       return;
     }
 
+    const latestCacheContent = await app.cache.get({ key: cacheKey });
+    if (latestCacheContent && latestCacheContent.products && latestCacheContent.products.length > 0) {
+      await markRefreshAttempted();
+      emitCacheEvent('bookingsProductSearch:cache:emptyRefreshSkipped', { pluginResult });
+      console.log(`[$updateProductSearchCache][requestId: ${requestId}] Plugin returned empty/no products, but cache was refreshed by another worker. Keeping existing non-empty cache for ${appKey}, user ${userId}, hint ${hint}.`);
+      return;
+    }
+
     // Empty complete refreshes are authoritative only when there is no existing non-empty cache.
-    await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
+    await markRefreshAttempted();
     await app.cache.save({ key: cacheKey, value: { products: [] }, ttl: monthInSeconds });
-    app.events.emit('bookingsProductSearch:cache:emptyRefresh', {
-      cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
-    });
+    emitCacheEvent('bookingsProductSearch:cache:emptyRefresh', { pluginResult });
     console.log(`[$updateProductSearchCache][requestId: ${requestId}] Plugin returned empty/no products. Cached empty for ${appKey}, user ${userId}, hint ${hint}.`);
   }
 };
