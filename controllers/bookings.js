@@ -196,6 +196,12 @@ const $bookingsProductSearch = plugins => async ({
         app.events.emit('bookingsProductSearch:cache:save', {
           cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
         });
+      } else if (pluginResults && (pluginResults.catalogPartial || pluginResults.partial)) {
+        const monthInSeconds = 30 * 24 * 60 * 60;
+        await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
+        app.events.emit('bookingsProductSearch:cache:partialRefreshSkipped', {
+          cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name, pluginResult: pluginResults,
+        });
       }
       // If pluginResults are empty, cache is NOT updated here by fetchFromPluginAndCache.
       // This maintains existing behavior for forceRefresh/initial load paths.
