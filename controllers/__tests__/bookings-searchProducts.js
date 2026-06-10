@@ -3,6 +3,7 @@
 const chance = require('chance').Chance();
 const hash = require('object-hash');
 const cache = require('../../cache');
+const bookingsControllerFactory = require('../bookings');
 // Remove direct import of listJobs, jobStatus as we'll mock addJob
 // const { listJobs, jobStatus } = require('../../worker/queue');
 
@@ -387,8 +388,56 @@ describe('user: bookings controller - searchProducts', () => {
       expect(travelgatePlugin.searchProducts).not.toHaveBeenCalled();
 
       // Note: This test verifies the immediate response serves stale data and a job is queued.
-      // It does not verify the cache state *after* the job (which would use the empty refresh)
-      // because $updateProductSearchCache currently caches empty results.
+      // Cache preservation for empty background refreshes is covered below.
+    });
+
+    it('should keep existing non-empty cache when background refresh returns empty products', async () => {
+      const initialProductsInCache = [{ productId: 'staleProd1', name: 'Stale Product One', optionId: 'optStale1' }];
+      const cacheKeyForTest = hash({
+        userId: testUserId,
+        hint: staleCacheTestHint,
+        operationId: 'bookingsProductSearch',
+      });
+      await cache.save({
+        pluginName: testAppName,
+        key: cacheKeyForTest,
+        value: { products: initialProductsInCache },
+        ttl: 60,
+      });
+
+      await bookingsControllerFactory(globalPlugins).$updateProductSearchCache({
+        appKey: testAppName,
+        userId: testUserId,
+        hint: staleCacheTestHint,
+        pluginResult: { products: [] },
+        requestId: 'empty-refresh-test',
+      });
+
+      const cached = await cache.get({ pluginName: testAppName, key: cacheKeyForTest });
+      expect(cached.products).toEqual(initialProductsInCache);
+    });
+
+    it('should not cache partial product refreshes as complete results', async () => {
+      const cacheKeyForTest = hash({
+        userId: testUserId,
+        hint: staleCacheTestHint,
+        operationId: 'bookingsProductSearch',
+      });
+      await cache.drop({ pluginName: testAppName, key: cacheKeyForTest });
+
+      await bookingsControllerFactory(globalPlugins).$updateProductSearchCache({
+        appKey: testAppName,
+        userId: testUserId,
+        hint: staleCacheTestHint,
+        pluginResult: {
+          catalogPartial: true,
+          products: [{ productId: 'partialProd1' }],
+        },
+        requestId: 'partial-refresh-test',
+      });
+
+      const cached = await cache.get({ pluginName: testAppName, key: cacheKeyForTest });
+      expect(cached).toBeFalsy();
     });
   });
 });
@@ -530,4 +579,3 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
     }
   });
 });
-

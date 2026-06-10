@@ -123,6 +123,14 @@ const $searchProductList = (products, searchInput = '', optionId = '') => {
   return filteredProducts;
 };
 
+const hasCacheableProductResults = pluginResults => Boolean(
+  pluginResults
+  && pluginResults.products
+  && pluginResults.products.length > 0
+  && !pluginResults.catalogPartial
+  && !pluginResults.partial
+);
+
 const $bookingsProductSearch = plugins => async ({
   axios,
   appKey,
@@ -179,7 +187,7 @@ const $bookingsProductSearch = plugins => async ({
       // This function is responsible for caching if it fetched good results.
       // This applies to forceRefresh, initial load, or direct calls that result in a fetch.
       // The $updateProductSearchCache function handles caching for background jobs queued due to stale data.
-      if (pluginResults && pluginResults.products && pluginResults.products.length > 0) {
+      if (hasCacheableProductResults(pluginResults)) {
         const monthInSeconds = 30 * 24 * 60 * 60;
         await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
         await app.cache.save({ key: cacheKey, value: pluginResults, ttl: monthInSeconds });
@@ -553,23 +561,36 @@ const $updateProductSearchCache = plugins => async ({
   const cacheKey = hash({ userId, hint, operationId: 'bookingsProductSearch' });
   const monthInSeconds = 30 * 24 * 60 * 60;
 
-  // Always update lastUpdated to prevent immediate re-trigger of background jobs
-  // even if the plugin returned empty results.
-  await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
-
-  if (pluginResult && pluginResult.products && pluginResult.products.length > 0) {
+  if (hasCacheableProductResults(pluginResult)) {
+    await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
     await app.cache.save({ key: cacheKey, value: pluginResult, ttl: monthInSeconds });
     app.events.emit('bookingsProductSearch:cache:save', {
       cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
     });
     console.log(`[$updateProductSearchCache][requestId: ${requestId}] Saved products to cache for ${appKey}, user ${userId}, hint ${hint}.`);
   } else {
-    // If plugin returned no products, update the cache to reflect this.
-    // This prevents serving stale data indefinitely if the source truly has no products anymore.
+    const existingCacheContent = await app.cache.get({ key: cacheKey });
+    if (existingCacheContent && existingCacheContent.products && existingCacheContent.products.length > 0) {
+      app.events.emit('bookingsProductSearch:cache:emptyRefreshSkipped', {
+        cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
+      });
+      console.log(`[$updateProductSearchCache][requestId: ${requestId}] Plugin returned empty/partial products. Keeping existing non-empty cache for ${appKey}, user ${userId}, hint ${hint}.`);
+      return;
+    }
+
+    if (pluginResult && (pluginResult.catalogPartial || pluginResult.partial)) {
+      app.events.emit('bookingsProductSearch:cache:partialRefreshSkipped', {
+        cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
+      });
+      console.log(`[$updateProductSearchCache][requestId: ${requestId}] Plugin returned partial products. Cache not updated for ${appKey}, user ${userId}, hint ${hint}.`);
+      return;
+    }
+
+    // Empty complete refreshes are authoritative only when there is no existing non-empty cache.
+    await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
     await app.cache.save({ key: cacheKey, value: { products: [] }, ttl: monthInSeconds });
     app.events.emit('bookingsProductSearch:cache:emptyRefresh', {
       cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
-      pluginResult, // Log what the plugin returned
     });
     console.log(`[$updateProductSearchCache][requestId: ${requestId}] Plugin returned empty/no products. Cached empty for ${appKey}, user ${userId}, hint ${hint}.`);
   }
