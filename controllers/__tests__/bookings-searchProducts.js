@@ -456,6 +456,31 @@ describe('user: bookings controller - searchProducts', () => {
       expect(lastUpdated).toBeTruthy();
     });
 
+    it('should not update cache metadata when direct force refresh returns partial products', async () => {
+      const pluginResult = {
+        catalogPartial: true,
+        products: [{ productId: 'partialProd1' }],
+      };
+      const cacheKeyForTest = hash({
+        userId: testUserId,
+        hint: staleCacheTestHint,
+        operationId: 'bookingsProductSearch',
+      });
+      travelgatePlugin.searchProducts.mockResolvedValueOnce(pluginResult);
+
+      await doApiPost({
+        url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
+        token: userToken,
+        payload: { forceRefresh: true },
+      });
+
+      const cached = await cache.get({ pluginName: testAppName, key: cacheKeyForTest });
+      const lastUpdated = await cache.get({ pluginName: testAppName, key: `${cacheKeyForTest}:lastUpdated` });
+      expect(travelgatePlugin.searchProducts).toHaveBeenCalledTimes(1);
+      expect(cached).toBeFalsy();
+      expect(lastUpdated).toBeFalsy();
+    });
+
     it('should keep existing non-empty cache when background refresh returns partial products', async () => {
       const initialProductsInCache = [{ productId: 'staleProd1', name: 'Stale Product One', optionId: 'optStale1' }];
       const pluginResult = {
