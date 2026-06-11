@@ -596,14 +596,12 @@ const $updateProductSearchCache = plugins => async ({
         isPartialRefresh ? 'bookingsProductSearch:cache:partialRefreshSkipped' : 'bookingsProductSearch:cache:emptyRefreshSkipped',
         { pluginResult },
       );
-      console.log(`[$updateProductSearchCache][requestId: ${requestId}] Plugin returned empty/partial products. Keeping existing non-empty cache for ${appKey}, user ${userId}, hint ${hint}.`);
       return;
     }
 
     if (isPartialRefresh) {
       await markRefreshAttempted();
       emitCacheEvent('bookingsProductSearch:cache:partialRefreshSkipped', { pluginResult });
-      console.log(`[$updateProductSearchCache][requestId: ${requestId}] Plugin returned partial products. Cache not updated for ${appKey}, user ${userId}, hint ${hint}.`);
       return;
     }
 
@@ -612,7 +610,6 @@ const $updateProductSearchCache = plugins => async ({
     if (hasNonEmptyProductCache(latestCacheContent)) {
       await markRefreshAttempted();
       emitCacheEvent('bookingsProductSearch:cache:emptyRefreshSkipped', { pluginResult });
-      console.log(`[$updateProductSearchCache][requestId: ${requestId}] Plugin returned empty/no products, but cache was refreshed by another worker. Keeping existing non-empty cache for ${appKey}, user ${userId}, hint ${hint}.`);
       return;
     }
 
