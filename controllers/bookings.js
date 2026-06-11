@@ -123,6 +123,22 @@ const $searchProductList = (products, searchInput = '', optionId = '') => {
   return filteredProducts;
 };
 
+// Plugins may flag incomplete catalog responses with `catalogPartial` or `partial`;
+// both must suppress cache writes so a partial result does not replace a complete cache.
+const hasCacheableProductResults = pluginResults => Boolean(
+  pluginResults
+  && pluginResults.products
+  && pluginResults.products.length > 0
+  && !pluginResults.catalogPartial
+  && !pluginResults.partial
+);
+
+const hasNonEmptyProductCache = cacheContent => Boolean(
+  cacheContent
+  && cacheContent.products
+  && cacheContent.products.length > 0
+);
+
 const $bookingsProductSearch = plugins => async ({
   axios,
   appKey,
@@ -179,12 +195,17 @@ const $bookingsProductSearch = plugins => async ({
       // This function is responsible for caching if it fetched good results.
       // This applies to forceRefresh, initial load, or direct calls that result in a fetch.
       // The $updateProductSearchCache function handles caching for background jobs queued due to stale data.
-      if (pluginResults && pluginResults.products && pluginResults.products.length > 0) {
+      if (hasCacheableProductResults(pluginResults)) {
         const monthInSeconds = 30 * 24 * 60 * 60;
         await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
         await app.cache.save({ key: cacheKey, value: pluginResults, ttl: monthInSeconds });
         app.events.emit('bookingsProductSearch:cache:save', {
           cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
+        });
+      } else if (pluginResults && (pluginResults.catalogPartial || pluginResults.partial)) {
+        app.events.emit('bookingsProductSearch:cache:partialRefreshSkipped', {
+          cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
+          reason: 'directPartialResultNotCached', pluginResult: pluginResults,
         });
       }
       // If pluginResults are empty, cache is NOT updated here by fetchFromPluginAndCache.
@@ -552,26 +573,64 @@ const $updateProductSearchCache = plugins => async ({
 
   const cacheKey = hash({ userId, hint, operationId: 'bookingsProductSearch' });
   const monthInSeconds = 30 * 24 * 60 * 60;
+  const markRefreshAttempted = () => app.cache.save({
+    key: `${cacheKey}:lastUpdated`,
+    value: Date.now(),
+    ttl: monthInSeconds,
+  });
+  const emitCacheEvent = (eventName, extra = {}) => app.events.emit(eventName, {
+    cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
+    ...extra,
+  });
 
-  // Always update lastUpdated to prevent immediate re-trigger of background jobs
-  // even if the plugin returned empty results.
-  await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: monthInSeconds });
-
-  if (pluginResult && pluginResult.products && pluginResult.products.length > 0) {
+  if (hasCacheableProductResults(pluginResult)) {
+    await markRefreshAttempted();
     await app.cache.save({ key: cacheKey, value: pluginResult, ttl: monthInSeconds });
-    app.events.emit('bookingsProductSearch:cache:save', {
-      cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
-    });
-    console.log(`[$updateProductSearchCache][requestId: ${requestId}] Saved products to cache for ${appKey}, user ${userId}, hint ${hint}.`);
+    emitCacheEvent('bookingsProductSearch:cache:save');
   } else {
-    // If plugin returned no products, update the cache to reflect this.
-    // This prevents serving stale data indefinitely if the source truly has no products anymore.
+    const isPartialRefresh = pluginResult && (pluginResult.catalogPartial || pluginResult.partial);
+    const existingCacheContent = await app.cache.get({ key: cacheKey });
+    if (hasNonEmptyProductCache(existingCacheContent)) {
+      await markRefreshAttempted();
+      emitCacheEvent(
+        isPartialRefresh ? 'bookingsProductSearch:cache:partialRefreshSkipped' : 'bookingsProductSearch:cache:emptyRefreshSkipped',
+        {
+          reason: isPartialRefresh ? 'partialResultPreservedExistingCache' : 'emptyResultPreservedExistingCache',
+          cachePreserved: true,
+          existingProductCount: existingCacheContent.products.length,
+          pluginResult,
+        },
+      );
+      return;
+    }
+
+    if (isPartialRefresh) {
+      await markRefreshAttempted();
+      emitCacheEvent('bookingsProductSearch:cache:partialRefreshSkipped', {
+        reason: 'partialResultNotCached',
+        cachePreserved: false,
+        pluginResult,
+      });
+      return;
+    }
+
+    // Best-effort race guard: avoid overwriting a non-empty cache written after the first read.
+    const latestCacheContent = await app.cache.get({ key: cacheKey });
+    if (hasNonEmptyProductCache(latestCacheContent)) {
+      await markRefreshAttempted();
+      emitCacheEvent('bookingsProductSearch:cache:emptyRefreshSkipped', {
+        reason: 'emptyResultPreservedConcurrentCache',
+        cachePreserved: true,
+        existingProductCount: latestCacheContent.products.length,
+        pluginResult,
+      });
+      return;
+    }
+
+    // Empty complete refreshes are authoritative only when there is no existing non-empty cache.
+    await markRefreshAttempted();
     await app.cache.save({ key: cacheKey, value: { products: [] }, ttl: monthInSeconds });
-    app.events.emit('bookingsProductSearch:cache:emptyRefresh', {
-      cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
-      pluginResult, // Log what the plugin returned
-    });
-    console.log(`[$updateProductSearchCache][requestId: ${requestId}] Plugin returned empty/no products. Cached empty for ${appKey}, user ${userId}, hint ${hint}.`);
+    emitCacheEvent('bookingsProductSearch:cache:emptyRefresh', { pluginResult });
   }
 };
 
