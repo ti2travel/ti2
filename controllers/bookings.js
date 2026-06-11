@@ -28,6 +28,24 @@ const typeDefsAndQueries = {
   itineraryBookingQuery,
 };
 
+const getPositiveIntegerEnv = (name, defaultValue) => {
+  const value = Number(process.env[name]);
+  const integerValue = Math.floor(value);
+  return Number.isFinite(value) && integerValue > 0 ? integerValue : defaultValue;
+};
+
+const productSearchLockTtlSeconds = getPositiveIntegerEnv('PRODUCT_SEARCH_LOCK_TTL_SECONDS', 120);
+const productSearchLockWaitMs = getPositiveIntegerEnv('PRODUCT_SEARCH_LOCK_WAIT_MS', 25 * 1000);
+const productSearchLockPollMs = getPositiveIntegerEnv('PRODUCT_SEARCH_LOCK_POLL_MS', 250);
+const emptyProductSearchCacheTtlSeconds = 60;
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+const createProductSearchUnavailableError = () => {
+  const err = new Error('Product search cache refresh did not produce cached results');
+  err.status = 503;
+  return err;
+};
+
 const getAppAndToken = async ({ plugins, appKey, userId, hint }) => {
   const app = plugins.find(({ name }) => name === appKey);
   assert(app, 'could not find the app ' + appKey);
@@ -176,10 +194,44 @@ const $bookingsProductSearch = plugins => async ({
   const isStaleByTTR = lastUpdated && (Date.now() - lastUpdated > ttr * 1000);
   const doNotCallPluginForProducts = token.doNotCallPluginForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'doNotCall'], app);
   const hasPluginExecutionLock = await app.cache.get({ key: pluginExecutionLockKey });
+  assert(app.cache.saveIfNotExists, 'cache adapter must expose saveIfNotExists');
+
+  const getCachedProductSearchResults = async () => {
+    const cacheContent = await app.cache.get({ key: cacheKey });
+    if (cacheContent && cacheContent.products) return cacheContent;
+    return null;
+  };
+
+  const waitForProductSearchCache = async () => {
+    const timeoutAt = Date.now() + productSearchLockWaitMs;
+    while (Date.now() < timeoutAt) {
+      const cacheContent = await getCachedProductSearchResults();
+      if (cacheContent) return cacheContent;
+
+      const lockStillActive = await app.cache.get({ key: pluginExecutionLockKey });
+      if (!lockStillActive) return null;
+
+      await sleep(productSearchLockPollMs);
+    }
+
+    return getCachedProductSearchResults();
+  };
+
+  const acquirePluginExecutionLock = async () => app.cache.saveIfNotExists({
+    key: pluginExecutionLockKey,
+    value: true,
+    ttl: productSearchLockTtlSeconds,
+  });
 
   // Helper function to call the plugin, save cache, and return results
   const fetchFromPluginAndCache = async () => {
-    await app.cache.save({ key: pluginExecutionLockKey, value: true, ttl: 120 });
+    const lockAcquired = await acquirePluginExecutionLock();
+    if (!lockAcquired) {
+      const cacheContent = await waitForProductSearchCache();
+      if (cacheContent) return cacheContent;
+      throw createProductSearchUnavailableError();
+    }
+
     let pluginResults;
     try {
       pluginResults = await func({
@@ -192,7 +244,7 @@ const $bookingsProductSearch = plugins => async ({
         hint,
       });
 
-      // This function is responsible for caching if it fetched good results.
+      // This function is responsible for caching if it fetched usable results.
       // This applies to forceRefresh, initial load, or direct calls that result in a fetch.
       // The $updateProductSearchCache function handles caching for background jobs queued due to stale data.
       if (hasCacheableProductResults(pluginResults)) {
@@ -207,10 +259,10 @@ const $bookingsProductSearch = plugins => async ({
           cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
           reason: 'directPartialResultNotCached', pluginResult: pluginResults,
         });
+      } else if (pluginResults && pluginResults.products && pluginResults.products.length === 0) {
+        // Short-lived empty cache gives concurrent waiters the same answer as the lock holder.
+        await app.cache.save({ key: cacheKey, value: pluginResults, ttl: emptyProductSearchCacheTtlSeconds });
       }
-      // If pluginResults are empty, cache is NOT updated here by fetchFromPluginAndCache.
-      // This maintains existing behavior for forceRefresh/initial load paths.
-      // $updateProductSearchCache has its own logic for handling empty results from background refresh.
     } finally {
       await app.cache.drop({ key: pluginExecutionLockKey });
     }
@@ -255,14 +307,16 @@ const $bookingsProductSearch = plugins => async ({
         return returnCachedResults();
       }
 
-      // Cache is stale - check if background job already queued
-      const hasJobQueueLock = await app.cache.get({ key: jobQueueLockKey });
-      if (hasJobQueueLock) {
+      // Cache is stale - queue at most one background refresh job and serve stale data.
+      const jobQueueLockAcquired = await app.cache.saveIfNotExists({
+        key: jobQueueLockKey,
+        value: true,
+        ttl: 60,
+      });
+      if (!jobQueueLockAcquired) {
         return returnCachedResults();
       }
 
-      // Queue background refresh job and serve stale data
-      await app.cache.save({ key: jobQueueLockKey, value: true, ttl: 60 });
       await addJob({
         type: 'plugin',
         pluginName: appKey,
@@ -592,14 +646,15 @@ const $updateProductSearchCache = plugins => async ({
     const existingCacheContent = await app.cache.get({ key: cacheKey });
     if (hasNonEmptyProductCache(existingCacheContent)) {
       await markRefreshAttempted();
+      const eventExtra = {
+        reason: isPartialRefresh ? 'partialResultPreservedExistingCache' : 'emptyResultPreservedExistingCache',
+        cachePreserved: true,
+        existingProductCount: existingCacheContent.products.length,
+      };
+      if (isPartialRefresh) eventExtra.pluginResult = pluginResult;
       emitCacheEvent(
         isPartialRefresh ? 'bookingsProductSearch:cache:partialRefreshSkipped' : 'bookingsProductSearch:cache:emptyRefreshSkipped',
-        {
-          reason: isPartialRefresh ? 'partialResultPreservedExistingCache' : 'emptyResultPreservedExistingCache',
-          cachePreserved: true,
-          existingProductCount: existingCacheContent.products.length,
-          pluginResult,
-        },
+        eventExtra,
       );
       return;
     }
@@ -622,7 +677,6 @@ const $updateProductSearchCache = plugins => async ({
         reason: 'emptyResultPreservedConcurrentCache',
         cachePreserved: true,
         existingProductCount: latestCacheContent.products.length,
-        pluginResult,
       });
       return;
     }
@@ -630,7 +684,7 @@ const $updateProductSearchCache = plugins => async ({
     // Empty complete refreshes are authoritative only when there is no existing non-empty cache.
     await markRefreshAttempted();
     await app.cache.save({ key: cacheKey, value: { products: [] }, ttl: monthInSeconds });
-    emitCacheEvent('bookingsProductSearch:cache:emptyRefresh', { pluginResult });
+    emitCacheEvent('bookingsProductSearch:cache:emptyRefresh');
   }
 };
 
