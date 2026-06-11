@@ -587,7 +587,6 @@ const $updateProductSearchCache = plugins => async ({
     await markRefreshAttempted();
     await app.cache.save({ key: cacheKey, value: pluginResult, ttl: monthInSeconds });
     emitCacheEvent('bookingsProductSearch:cache:save');
-    console.log(`[$updateProductSearchCache][requestId: ${requestId}] Saved products to cache for ${appKey}, user ${userId}, hint ${hint}.`);
   } else {
     const isPartialRefresh = pluginResult && (pluginResult.catalogPartial || pluginResult.partial);
     const existingCacheContent = await app.cache.get({ key: cacheKey });
@@ -632,7 +631,6 @@ const $updateProductSearchCache = plugins => async ({
     await markRefreshAttempted();
     await app.cache.save({ key: cacheKey, value: { products: [] }, ttl: monthInSeconds });
     emitCacheEvent('bookingsProductSearch:cache:emptyRefresh', { pluginResult });
-    console.log(`[$updateProductSearchCache][requestId: ${requestId}] Plugin returned empty/no products. Cached empty for ${appKey}, user ${userId}, hint ${hint}.`);
   }
 };
 
