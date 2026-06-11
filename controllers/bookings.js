@@ -204,7 +204,8 @@ const $bookingsProductSearch = plugins => async ({
         });
       } else if (pluginResults && (pluginResults.catalogPartial || pluginResults.partial)) {
         app.events.emit('bookingsProductSearch:cache:partialRefreshSkipped', {
-          cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name, pluginResult: pluginResults,
+          cacheKey, userId, hint, operationId: 'bookingsProductSearch', requestId, pluginName: app.name,
+          reason: 'directPartialResultNotCached', pluginResult: pluginResults,
         });
       }
       // If pluginResults are empty, cache is NOT updated here by fetchFromPluginAndCache.
@@ -594,14 +595,23 @@ const $updateProductSearchCache = plugins => async ({
       await markRefreshAttempted();
       emitCacheEvent(
         isPartialRefresh ? 'bookingsProductSearch:cache:partialRefreshSkipped' : 'bookingsProductSearch:cache:emptyRefreshSkipped',
-        { pluginResult },
+        {
+          reason: isPartialRefresh ? 'partialResultPreservedExistingCache' : 'emptyResultPreservedExistingCache',
+          cachePreserved: true,
+          existingProductCount: existingCacheContent.products.length,
+          pluginResult,
+        },
       );
       return;
     }
 
     if (isPartialRefresh) {
       await markRefreshAttempted();
-      emitCacheEvent('bookingsProductSearch:cache:partialRefreshSkipped', { pluginResult });
+      emitCacheEvent('bookingsProductSearch:cache:partialRefreshSkipped', {
+        reason: 'partialResultNotCached',
+        cachePreserved: false,
+        pluginResult,
+      });
       return;
     }
 
@@ -609,7 +619,12 @@ const $updateProductSearchCache = plugins => async ({
     const latestCacheContent = await app.cache.get({ key: cacheKey });
     if (hasNonEmptyProductCache(latestCacheContent)) {
       await markRefreshAttempted();
-      emitCacheEvent('bookingsProductSearch:cache:emptyRefreshSkipped', { pluginResult });
+      emitCacheEvent('bookingsProductSearch:cache:emptyRefreshSkipped', {
+        reason: 'emptyResultPreservedConcurrentCache',
+        cachePreserved: true,
+        existingProductCount: latestCacheContent.products.length,
+        pluginResult,
+      });
       return;
     }
 

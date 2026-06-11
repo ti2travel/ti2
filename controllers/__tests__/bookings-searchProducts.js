@@ -426,7 +426,12 @@ describe('user: bookings controller - searchProducts', () => {
       expect(lastUpdated).toBeGreaterThan(1);
       expect(emitSpy).toHaveBeenCalledWith(
         'bookingsProductSearch:cache:emptyRefreshSkipped',
-        expect.objectContaining({ pluginResult: { products: [] } }),
+        expect.objectContaining({
+          reason: 'emptyResultPreservedExistingCache',
+          cachePreserved: true,
+          existingProductCount: initialProductsInCache.length,
+          pluginResult: { products: [] },
+        }),
       );
       emitSpy.mockRestore();
     });
@@ -520,7 +525,12 @@ describe('user: bookings controller - searchProducts', () => {
       expect(lastUpdated).toBeGreaterThan(1);
       expect(emitSpy).toHaveBeenCalledWith(
         'bookingsProductSearch:cache:partialRefreshSkipped',
-        expect.objectContaining({ pluginResult }),
+        expect.objectContaining({
+          reason: 'partialResultPreservedExistingCache',
+          cachePreserved: true,
+          existingProductCount: initialProductsInCache.length,
+          pluginResult,
+        }),
       );
       emitSpy.mockRestore();
     });
@@ -562,7 +572,12 @@ describe('user: bookings controller - searchProducts', () => {
       }));
       expect(fakePlugin.events.emit).toHaveBeenCalledWith(
         'bookingsProductSearch:cache:emptyRefreshSkipped',
-        expect.objectContaining({ pluginResult }),
+        expect.objectContaining({
+          reason: 'emptyResultPreservedConcurrentCache',
+          cachePreserved: true,
+          existingProductCount: 1,
+          pluginResult,
+        }),
       );
     });
   });
