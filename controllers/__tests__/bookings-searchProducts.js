@@ -315,8 +315,8 @@ describe('user: bookings controller - searchProducts', () => {
 
     beforeEach(async () => {
       // Clear mocks
-      if (travelgatePlugin && travelgatePlugin.searchProducts && travelgatePlugin.searchProducts.mockClear) {
-        travelgatePlugin.searchProducts.mockClear();
+      if (travelgatePlugin && travelgatePlugin.searchProducts && travelgatePlugin.searchProducts.mockReset) {
+        travelgatePlugin.searchProducts.mockReset();
       }
       if (addJob && addJob.mockClear) {
         addJob.mockClear();
@@ -342,7 +342,7 @@ describe('user: bookings controller - searchProducts', () => {
           token: staleCacheTokenConfig,
       });
       // Clear mocks that might have been called during appSetup
-      if (travelgatePlugin.searchProducts.mockClear) travelgatePlugin.searchProducts.mockClear();
+      if (travelgatePlugin.searchProducts.mockReset) travelgatePlugin.searchProducts.mockReset();
       if (addJob.mockClear) addJob.mockClear();
     });
 
@@ -435,7 +435,6 @@ describe('user: bookings controller - searchProducts', () => {
           reason: 'emptyResultPreservedExistingCache',
           cachePreserved: true,
           existingProductCount: initialProductsInCache.length,
-          pluginResult: { products: [] },
         }),
       );
       emitSpy.mockRestore();
@@ -581,7 +580,6 @@ describe('user: bookings controller - searchProducts', () => {
           reason: 'emptyResultPreservedConcurrentCache',
           cachePreserved: true,
           existingProductCount: 1,
-          pluginResult,
         }),
       );
     });
