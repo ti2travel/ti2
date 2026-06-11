@@ -133,6 +133,12 @@ const hasCacheableProductResults = pluginResults => Boolean(
   && !pluginResults.partial
 );
 
+const hasNonEmptyProductCache = cacheContent => Boolean(
+  cacheContent
+  && cacheContent.products
+  && cacheContent.products.length > 0
+);
+
 const $bookingsProductSearch = plugins => async ({
   axios,
   appKey,
@@ -584,7 +590,7 @@ const $updateProductSearchCache = plugins => async ({
   } else {
     const isPartialRefresh = pluginResult && (pluginResult.catalogPartial || pluginResult.partial);
     const existingCacheContent = await app.cache.get({ key: cacheKey });
-    if (existingCacheContent && existingCacheContent.products && existingCacheContent.products.length > 0) {
+    if (hasNonEmptyProductCache(existingCacheContent)) {
       await markRefreshAttempted();
       emitCacheEvent(
         isPartialRefresh ? 'bookingsProductSearch:cache:partialRefreshSkipped' : 'bookingsProductSearch:cache:emptyRefreshSkipped',
@@ -603,7 +609,7 @@ const $updateProductSearchCache = plugins => async ({
 
     // Best-effort race guard: avoid overwriting a non-empty cache written after the first read.
     const latestCacheContent = await app.cache.get({ key: cacheKey });
-    if (latestCacheContent && latestCacheContent.products && latestCacheContent.products.length > 0) {
+    if (hasNonEmptyProductCache(latestCacheContent)) {
       await markRefreshAttempted();
       emitCacheEvent('bookingsProductSearch:cache:emptyRefreshSkipped', { pluginResult });
       console.log(`[$updateProductSearchCache][requestId: ${requestId}] Plugin returned empty/no products, but cache was refreshed by another worker. Keeping existing non-empty cache for ${appKey}, user ${userId}, hint ${hint}.`);
