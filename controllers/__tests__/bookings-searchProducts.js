@@ -9,7 +9,7 @@ const cache = require('../../cache');
 // Mock the worker/queue module
 jest.mock('../../worker/queue', () => ({
   ...jest.requireActual('../../worker/queue'), // Import and retain default behavior
-  addJob: jest.fn().mockResolvedValue({ id: 'mockJobId' }), // Mock addJob
+  addJob: jest.fn().mockResolvedValue('mockJobId'), // Mock addJob
   // Provide mock for jobStatus as it might be called by other parts of the code or tests
   jobStatus: jest.fn().mockResolvedValue({ status: 'completed', progress: 100, returnValue: null }),
 }));
@@ -298,6 +298,7 @@ describe('user: bookings controller - searchProducts', () => {
         it('call outside of TTR should serve stale data and queue background refresh with correct parameters', async () => {
           travelgatePlugin.searchProducts.mockClear(); // Clear before action
           addJob.mockClear(); // Clear addJob mock before this action that should trigger it
+          const emitSpy = jest.spyOn(travelgatePlugin.events, 'emit');
 
           const { products } = await doApiPost({
             url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`, // appName is 'travelgate'
@@ -331,6 +332,15 @@ describe('user: bookings controller - searchProducts', () => {
           expect(jobData.postProcess.args.userId).toBe(testUserId);
           expect(jobData.postProcess.args.hint).toBe(ttrTestHint);
           expect(jobParams).toEqual({ removeOnComplete: true });
+          expect(emitSpy).toHaveBeenCalledWith(
+            'bookingsProductSearch:cache:decision',
+            expect.objectContaining({
+              action: 'stale_served',
+              reason: 'backgroundRefreshQueued',
+              jobId: 'mockJobId',
+            }),
+          );
+          emitSpy.mockRestore();
         });
       });
       // The 'lock mechanism (job queuing on stale cache)' describe block has been moved to the top level.
@@ -476,6 +486,14 @@ describe('user: bookings controller - searchProducts', () => {
           existingProductCount: initialProductsInCache.length,
         }),
       );
+      expect(emitSpy).toHaveBeenCalledWith(
+        'bookingsProductSearch:cache:emptyRefreshSkipped',
+        expect.objectContaining({
+          action: 'empty_refresh_skipped',
+          reason: 'emptyResultPreservedExistingCache',
+          cachePreserved: true,
+        }),
+      );
       emitSpy.mockRestore();
     });
 
@@ -576,6 +594,14 @@ describe('user: bookings controller - searchProducts', () => {
           returnedProductCount: pluginResult.products.length,
         }),
       );
+      expect(emitSpy).toHaveBeenCalledWith(
+        'bookingsProductSearch:cache:partialRefreshSkipped',
+        expect.objectContaining({
+          action: 'partial_refresh_skipped',
+          reason: 'partialResultPreservedExistingCache',
+          cachePreserved: true,
+        }),
+      );
       emitSpy.mockRestore();
     });
 
@@ -621,6 +647,14 @@ describe('user: bookings controller - searchProducts', () => {
           reason: 'emptyResultPreservedConcurrentCache',
           cachePreserved: true,
           existingProductCount: 1,
+        }),
+      );
+      expect(fakePlugin.events.emit).toHaveBeenCalledWith(
+        'bookingsProductSearch:cache:emptyRefreshSkipped',
+        expect.objectContaining({
+          action: 'empty_refresh_skipped',
+          reason: 'emptyResultPreservedConcurrentCache',
+          cachePreserved: true,
         }),
       );
     });
@@ -861,6 +895,8 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
 
   it('renews the plugin execution lock while a cold product fetch exceeds the initial TTL', async () => {
     await clearProductSearchCache();
+    const originalLockTtl = process.env.PRODUCT_SEARCH_LOCK_TTL_SECONDS;
+    process.env.PRODUCT_SEARCH_LOCK_TTL_SECONDS = '1';
 
     const slowProducts = [{
       productId: 'slow-product',
@@ -871,6 +907,7 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
       }],
     }];
     lockTestPlugin.searchProducts.mockReset();
+    const expireIfValueSpy = jest.spyOn(lockTestPlugin.cache, 'expireIfValue');
     const releasePluginFetches = [];
     const pluginFetchStarted = new Promise(resolve => {
       lockTestPlugin.searchProducts.mockImplementation(() => {
@@ -881,20 +918,30 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
       });
     });
 
-    const firstRequest = makeProductSearchRequest();
-    await pluginFetchStarted;
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    const secondRequest = makeProductSearchRequest();
-    await new Promise(resolve => setTimeout(resolve, 50));
+    try {
+      const firstRequest = makeProductSearchRequest();
+      await pluginFetchStarted;
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const secondRequest = makeProductSearchRequest();
+      await new Promise(resolve => setTimeout(resolve, 50));
 
-    releasePluginFetches.forEach(releasePluginFetch => releasePluginFetch());
-    const results = await Promise.all([firstRequest, secondRequest]);
+      releasePluginFetches.forEach(releasePluginFetch => releasePluginFetch());
+      const results = await Promise.all([firstRequest, secondRequest]);
 
-    results.forEach(result => {
-      expect(result.products).toEqual(slowProducts);
-    });
-    expect(lockTestPlugin.searchProducts).toHaveBeenCalledTimes(1);
-    expect(addJob).not.toHaveBeenCalled();
+      results.forEach(result => {
+        expect(result.products).toEqual(slowProducts);
+      });
+      expect(lockTestPlugin.searchProducts).toHaveBeenCalledTimes(1);
+      expect(addJob).not.toHaveBeenCalled();
+      expect(expireIfValueSpy).toHaveBeenCalled();
+    } finally {
+      expireIfValueSpy.mockRestore();
+      if (originalLockTtl === undefined) {
+        delete process.env.PRODUCT_SEARCH_LOCK_TTL_SECONDS;
+      } else {
+        process.env.PRODUCT_SEARCH_LOCK_TTL_SECONDS = originalLockTtl;
+      }
+    }
   });
 
   it('multiple concurrent requests with no cache should share an empty plugin result', async () => {

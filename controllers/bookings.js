@@ -35,12 +35,18 @@ const getPositiveIntegerEnv = (name, defaultValue) => {
   return Number.isFinite(value) && integerValue > 0 ? integerValue : defaultValue;
 };
 
-const productSearchLockTtlSeconds = getPositiveIntegerEnv('PRODUCT_SEARCH_LOCK_TTL_SECONDS', 120);
+const getProductSearchLockTtlSeconds = () => getPositiveIntegerEnv('PRODUCT_SEARCH_LOCK_TTL_SECONDS', 120);
 const productSearchLockWaitMs = getPositiveIntegerEnv('PRODUCT_SEARCH_LOCK_WAIT_MS', 25 * 1000);
 const productSearchLockPollMs = getPositiveIntegerEnv('PRODUCT_SEARCH_LOCK_POLL_MS', 250);
 const emptyProductSearchCacheTtlSeconds = 60;
 const productSearchOperationId = 'bookingsProductSearch';
 const productSearchCacheDecisionEvent = 'bookingsProductSearch:cache:decision';
+const legacyProductSearchCacheEvents = {
+  cache_saved: 'bookingsProductSearch:cache:save',
+  partial_refresh_skipped: 'bookingsProductSearch:cache:partialRefreshSkipped',
+  empty_refresh_skipped: 'bookingsProductSearch:cache:emptyRefreshSkipped',
+  empty_cache_saved: 'bookingsProductSearch:cache:emptyRefresh',
+};
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 const productCount = value => R.pathOr([], ['products'], value).length;
@@ -49,7 +55,7 @@ const safeHash = value => (value === undefined || value === null ? undefined : h
 
 const emitProductSearchCacheDecision = ({ app, cacheKey, userId, hint, requestId, searchInput, optionId, forceRefresh, startedAt }, action, extra = {}) => {
   if (!app.events || !app.events.emit) return;
-  app.events.emit(productSearchCacheDecisionEvent, {
+  const payload = {
     action,
     operationId: productSearchOperationId,
     requestId,
@@ -62,7 +68,11 @@ const emitProductSearchCacheDecision = ({ app, cacheKey, userId, hint, requestId
     hasOptionId: Boolean(optionId && optionId.length),
     elapsedMs: Date.now() - startedAt,
     ...extra,
-  });
+  };
+  app.events.emit(productSearchCacheDecisionEvent, payload);
+  if (legacyProductSearchCacheEvents[action]) {
+    app.events.emit(legacyProductSearchCacheEvents[action], payload);
+  }
 };
 
 const createLockRenewal = ({ app, key, value, ttl, onDecision }) => {
@@ -294,7 +304,7 @@ const $bookingsProductSearch = plugins => async ({
   const acquirePluginExecutionLock = async lockOwnerToken => app.cache.saveIfNotExists({
     key: pluginExecutionLockKey,
     value: lockOwnerToken,
-    ttl: productSearchLockTtlSeconds,
+    ttl: getProductSearchLockTtlSeconds(),
   });
 
   // Helper function to call the plugin, save cache, and return results
@@ -318,12 +328,13 @@ const $bookingsProductSearch = plugins => async ({
       throw createProductSearchUnavailableError();
     }
 
-    emitDecision('lock_acquired', { reason, lockTtlSeconds: productSearchLockTtlSeconds });
+    const lockTtlSeconds = getProductSearchLockTtlSeconds();
+    emitDecision('lock_acquired', { reason, lockTtlSeconds });
     const lockRenewal = createLockRenewal({
       app,
       key: pluginExecutionLockKey,
       value: lockOwnerToken,
-      ttl: productSearchLockTtlSeconds,
+      ttl: lockTtlSeconds,
       onDecision: emitDecision,
     });
 
@@ -442,7 +453,7 @@ const $bookingsProductSearch = plugins => async ({
         return returnCachedResults('stale_served', { reason: 'backgroundRefreshDeduped' });
       }
 
-      const job = await addJob({
+      const jobId = await addJob({
         type: 'plugin',
         pluginName: appKey,
         method: app.searchProducts ? 'searchProducts' : 'searchProductsForItinerary',
@@ -457,7 +468,7 @@ const $bookingsProductSearch = plugins => async ({
 
       return returnCachedResults('stale_served', {
         reason: 'backgroundRefreshQueued',
-        jobId: job && job.id,
+        jobId,
       });
     }
   }
