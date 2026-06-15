@@ -48,6 +48,39 @@ const saveIfNotExists = async ({
   return result === 'OK';
 };
 
+const expireIfValue = async ({
+  pluginName,
+  key: keyParam,
+  value,
+  ttl = defaultTTL,
+}) => {
+  const key = buildKey({ pluginName, key: keyParam });
+  const expectedValue = JSON.stringify(value);
+  const result = await cache.eval(`
+    if redis.call('get', KEYS[1]) == ARGV[1] then
+      return redis.call('expire', KEYS[1], ARGV[2])
+    end
+    return 0
+  `, 1, key, expectedValue, ttl);
+  return result === 1;
+};
+
+const dropIfValue = async ({
+  pluginName,
+  key: keyParam,
+  value,
+}) => {
+  const key = buildKey({ pluginName, key: keyParam });
+  const expectedValue = JSON.stringify(value);
+  const result = await cache.eval(`
+    if redis.call('get', KEYS[1]) == ARGV[1] then
+      return redis.call('del', KEYS[1])
+    end
+    return 0
+  `, 1, key, expectedValue);
+  return result === 1;
+};
+
 const get = async ({
   pluginName,
   key: keyParam,
@@ -125,6 +158,8 @@ module.exports = {
   cache,
   save,
   saveIfNotExists,
+  expireIfValue,
+  dropIfValue,
   getOrExec,
   drop,
   get,
