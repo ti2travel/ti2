@@ -39,6 +39,46 @@ describe('cache', () => {
     });
   });
 
+  describe('owner-token helpers', () => {
+    it('should only renew and drop a key when the expected value still owns it', async () => {
+      const key = 'owner-lock:test';
+      testKeys.push(key);
+
+      await cache.save({ pluginName: testPluginName, key, value: 'owner-a', ttl: 1 });
+
+      const renewedByWrongOwner = await cache.expireIfValue({
+        pluginName: testPluginName,
+        key,
+        value: 'owner-b',
+        ttl: 60,
+      });
+      const renewedByOwner = await cache.expireIfValue({
+        pluginName: testPluginName,
+        key,
+        value: 'owner-a',
+        ttl: 60,
+      });
+      const droppedByWrongOwner = await cache.dropIfValue({
+        pluginName: testPluginName,
+        key,
+        value: 'owner-b',
+      });
+
+      expect(renewedByWrongOwner).toBe(false);
+      expect(renewedByOwner).toBe(true);
+      expect(droppedByWrongOwner).toBe(false);
+      expect(await cache.get({ pluginName: testPluginName, key })).toBe('owner-a');
+
+      const droppedByOwner = await cache.dropIfValue({
+        pluginName: testPluginName,
+        key,
+        value: 'owner-a',
+      });
+      expect(droppedByOwner).toBe(true);
+      expect(await cache.get({ pluginName: testPluginName, key })).toBeFalsy();
+    });
+  });
+
   describe('scan', () => {
     it('should return keys matching the pattern without plugin prefix', async () => {
       // Save some test keys
