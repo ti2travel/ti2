@@ -196,6 +196,33 @@ describe('user: bookings controller', () => {
     expect(plugins[0].confirmBooking.mock.calls[0][0].payload).toEqual(payload);
     expect(plugins[0].confirmBooking.mock.calls[0][0].token).toEqual(token);
   });
+  it('should emit cancelBooking operation metadata when cancelling', async () => {
+    const payload = {
+      bookingId: chance.guid(),
+    };
+    const emitSpy = jest.spyOn(plugins[0].events, 'emit');
+    try {
+      await doApiPost({
+        url: `/bookings/${appKey}/${userId}/testingToken/cancel`,
+        token: userToken,
+        payload,
+      });
+      expect(plugins[0].cancelBooking).toHaveBeenCalled();
+      expect(plugins[0].cancelBooking.mock.calls[0][0].payload).toEqual(payload);
+      expect(plugins[0].cancelBooking.mock.calls[0][0].token).toEqual(token);
+      expect(emitSpy).toHaveBeenCalledWith(
+        'bookingsCancelBooking',
+        expect.objectContaining({
+          userId,
+          hint: 'testingToken',
+          operationId: 'cancelBooking',
+          pluginName: appKey,
+        }),
+      );
+    } finally {
+      emitSpy.mockRestore();
+    }
+  });
   it('should forward inline credentials directly to create booking', async () => {
     const payload = {
       id: chance.guid(),

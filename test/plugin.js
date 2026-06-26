@@ -75,6 +75,13 @@ class Plugin {
     });
     this.searchQuote = jestPlugin.fn(() => ({ quote: [{ id: chance.guid() }] }));
     this.createBooking = jestPlugin.fn(() => {});
+    this.cancelBooking = jestPlugin.fn(() => ({
+      cancelServicesReply: {},
+      cancellation: {
+        id: chance.guid(),
+        status: 'Cancelled',
+      },
+    }));
     this.confirmBooking = jestPlugin.fn(() => ({
       confirmBookingReply: {},
       booking: {
@@ -542,6 +549,16 @@ class Plugin {
    * @returns {Booking} retVal.booking - A Booking object.
    */
   createBooking() {}
+
+  /**
+   * Cancel a booking
+   * @async
+   * @param {Object} args - Cancel booking arguments.
+   * @param {Object} args.token - A token definition, it's content varies between integrations.
+   * @param {Object} args.payload - Booking identifier payload.
+   * @returns {object} retVal - the return object.
+   */
+  cancelBooking() {}
 
   /**
    * Confirm a quote as a booking
