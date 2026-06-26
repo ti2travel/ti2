@@ -166,6 +166,7 @@ const bookingsCancel = plugins => async (req, res, next) => {
   } = req;
   try {
     const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
+    assert(app.cancelBooking, `cancelBooking is not available for ${appKey}`);
     const results = await app.cancelBooking({
       axios,
       token,
@@ -174,6 +175,14 @@ const bookingsCancel = plugins => async (req, res, next) => {
       userId,
       hint,
       requestId: req.requestId,
+    });
+    app.events.emit('bookingsCancelBooking', {
+      userId,
+      hint,
+      operationId: 'cancelBooking',
+      requestId: req.requestId,
+      pluginName: app.name,
+      payload: results,
     });
     return res.json(results);
   } catch (err) {

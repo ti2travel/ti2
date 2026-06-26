@@ -39,6 +39,7 @@ We are using a set of standardized methods to maintain compatibility; the follow
 * [searchAvailability]{@link Plugin#searchAvailability}
 * [searchQuote]{@link Plugin#searchQuote}
 * [createBooking]{@link Plugin#createBooking}
+* [cancelBooking]{@link Plugin#cancelBooking}
 * [confirmBooking]{@link Plugin#confirmBooking}
 * [searchProductsForItinerary]{@link Plugin#searchProductsForItinerary}
 * [searchAvailabilityForItinerary]{@link Plugin#searchAvailabilityForItinerary}
