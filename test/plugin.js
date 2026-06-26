@@ -75,6 +75,14 @@ class Plugin {
     });
     this.searchQuote = jestPlugin.fn(() => ({ quote: [{ id: chance.guid() }] }));
     this.createBooking = jestPlugin.fn(() => {});
+    this.confirmBooking = jestPlugin.fn(() => ({
+      confirmBookingReply: {},
+      booking: {
+        id: chance.guid(),
+        status: 'OK',
+        serviceLines: [],
+      },
+    }));
     this.getAffiliateAgents = jestPlugin.fn(() => ({ agents: [] }));
     this.searchItineraries = jestPlugin.fn(() => ({ bookings: [] }));
     this.searchProductsForItinerary = jestPlugin.fn(() => ({ products: [] }));
@@ -534,6 +542,22 @@ class Plugin {
    * @returns {Booking} retVal.booking - A Booking object.
    */
   createBooking() {}
+
+  /**
+   * Confirm a quote as a booking
+   * @async
+   * @param {Object} args - Confirm booking arguments.
+   * @param {Object} args.token - A token definition, it's content varies between integrations.
+   * @param {Object} args.payload - Booking identifier payload.
+   * @param {string} [args.payload.bookingId] - Booking id to confirm.
+   * @param {string} [args.payload.id] - Booking id to confirm.
+   * @param {string} [args.payload.ref] - Booking reference to confirm.
+   * @param {string} [args.payload.reference] - Booking reference to confirm.
+   * @returns {object} retVal - the return object.
+   * @returns {Object} retVal.confirmBookingReply - Raw integration reply.
+   * @returns {Booking} retVal.booking - A normalized Booking object.
+   */
+  confirmBooking() {}
 
   /**
    * @typedef {Object} Passenger

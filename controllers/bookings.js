@@ -181,6 +181,38 @@ const bookingsCancel = plugins => async (req, res, next) => {
   }
 };
 
+const confirmBooking = plugins => async (req, res, next) => {
+  const {
+    axios,
+    params: { appKey, userId, hint },
+    body,
+  } = req;
+  try {
+    const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
+    assert(app.confirmBooking, `confirmBooking is not available for ${appKey}`);
+    const results = await app.confirmBooking({
+      axios,
+      token,
+      payload: body,
+      typeDefsAndQueries,
+      userId,
+      hint,
+      requestId: req.requestId,
+    });
+    app.events.emit('bookingsConfirmBooking', {
+      userId,
+      hint,
+      operationId: 'confirmBooking',
+      requestId: req.requestId,
+      pluginName: app.name,
+      payload: results,
+    });
+    return res.json(results);
+  } catch (err) {
+    return next(err);
+  }
+};
+
 const $searchProductList = (products, searchInput = '', optionId = '') => {
   // NOTE: optionId could be a string or an array of strings
   // NOTE: searchInput should not appear at the same time as optionId
@@ -842,6 +874,7 @@ const controllerFactory = plugins => {
   const controllerFunctions = {
     bookingsSearch: bookingsSearch(plugins),
     bookingsCancel: bookingsCancel(plugins),
+    confirmBooking: confirmBooking(plugins),
     $bookingsProductSearch: $bookingsProductSearch(plugins),
     bookingsProductSearch: bookingsProductSearch(plugins),
     getProductPackages: getProductPackages(plugins),
