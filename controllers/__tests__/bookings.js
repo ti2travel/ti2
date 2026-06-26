@@ -170,6 +170,32 @@ describe('user: bookings controller', () => {
     expect(plugins[0].createBooking.mock.calls[0][0].payload).toEqual(payload);
     expect(plugins[0].createBooking.mock.calls[0][0].token).toEqual(token);
   });
+  it('should be able to confirm a booking (with hint)', async () => {
+    const payload = {
+      bookingId: '14226',
+    };
+    await doApiPost({
+      url: `/bookings/${appKey}/${userId}/testingToken/confirm`,
+      token: userToken,
+      payload,
+    });
+    expect(plugins[0].confirmBooking).toHaveBeenCalled();
+    expect(plugins[0].confirmBooking.mock.calls[0][0].payload).toEqual(payload);
+    expect(plugins[0].confirmBooking.mock.calls[0][0].token).toEqual(token);
+  });
+  it('should be able to confirm a booking (no hint)', async () => {
+    const payload = {
+      bookingId: '14226',
+    };
+    await doApiPost({
+      url: `/bookings/${appKey}/${userId}/confirm`,
+      token: userToken,
+      payload,
+    });
+    expect(plugins[0].confirmBooking).toHaveBeenCalled();
+    expect(plugins[0].confirmBooking.mock.calls[0][0].payload).toEqual(payload);
+    expect(plugins[0].confirmBooking.mock.calls[0][0].token).toEqual(token);
+  });
   it('should forward inline credentials directly to create booking', async () => {
     const payload = {
       id: chance.guid(),

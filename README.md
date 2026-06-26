@@ -56,6 +56,7 @@ Plugins are the connectores to other systems and/or features you intent to use; 
 |searchAvailability|&check;|&check;|&check;|&check;|&check;|&check;|
 |searchQuote|&check;|&check;|&check;|&check;|&check;|&check;|
 |createBooking|&check;|&check;|&check;|&check;|&check;|&check;|
+|confirmBooking|&check;|&check;|&check;|&check;|&check;|&check;|
 |cancelBooking|&check;|&check;|&check;|&check;|&check;|&check;|
 |searchProductsForItinerary|||||||||&check;|
 |searchAvailabilityForItinerary|||||||||&check;|
