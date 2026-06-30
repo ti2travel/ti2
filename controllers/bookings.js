@@ -76,7 +76,11 @@ const emitProductSearchCacheDecision = ({ app, cacheKey, userId, hint, requestId
   };
   app.events.emit(productSearchCacheDecisionEvent, payload);
   if (legacyProductSearchCacheEvents[action]) {
-    app.events.emit(legacyProductSearchCacheEvents[action], payload);
+    app.events.emit(legacyProductSearchCacheEvents[action], {
+      ...payload,
+      userId,
+      hint,
+    });
   }
 };
 
