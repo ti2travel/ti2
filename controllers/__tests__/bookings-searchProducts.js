@@ -198,6 +198,26 @@ describe('user: bookings controller - searchProducts', () => {
         });
         emitSpy.mockRestore();
       });
+
+      it('includes raw scope only on legacy cache-save events', async () => {
+        const emitSpy = jest.spyOn(travelgatePlugin.events, 'emit');
+        await doApiPost({
+          url: `/products/${testAppName}/${testUserId}/${testHint}/search`,
+          token: userToken,
+          payload: { forceRefresh: true },
+        });
+        const cacheSavePayload = emitSpy.mock.calls
+          .filter(call => call[0] === 'bookingsProductSearch:cache:save')
+          .map(call => call[1])
+          .find(payload => payload.action === 'cache_saved');
+
+        expect(cacheSavePayload).toBeTruthy();
+        expect(cacheSavePayload.userId).toBe(testUserId);
+        expect(cacheSavePayload.hint).toBe(testHint);
+        expect(cacheSavePayload.userIdHash).toBeTruthy();
+        expect(cacheSavePayload.hintHash).toBeTruthy();
+        emitSpy.mockRestore();
+      });
     });
     describe('doNotCallPluginForProducts flag', () => {
       const doNotCallHint = 'hint_for_doNotCallPluginForProducts';
