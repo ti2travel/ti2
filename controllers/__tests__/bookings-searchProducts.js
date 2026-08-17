@@ -872,6 +872,85 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
     expect(addJob).not.toHaveBeenCalled();
   });
 
+  it('does not save a cold optionId hydration as the full product catalog', async () => {
+    await clearProductSearchCache();
+
+    const scopedProducts = [{
+      productId: 'scoped-product',
+      productName: 'Scoped Product',
+      options: [{
+        optionId: 'scoped-option',
+        optionName: 'Scoped Option',
+      }],
+    }];
+    const fullCatalog = [{
+      productId: 'catalog-product',
+      productName: 'Catalog Product',
+      options: [{
+        optionId: 'catalog-option',
+        optionName: 'Catalog Option',
+      }],
+    }];
+    const emitSpy = jest.spyOn(lockTestPlugin.events, 'emit');
+    lockTestPlugin.searchProducts
+      .mockResolvedValueOnce({ products: scopedProducts })
+      .mockResolvedValueOnce({ products: fullCatalog });
+
+    const scopedResult = await doApiPost({
+      url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
+      token: userToken,
+      payload: { optionId: ['scoped-option'] },
+    });
+    const catalogResult = await makeProductSearchRequest();
+
+    expect(scopedResult.products).toEqual(scopedProducts);
+    expect(catalogResult.products).toEqual(fullCatalog);
+    expect(lockTestPlugin.searchProducts).toHaveBeenCalledTimes(2);
+    expect(lockTestPlugin.searchProducts.mock.calls[0][0].payload.optionId).toEqual([
+      'scoped-option',
+    ]);
+    expect(lockTestPlugin.searchProducts.mock.calls[1][0].payload.optionId).toBeUndefined();
+    expect(emitSpy).toHaveBeenCalledWith(
+      'bookingsProductSearch:cache:decision',
+      expect.objectContaining({
+        action: 'scoped_result_not_cached',
+        returnedProductCount: scopedProducts.length,
+        returnedOptionCount: 1,
+      }),
+    );
+    emitSpy.mockRestore();
+  });
+
+  it('queues an unscoped refresh when an optionId request finds stale catalog data', async () => {
+    await clearProductSearchCache();
+    const cachedProducts = [{
+      productId: 'cached-product',
+      productName: 'Cached Product',
+      options: [{
+        optionId: 'cached-option',
+        optionName: 'Cached Option',
+      }],
+    }];
+    lockTestPlugin.searchProducts.mockResolvedValueOnce({ products: cachedProducts });
+    await makeProductSearchRequest();
+    lockTestPlugin.searchProducts.mockClear();
+    addJob.mockClear();
+    await new Promise(resolve => {
+      setTimeout(resolve, 1500);
+    });
+
+    const result = await doApiPost({
+      url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
+      token: userToken,
+      payload: { optionId: ['cached-option'] },
+    });
+
+    expect(result.products).toEqual(cachedProducts);
+    expect(lockTestPlugin.searchProducts).not.toHaveBeenCalled();
+    expect(addJob).toHaveBeenCalledTimes(1);
+    expect(addJob.mock.calls[0][0].payload.payload).toEqual({ forceRefresh: false });
+  });
+
   it('concurrent forceRefresh requests should wait for one plugin fetch', async () => {
     await clearProductSearchCache();
 

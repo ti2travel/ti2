@@ -52,7 +52,28 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 const productSearchCacheKey = ({ userId, hint }) => hash({ userId, hint, operationId: productSearchOperationId });
 
+const productSearchSelectorFields = [
+  'searchInput',
+  'optionId',
+  'productId',
+  'productName',
+  'lastUpdatedFrom',
+  'skipAccommodation',
+];
+
+const hasProductSearchSelector = payload => productSearchSelectorFields.some(field => {
+  const value = R.path([field], payload);
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'string') return Boolean(value.trim());
+  return value !== undefined && value !== null && value !== false;
+});
+
 const productCount = value => R.pathOr([], ['products'], value).length;
+
+const optionCount = value => R.pathOr([], ['products'], value).reduce(
+  (count, product) => count + R.pathOr([], ['options'], product).length,
+  0,
+);
 
 const hasProductCache = cacheContent => Boolean(cacheContent && cacheContent.products);
 
@@ -291,7 +312,11 @@ const $bookingsProductSearch = plugins => async ({
 
   // Payload for the plugin function (func) - pass forceRefresh so plugins can trigger background cache rebuilds
   const payloadForPlugin = { ...R.omit(['forceRefresh'], originalRequestBody), forceRefresh };
-  const payloadForBackgroundJob = R.omit(['credentials'], payloadForPlugin);
+  const isScopedSearch = hasProductSearchSelector(originalRequestBody);
+  const payloadForBackgroundJob = R.omit(
+    ['credentials', ...productSearchSelectorFields],
+    payloadForPlugin,
+  );
 
   const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
   assert(userId, 'userId is required');
@@ -359,6 +384,26 @@ const $bookingsProductSearch = plugins => async ({
 
   // Helper function to call the plugin, save cache, and return results
   const fetchFromPluginAndCache = async (reason = 'cache_miss') => {
+    if (isScopedSearch) {
+      const pluginStartedAt = Date.now();
+      const pluginResults = await func({
+        axios,
+        token,
+        payload: payloadForPlugin,
+        typeDefsAndQueries,
+        requestId,
+        userId,
+        hint,
+      });
+      emitDecision('scoped_result_not_cached', {
+        reason,
+        pluginElapsedMs: Date.now() - pluginStartedAt,
+        returnedProductCount: productCount(pluginResults),
+        returnedOptionCount: optionCount(pluginResults),
+      });
+      return pluginResults || { products: [] };
+    }
+
     const lockOwnerToken = crypto.randomBytes(16).toString('hex');
     const lockStartedAt = Date.now();
     const lockAcquired = await acquirePluginExecutionLock(lockOwnerToken);
