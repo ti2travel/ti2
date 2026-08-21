@@ -20,7 +20,7 @@ describe('user', () => {
   let doApiGet; let doApiPost; let
     doApiDelete;
   let app;
-  let sqldb;
+  let db;
   let appKey;
   const userId = chance.guid();
   let apiKey = chance.guid();
@@ -33,7 +33,7 @@ describe('user', () => {
   beforeAll(async () => {
     ({
       app,
-      sqldb,
+      sqldb: db,
       doApiDelete,
       doApiGet,
       doApiPost,
@@ -41,6 +41,7 @@ describe('user', () => {
     } = await testUtils({
       plugins: [appName],
     }));
+    await db.models.UserAppKey.destroy({ where: { userId } });
     // create an App
     ({ value: appKey } = await doApiPost({
       url: '/app',
@@ -117,7 +118,7 @@ describe('user', () => {
     // set up new token
     apiKey = chance.guid();
     token.apiKey = apiKey;
-    await doApiPost({
+    const createResult = await doApiPost({
       url: `/${appName}/${userId}`,
       token: userKey,
       payload: {
@@ -125,6 +126,7 @@ describe('user', () => {
         token,
       },
     });
+    expect(createResult.isFirstIntegration).toBe(true);
     // make sure the app token is there
     const { userAppKeys } = await doApiGet({
       url: `/user/${userId}/apps`,
@@ -140,11 +142,117 @@ describe('user', () => {
       ]),
     );
   });
+  it('reports post-save cron setup failure while preserving the committed credential', async () => {
+    const postCommitUserId = chance.guid();
+    const postCommitUserKey = (await doApiPost({
+      url: '/user',
+      token: adminKey,
+      payload: { userId: postCommitUserId },
+    })).value;
+    const cronLookup = jest.spyOn(db.models.CronJobs, 'findOne')
+      .mockRejectedValueOnce(new Error('cron unavailable'));
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const result = await doApiPost({
+        url: `/${appName}/${postCommitUserId}`,
+        token: postCommitUserKey,
+        payload: { tokenHint: 'post-commit', token },
+        expectStatusCode: 500,
+      });
+
+      expect(result.message).toContain('cron unavailable');
+      expect(await db.models.UserAppKey.count({ where: { userId: postCommitUserId } })).toBe(1);
+    } finally {
+      cronLookup.mockRestore();
+      consoleError.mockRestore();
+    }
+  });
+
+  it('serializes competing first integrations and marks exactly one as first', async () => {
+    const concurrentUserId = chance.guid();
+    const concurrentUserKey = (await doApiPost({
+      url: '/user',
+      token: adminKey,
+      payload: { userId: concurrentUserId },
+    })).value;
+    const lockTransaction = await db.transaction();
+    await db.models.User.findOne({
+      where: { userId: concurrentUserId },
+      transaction: lockTransaction,
+      lock: lockTransaction.LOCK.UPDATE,
+    });
+    const originalFindOne = db.models.User.findOne.bind(db.models.User);
+    const lockAttempts = [];
+    let releaseLockAttempts;
+    const bothLockAttempts = new Promise(resolveLockAttempts => {
+      releaseLockAttempts = resolveLockAttempts;
+    });
+    const findOne = jest.spyOn(db.models.User, 'findOne').mockImplementation(options => {
+      if (options.transaction !== lockTransaction && options.lock) {
+        lockAttempts.push(options);
+        if (lockAttempts.length === 2) releaseLockAttempts();
+      }
+      return originalFindOne(options);
+    });
+    let settled = 0;
+    let requests;
+    try {
+      requests = [
+        doApiPost({
+          url: `/${appName}/${concurrentUserId}`,
+          token: concurrentUserKey,
+          payload: { tokenHint: 'first-a', token },
+        }),
+        doApiPost({
+          url: `/${appName}/${concurrentUserId}`,
+          token: concurrentUserKey,
+          payload: { tokenHint: 'first-b', token },
+        }),
+      ].map(postRequest => postRequest.finally(() => { settled += 1; }));
+      await bothLockAttempts;
+      expect(lockAttempts).toHaveLength(2);
+      expect(settled).toBe(0);
+    } finally {
+      findOne.mockRestore();
+      await lockTransaction.commit();
+    }
+    const results = await Promise.all(requests);
+
+    expect(results.map(result => result.isFirstIntegration).sort())
+      .toEqual([false, true]);
+    expect(await db.models.UserAppKey.count({ where: { userId: concurrentUserId } })).toBe(2);
+  });
   const apiKey2 = chance.guid();
   const token2 = { ...token };
+  it('replaces a sole existing integration without marking the update as first', async () => {
+    const replaceUserId = chance.guid();
+    const replaceUserKey = (await doApiPost({
+      url: '/user',
+      token: adminKey,
+      payload: { userId: replaceUserId },
+    })).value;
+    const replaceHint = 'replace-existing';
+    const first = await doApiPost({
+      url: `/${appName}/${replaceUserId}`,
+      token: replaceUserKey,
+      payload: { tokenHint: replaceHint, token },
+    });
+    const replacement = await doApiPost({
+      url: `/${appName}/${replaceUserId}`,
+      token: replaceUserKey,
+      payload: { tokenHint: replaceHint, token: { ...token, apiKey: chance.guid() } },
+    });
+
+    expect(first.isFirstIntegration).toBe(true);
+    expect(replacement.isFirstIntegration).toBe(false);
+    expect(await db.models.UserAppKey.count({
+      where: { userId: replaceUserId, integrationId: appName, hint: replaceHint },
+    })).toBe(1);
+  });
+
   it('create a second token', async () => {
     // set up new token
-    await doApiPost({
+    const createResult = await doApiPost({
       url: `/${appName}/${userId}`,
       token: userKey,
       payload: {
@@ -152,6 +260,7 @@ describe('user', () => {
         token: token2,
       },
     });
+    expect(createResult.isFirstIntegration).toBe(false);
   });
   it('should be able to read a user/app token', async () => {
     const returnValue = await doApiGet({
@@ -257,7 +366,7 @@ describe('user', () => {
   it('should return 422 when stored app token is corrupted', async () => {
     const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    const [originalRows] = await sqldb.query(
+    const [originalRows] = await db.query(
       'SELECT id, appKey FROM UserAppKeys WHERE integrationId = :integrationId AND userId = :userId',
       {
         replacements: {
@@ -266,7 +375,7 @@ describe('user', () => {
         },
       },
     );
-    await sqldb.query(
+    await db.query(
       'UPDATE UserAppKeys SET appKey = :appKey WHERE integrationId = :integrationId AND userId = :userId',
       {
         replacements: {
@@ -284,7 +393,7 @@ describe('user', () => {
       });
       expect(returnValue.message).toBe('Stored integration token is invalid. Please re-save credentials.');
     } finally {
-      await Promise.all(originalRows.map(currentRow => sqldb.query(
+      await Promise.all(originalRows.map(currentRow => db.query(
         'UPDATE UserAppKeys SET appKey = :appKey WHERE id = :id',
         {
           replacements: {
@@ -300,7 +409,7 @@ describe('user', () => {
   it('should return 422 when stored app token is corrupted for hinted endpoint', async () => {
     const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    const [originalRows] = await sqldb.query(
+    const [originalRows] = await db.query(
       'SELECT id, appKey FROM UserAppKeys WHERE integrationId = :integrationId AND userId = :userId AND hint = :hint',
       {
         replacements: {
@@ -310,7 +419,7 @@ describe('user', () => {
         },
       },
     );
-    await sqldb.query(
+    await db.query(
       'UPDATE UserAppKeys SET appKey = :appKey WHERE integrationId = :integrationId AND userId = :userId AND hint = :hint',
       {
         replacements: {
@@ -329,7 +438,7 @@ describe('user', () => {
       });
       expect(returnValue.message).toBe('Stored integration token is invalid. Please re-save credentials.');
     } finally {
-      await Promise.all(originalRows.map(currentRow => sqldb.query(
+      await Promise.all(originalRows.map(currentRow => db.query(
         'UPDATE UserAppKeys SET appKey = :appKey WHERE id = :id',
         {
           replacements: {
