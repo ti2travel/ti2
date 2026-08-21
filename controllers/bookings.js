@@ -41,6 +41,15 @@ const productSearchLockPollMs = getPositiveIntegerEnv('PRODUCT_SEARCH_LOCK_POLL_
 const emptyProductSearchCacheTtlSeconds = 60;
 const productSearchCacheTtlSeconds = 30 * 24 * 60 * 60;
 const productSearchOperationId = 'bookingsProductSearch';
+const bookingWriteOperationId = 'createBooking';
+const bookingWriteResultTtlSeconds = getPositiveIntegerEnv(
+  'BOOKING_WRITE_RESULT_TTL_SECONDS',
+  30 * 24 * 60 * 60,
+);
+const bookingWriteLockTtlSeconds = getPositiveIntegerEnv(
+  'BOOKING_WRITE_LOCK_TTL_SECONDS',
+  10 * 60,
+);
 const productSearchCacheDecisionEvent = 'bookingsProductSearch:cache:decision';
 const legacyProductSearchCacheEvents = {
   cache_saved: 'bookingsProductSearch:cache:save',
@@ -51,6 +60,15 @@ const legacyProductSearchCacheEvents = {
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 const productSearchCacheKey = ({ userId, hint }) => hash({ userId, hint, operationId: productSearchOperationId });
+
+const bookingWriteCacheKey = ({ userId, hint, idempotencyKey }) => hash({
+  userId,
+  hint,
+  idempotencyKey,
+  operationId: bookingWriteOperationId,
+});
+
+const hasCachedValue = value => value !== null && value !== undefined;
 
 const productSearchSelectorFields = [
   'searchInput',
@@ -718,27 +736,90 @@ const createBooking = plugins => async (req, res, next) => {
   try {
     const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
     const func = (app.createBooking || app.addServiceToItinerary).bind(app);
-    let results;
-    if (payload.mock) {
-      results = { mock: true, success: true, bookingId: '1234567890' };
-    } else {
-      results = await func({
-        axios,
-        token,
-        payload,
-        typeDefsAndQueries,
-        userId,
-        hint,
-        requestId: req.requestId,
+    const rawIdempotencyKey = payload.idempotencyKey;
+    const idempotencyKey = typeof rawIdempotencyKey === 'string'
+      ? rawIdempotencyKey.trim()
+      : '';
+    if (rawIdempotencyKey !== undefined && (!idempotencyKey || idempotencyKey.length > 256)) {
+      const err = new Error('idempotencyKey must be a non-empty string of at most 256 characters');
+      err.status = 400;
+      throw err;
+    }
+
+    let resultKey;
+    let lockKey;
+    let lockOwnerToken;
+    let lockRenewal;
+    if (idempotencyKey) {
+      assert(app.cache.get, 'cache adapter must expose get');
+      assert(app.cache.save, 'cache adapter must expose save');
+      assert(app.cache.saveIfNotExists, 'cache adapter must expose saveIfNotExists');
+      const cacheKey = bookingWriteCacheKey({ userId, hint, idempotencyKey });
+      resultKey = `${cacheKey}:result`;
+      lockKey = `${cacheKey}:lock`;
+      const cachedResult = await app.cache.get({ key: resultKey });
+      if (hasCachedValue(cachedResult)) return res.json(cachedResult);
+
+      lockOwnerToken = crypto.randomBytes(16).toString('hex');
+      const lockAcquired = await app.cache.saveIfNotExists({
+        key: lockKey,
+        value: lockOwnerToken,
+        ttl: bookingWriteLockTtlSeconds,
       });
+      if (!lockAcquired) {
+        const completedWhileLocking = await app.cache.get({ key: resultKey });
+        if (hasCachedValue(completedWhileLocking)) return res.json(completedWhileLocking);
+        return res.status(202).json({ status: 'pending' });
+      }
+      lockRenewal = createLockRenewal({
+        app,
+        key: lockKey,
+        value: lockOwnerToken,
+        ttl: bookingWriteLockTtlSeconds,
+        onDecision: () => {},
+      });
+    }
+
+    let results;
+    try {
+      if (payload.mock) {
+        results = { mock: true, success: true, bookingId: '1234567890' };
+      } else {
+        results = await func({
+          axios,
+          token,
+          payload: idempotencyKey ? R.omit(['idempotencyKey'], payload) : payload,
+          typeDefsAndQueries,
+          userId,
+          hint,
+          requestId: req.requestId,
+        });
+      }
+      if (resultKey) {
+        await app.cache.save({
+          key: resultKey,
+          value: results,
+          ttl: bookingWriteResultTtlSeconds,
+        });
+      }
+    } finally {
+      if (lockRenewal) await lockRenewal.stop();
+      if (lockKey && lockOwnerToken) {
+        if (app.cache.dropIfValue) {
+          await app.cache.dropIfValue({ key: lockKey, value: lockOwnerToken });
+        } else {
+          await app.cache.drop({ key: lockKey });
+        }
+      }
     }
     console.debug(`emitting bookingsCreateBooking event for ${appKey}, user ${userId}, hint ${hint}, results: ${JSON.stringify(results)}`);
     app.events.emit('bookingsCreateBooking', {
       userId,
       hint,
-      operationId: 'createBooking',
+      operationId: bookingWriteOperationId,
       requestId: req.requestId,
       pluginName: app.name,
+      ...(idempotencyKey ? { idempotencyKeyHash: hash(idempotencyKey) } : {}),
       payload: results,
     });
     return res.json(results);

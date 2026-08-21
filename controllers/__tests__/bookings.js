@@ -170,6 +170,83 @@ describe('user: bookings controller', () => {
     expect(plugins[0].createBooking.mock.calls[0][0].payload).toEqual(payload);
     expect(plugins[0].createBooking.mock.calls[0][0].token).toEqual(token);
   });
+  it('should replay a completed idempotent booking write without calling the plugin again', async () => {
+    const idempotencyKey = `booking-${chance.guid()}`;
+    const payload = {
+      id: chance.guid(),
+      idempotencyKey,
+    };
+    const pluginResult = {
+      booking: {
+        id: chance.guid(),
+        reference: chance.guid(),
+      },
+    };
+    plugins[0].createBooking.mockImplementationOnce(() => pluginResult);
+
+    const first = await doApiPost({
+      url: `/bookings/${appKey}/${userId}/testingToken/booking`,
+      token: userToken,
+      payload,
+    });
+    const replay = await doApiPost({
+      url: `/bookings/${appKey}/${userId}/testingToken/booking`,
+      token: userToken,
+      payload,
+    });
+
+    expect(first).toEqual(pluginResult);
+    expect(replay).toEqual(pluginResult);
+    expect(plugins[0].createBooking).toHaveBeenCalledTimes(1);
+    expect(plugins[0].createBooking.mock.calls[0][0].payload).toEqual({ id: payload.id });
+  });
+  it('should report an idempotent booking write as pending while its leader is running', async () => {
+    const idempotencyKey = `booking-${chance.guid()}`;
+    const payload = {
+      id: chance.guid(),
+      idempotencyKey,
+    };
+    const pluginResult = {
+      booking: {
+        id: chance.guid(),
+        reference: chance.guid(),
+      },
+    };
+    let releasePlugin;
+    let markPluginStarted;
+    const pluginStarted = new Promise(resolve => {
+      markPluginStarted = resolve;
+    });
+    plugins[0].createBooking.mockImplementationOnce(() => new Promise(resolve => {
+      releasePlugin = resolve;
+      markPluginStarted();
+    }));
+
+    const leader = doApiPost({
+      url: `/bookings/${appKey}/${userId}/testingToken/booking`,
+      token: userToken,
+      payload,
+    });
+    await pluginStarted;
+    const pending = await doApiPost({
+      url: `/bookings/${appKey}/${userId}/testingToken/booking`,
+      token: userToken,
+      payload,
+      expectStatusCode: 202,
+    });
+    releasePlugin(pluginResult);
+    const completed = await leader;
+    const replay = await doApiPost({
+      url: `/bookings/${appKey}/${userId}/testingToken/booking`,
+      token: userToken,
+      payload,
+    });
+
+    expect(pending).toEqual({ status: 'pending' });
+    expect(completed).toEqual(pluginResult);
+    expect(replay).toEqual(pluginResult);
+    expect(plugins[0].createBooking).toHaveBeenCalledTimes(1);
+  });
   it('should be able to confirm a booking (with hint)', async () => {
     const payload = {
       bookingId: '14226',

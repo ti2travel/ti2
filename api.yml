@@ -494,6 +494,10 @@ components:
         shellOnly:
           type: boolean
           description: Optional itinerary-assist flag to create/update booking header only without adding a service line
+        idempotencyKey:
+          type: string
+          maxLength: 256
+          description: Optional opaque key that makes retries of the same booking mutation return one shared result
         credentials:
           required: false
           $ref: '#/components/schemas/integrationCredentials'
@@ -2422,6 +2426,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnyValue'
+        '202':
+          description: A booking mutation with the same idempotency key is still running
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - pending
   /bookings/{appKey}/{userId}/{hint}/booking:
     post:
       security:
@@ -2465,6 +2482,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnyValue'
+        '202':
+          description: A booking mutation with the same idempotency key is still running
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - pending
   /bookings/{appKey}/{userId}/custom-fields:
     get:
       deprecated: true
