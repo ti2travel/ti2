@@ -98,6 +98,7 @@ const createAppToken = async (req, res, next) => {
       userId,
     },
   } = req;
+  let transaction;
   try {
     const payload = {
       integrationId,
@@ -105,20 +106,45 @@ const createAppToken = async (req, res, next) => {
       hint,
       appKey,
     };
-    // check if the user exists
-    const userRecord = await sqldb.User.findOne({ where: { userId } });
-    if (!userRecord) { // create the user record
-      await sqldb.User.create({ userId });
-    }
-    // check if the user already has the same app with the same hint
+    await sqldb.User.findOrCreate({ where: { userId }, defaults: { userId } });
+
+    transaction = await sqldb.sequelize.transaction();
+    await sqldb.User.findOne({
+      where: { userId },
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    const integrationCount = await sqldb.UserAppKey.count({
+      where: { userId },
+      transaction,
+    });
+    const isFirstIntegration = integrationCount === 0;
+    // Replacing an existing app/hint is an update, never a first integration.
     const userAppKeyDup = await sqldb.UserAppKey.findOne({
       where: { userId, integrationId, hint },
+      transaction,
     });
-    if (userAppKeyDup) await userAppKeyDup.destroy();
-    const newAppKey = await sqldb.UserAppKey.create(payload);
-    // create any cronjobs related to the app
-        await bb.each(req.app.plugins, async plugin => {
-      if (Array.isArray(plugin.jobs)) {
+    if (userAppKeyDup) await userAppKeyDup.destroy({ transaction });
+    const newAppKey = await sqldb.UserAppKey.create(payload, { transaction });
+    try {
+      await transaction.commit();
+    } catch (commitErr) {
+      // Sequelize marks failed commits as finished, so a rollback would mask the original error.
+      transaction = null;
+      throw commitErr;
+    }
+    transaction = null;
+
+    const responsePayload = {
+      value: newAppKey.get('id').toString(),
+      isFirstIntegration,
+    };
+
+    // Credential persistence is already committed, but cron provisioning must
+    // remain caller-visible so missing scheduled functionality is not silent.
+    try {
+      await bb.each(req.app.plugins, async plugin => {
+        if (!Array.isArray(plugin.jobs)) return;
         const validJobs = plugin.jobs.filter(job => Boolean(job.cron) && Boolean(job.method));
         await bb.each(validJobs, async job => {
           const where = {
@@ -144,40 +170,48 @@ const createAppToken = async (req, res, next) => {
             ...(job.params || {}),
             removeOnComplete: false,
           };
-          let bullJobId;
           if (existing) {
             const bullJob = await queue.getJob(job.bullJobId);
             if (!bullJob) {
-              let rawBullJobId = await addJob(jobPayload, jobParams);
-              existing.bullJobId = (rawBullJobId && typeof rawBullJobId === 'object' && rawBullJobId.id) ? rawBullJobId.id : rawBullJobId;
+              const rawBullJobId = await addJob(jobPayload, jobParams);
+              existing.bullJobId = (rawBullJobId && typeof rawBullJobId === 'object'
+                && rawBullJobId.id) ? rawBullJobId.id : rawBullJobId;
               await existing.save();
             } else {
-              // make sure the cron is the same
-              // bullJobId here is from existing.bullJobId, which should be a string.
-              // The queue.getJob expects a string ID.
               const bullCron = R.path(
                 ['opts', 'repeat', 'cron'],
-                await queue.getJob(existing.bullJobId), // Use existing.bullJobId
+                await queue.getJob(existing.bullJobId),
               );
               if (bullCron !== job.cron) {
-                await queue.removeJobs(existing.bullJobId); // Use existing.bullJobId
-                let rawBullJobId = await addJob(jobPayload, jobParams);
-                existing.bullJobId = (rawBullJobId && typeof rawBullJobId === 'object' && rawBullJobId.id) ? rawBullJobId.id : rawBullJobId;
+                await queue.removeJobs(existing.bullJobId);
+                const rawBullJobId = await addJob(jobPayload, jobParams);
+                existing.bullJobId = (rawBullJobId && typeof rawBullJobId === 'object'
+                  && rawBullJobId.id) ? rawBullJobId.id : rawBullJobId;
                 await existing.save();
               }
             }
           } else {
-            let rawBullJobId = await addJob(jobPayload, jobParams);
-            const actualBullJobId = (rawBullJobId && typeof rawBullJobId === 'object' && rawBullJobId.id) ? rawBullJobId.id : rawBullJobId;
+            const rawBullJobId = await addJob(jobPayload, jobParams);
+            const actualBullJobId = (rawBullJobId && typeof rawBullJobId === 'object'
+              && rawBullJobId.id) ? rawBullJobId.id : rawBullJobId;
             await sqldb.CronJobs.create({ ...where, bullJobId: actualBullJobId });
           }
         });
-      }
-    });
+      });
+    } catch (cronErr) {
+      console.error('Unable to configure integration cron jobs after save', cronErr);
+      throw cronErr;
+    }
 
-
-    return res.json({ value: newAppKey.get('id').toString() });
+    return res.json(responsePayload);
   } catch (err) {
+    if (transaction && !transaction.finished) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackErr) {
+        console.error('Unable to roll back integration credential transaction', rollbackErr);
+      }
+    }
     return next(err);
   }
 };

@@ -101,6 +101,17 @@ components:
       properties:
         value:
           type: string
+    CreateAppTokenResponse:
+      type: object
+      required:
+        - value
+        - isFirstIntegration
+      properties:
+        value:
+          type: string
+        isFirstIntegration:
+          type: boolean
+          description: True only when this transaction created the user's first integration credential.
     Status:
       type: object
       properties:
@@ -862,7 +873,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Message'
+                $ref: '#/components/schemas/CreateAppTokenResponse'
     delete:
       tags:
         - app
