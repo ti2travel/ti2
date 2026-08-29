@@ -2,8 +2,8 @@ const assert = require('assert');
 const crypto = require('crypto');
 const hash = require('object-hash');
 const R = require('ramda');
-const { UserAppKey } = require('../models/index');
 const { addJob } = require('../worker/queue');
+const getAppAndToken = require('../lib/get-app-and-token');
 const { typeDefs: productTypeDefs, query: productQuery } = require('./graphql-schemas/product');
 const { typeDefs: availTypeDefs, query: availQuery } = require('./graphql-schemas/availability');
 const { typeDefs: bookingTypeDefs, query: bookingQuery } = require('./graphql-schemas/booking');
@@ -140,21 +140,6 @@ const createProductSearchUnavailableError = () => {
   const err = new Error('Product search cache refresh did not produce cached results');
   err.status = 503;
   return err;
-};
-
-const getAppAndToken = async ({ plugins, appKey, userId, hint }) => {
-  const app = plugins.find(({ name }) => name === appKey);
-  assert(app, 'could not find the app ' + appKey);
-  const userAppKeys = await UserAppKey.findOne({
-    where: {
-      userId,
-      integrationId: appKey,
-      ...(hint && { hint }),
-    },
-  });
-  assert(userAppKeys, 'could not find the app key');
-  const token = await userAppKeys.token;
-  return { app, token };
 };
 
 const bookingsSearch = plugins => async (req, res, next) => {

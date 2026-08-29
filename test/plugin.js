@@ -92,6 +92,7 @@ class Plugin {
     }));
     this.getAffiliateAgents = jestPlugin.fn(() => ({ agents: [] }));
     this.searchItineraries = jestPlugin.fn(() => ({ bookings: [] }));
+    this.searchBookings = jestPlugin.fn(() => ({ bookings: [] }));
     this.searchProductsForItinerary = jestPlugin.fn(() => ({ products: [] }));
     this.searchAvailabilityForItinerary = jestPlugin.fn(({
       token,
@@ -119,6 +120,34 @@ class Plugin {
         lineId: chance.guid(),
       },
     }));
+    this.getBookingCapabilities = jestPlugin.fn(() => ({
+      provider: this.name,
+      tools: Object.keys({
+        get_booking: true,
+        update_booking: true,
+      }),
+    }));
+    this.listBookingReferenceData = jestPlugin.fn(() => ({ entries: [] }));
+    this.getBooking = jestPlugin.fn(({ payload }) => ({
+      bookingId: String(payload.bookingId),
+      bookingReference: 'TEST-1',
+      version: '3',
+      passengers: [],
+      services: [],
+    }));
+    this.searchBookingProducts = jestPlugin.fn(() => ({ products: [] }));
+    this.checkBookingProductAvailability = jestPlugin.fn(() => ({ bookable: true }));
+    this.copyBooking = jestPlugin.fn(() => ({
+      outcome: 'completed',
+      bookingId: '200',
+      bookingReference: 'TEST-2',
+    }));
+    this.updateBooking = jestPlugin.fn(() => ({ outcome: 'completed', changes: [] }));
+    this.rescheduleBooking = jestPlugin.fn(() => ({ outcome: 'completed', changes: [] }));
+    this.updateBookingPassengers = jestPlugin.fn(() => ({ outcome: 'completed', outcomes: [] }));
+    this.addBookingServices = jestPlugin.fn(() => ({ outcome: 'completed', outcomes: [] }));
+    this.updateBookingServices = jestPlugin.fn(() => ({ outcome: 'completed', outcomes: [] }));
+    this.removeBookingServices = jestPlugin.fn(() => ({ outcome: 'completed', outcomes: [] }));
 
     this.queryAllotment = jestPlugin.fn(async args => {
       const {
@@ -826,6 +855,7 @@ class Plugin {
    * @returns {Array<ItineraryBooking>} retVal.bookings - An array of itinerary bookings matching search criteria.
    */
   searchItineraries() {}
+  searchBookings() {}
 
   /**
    * Query Allotment

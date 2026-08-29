@@ -1701,6 +1701,105 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/pickuppoint'
+  /booking-tools/{appKey}/{userId}/{tool}:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - booking tools
+      summary: Execute a provider-neutral booking capability
+      operationId: bookingTool
+      parameters:
+        - name: appKey
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: tool
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - request
+              properties:
+                request:
+                  type: object
+                  additionalProperties: true
+                runtime:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200':
+          description: Normalized booking capability result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /booking-tools/{appKey}/{userId}/{hint}/{tool}:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - booking tools
+      summary: Execute a provider-neutral booking capability for a specific hint
+      operationId: bookingTool
+      parameters:
+        - name: appKey
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: tool
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - request
+              properties:
+                request:
+                  type: object
+                  additionalProperties: true
+                runtime:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200':
+          description: Normalized booking capability result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
   /bookings/{appKey}/{userId}/search:
     post:
       security:
