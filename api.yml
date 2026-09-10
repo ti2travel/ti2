@@ -433,6 +433,15 @@ components:
           required: false
           description: Product Name wildcard match
           example: '*bus*'
+        omitServiceCodes:
+          required: false
+          description: Service codes to omit from the product catalog. When the integration has productSearchOmitServiceCodes, that list is used instead.
+          example: ['AC', 'SM']
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
         credentials:
           required: false
           $ref: '#/components/schemas/integrationCredentials'
