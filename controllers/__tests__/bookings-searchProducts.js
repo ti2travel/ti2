@@ -271,6 +271,112 @@ describe('user: bookings controller - searchProducts', () => {
 
       });
     });
+    describe('configured productSearchOmitServiceCodes', () => {
+      const configuredOmitHint = 'configured-product-omit-service-codes';
+      let cacheKey;
+
+      beforeAll(async () => {
+        await globalUtils.appSetup({
+          appName: testAppName,
+          userId: testUserId,
+          tokenHint: configuredOmitHint,
+          token: {
+            endpoint: 'https://api.travelgatex.com/configured-omit',
+            apiKey: chance.guid(),
+            client: 'tourconnect-configured-omit',
+            productSearchOmitServiceCodes: ' sm, AC, ac ',
+          },
+        });
+        cacheKey = hash({
+          userId: testUserId,
+          hint: configuredOmitHint,
+          operationId: 'bookingsProductSearch',
+        });
+      });
+
+      beforeEach(async () => {
+        await Promise.all([
+          cache.drop({ pluginName: testAppName, key: cacheKey }),
+          cache.drop({ pluginName: testAppName, key: `${cacheKey}:lastUpdated` }),
+          cache.drop({ pluginName: testAppName, key: `${cacheKey}:lock` }),
+          cache.drop({ pluginName: testAppName, key: `${cacheKey}:jobLock` }),
+        ]);
+      });
+
+      it('sends configured omissions when the caller omits the field', async () => {
+        await doApiPost({
+          url: `/products/${testAppName}/${testUserId}/${configuredOmitHint}/search`,
+          token: userToken,
+          payload: {},
+        });
+
+        expect(travelgatePlugin.searchProducts).toHaveBeenCalledTimes(1);
+        expect(
+          travelgatePlugin.searchProducts.mock.calls[0][0].payload.omitServiceCodes,
+        ).toEqual(['AC', 'SM']);
+        expect(await cache.get({ pluginName: testAppName, key: cacheKey })).toBeTruthy();
+      });
+
+      it('keeps configured omissions during an empty-scope force refresh', async () => {
+        await doApiPost({
+          url: `/products/${testAppName}/${testUserId}/${configuredOmitHint}/search`,
+          token: userToken,
+          payload: { forceRefresh: true, omitServiceCodes: [] },
+        });
+
+        expect(travelgatePlugin.searchProducts).toHaveBeenCalledTimes(1);
+        expect(travelgatePlugin.searchProducts.mock.calls[0][0].payload).toEqual({
+          forceRefresh: true,
+          omitServiceCodes: ['AC', 'SM'],
+        });
+      });
+
+      it('ignores extra request omit codes once the integration is configured', async () => {
+        await doApiPost({
+          url: `/products/${testAppName}/${testUserId}/${configuredOmitHint}/search`,
+          token: userToken,
+          payload: { omitServiceCodes: ['TR'] },
+        });
+
+        expect(
+          travelgatePlugin.searchProducts.mock.calls[0][0].payload.omitServiceCodes,
+        ).toEqual(['AC', 'SM']);
+      });
+
+      it('preserves configured omissions in stale background refreshes', async () => {
+        await cache.save({
+          pluginName: testAppName,
+          key: cacheKey,
+          value: { products: [{ productId: 'stale-product' }] },
+          ttl: 60,
+        });
+        await cache.save({
+          pluginName: testAppName,
+          key: `${cacheKey}:lastUpdated`,
+          value: 1,
+          ttl: 60,
+        });
+
+        const result = await doApiPost({
+          url: `/products/${testAppName}/${testUserId}/${configuredOmitHint}/search`,
+          token: userToken,
+          payload: {},
+        });
+
+        expect(result.products).toEqual([{ productId: 'stale-product' }]);
+        expect(travelgatePlugin.searchProducts).not.toHaveBeenCalled();
+        expect(addJob).toHaveBeenCalledTimes(1);
+        expect(addJob.mock.calls[0][0].payload.payload).toEqual({
+          forceRefresh: false,
+          omitServiceCodes: ['AC', 'SM'],
+        });
+        expect(addJob.mock.calls[0][0].postProcess.args).toEqual({
+          appKey: testAppName,
+          userId: testUserId,
+          hint: configuredOmitHint,
+        });
+      });
+    });
     describe('cache TTR and lock mechanism', () => {
       const ttrTestHint = 'ttr-test'; // This hint is for UserAppKey within 'travelgate' appName
       const shortTTRToken = {

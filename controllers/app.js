@@ -50,7 +50,6 @@ const tokenTemplate = async (req, res, next) => {
   try {
     const thePlugin = req.app.plugins.find(({ name }) => name === pluginName);
     assert(thePlugin);
-    let template = thePlugin.tokenTemplate();
     const safeRegExp = el => {
       if (!el || !(el.regExp instanceof RegExp)) {
         return el;
@@ -64,24 +63,28 @@ const tokenTemplate = async (req, res, next) => {
         },
       };
     };
-    template = R.map(safeRegExp, template);
-    return res.json({
-      template: {
-        ...template,
-        // ttlProducts and doNotCallPluginForProducts are being used at ti2 level
-        // hence we should just by default allow them for all ti2 plugins
-        ttlForProducts: {
-          type: 'number',
-          regExp: /.+/,
-          default: 60 * 60 * 24, // 1 day
-        },
-        doNotCallPluginForProducts: {
-          type: 'boolean',
-          regExp: /.+/,
-          default: false,
-        },
+    const template = R.map(safeRegExp, {
+      ...thePlugin.tokenTemplate(),
+      // ttlProducts and doNotCallPluginForProducts are being used at ti2 level
+      // hence we should just by default allow them for all ti2 plugins
+      ttlForProducts: {
+        type: 'number',
+        regExp: /.+/,
+        default: 60 * 60 * 24, // 1 day
+      },
+      doNotCallPluginForProducts: {
+        type: 'boolean',
+        regExp: /.+/,
+        default: false,
+      },
+      productSearchOmitServiceCodes: {
+        type: 'text',
+        regExp: /^[\sA-Za-z0-9,]*$/,
+        default: '',
+        description: 'Service codes that every product search for this integration must omit',
       },
     });
+    return res.json({ template });
   } catch (err) {
     return next(err);
   }
