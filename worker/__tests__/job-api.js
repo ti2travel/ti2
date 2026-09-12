@@ -52,12 +52,17 @@ jest.mock('../queue', () => {
       })
     },
     addJob: jest.fn().mockResolvedValue('test-job-id'),
-    allDone: jest.fn().mockResolvedValue(true)
+    allDone: jest.fn().mockResolvedValue(true),
+    saveResult: jest.fn().mockResolvedValue(undefined),
   };
 });
 
 // Import the mocked queue and the actual worker module
-const { addJob, queue, allDone } = require('../queue');
+const {
+  addJob,
+  queue,
+  saveResult,
+} = require('../queue');
 const actualWorkerModule = require('../index'); // Actual worker module
 
 describe('worker: API job handling', () => {
@@ -86,7 +91,10 @@ describe('worker: API job handling', () => {
     axios.mockImplementation(config => {
       // This mock is for the internal axios call made by the worker
       if (config.url && config.url.includes('/products/testAppKey/testUserId/testTokenHint/search')) {
-        return Promise.resolve({ status: 200, data: { success: true, message: 'Mocked internal success' } });
+        return Promise.resolve({
+          status: 200,
+          data: { success: true, products: [{ productId: 'incidental-product' }] },
+        });
       }
       console.error('Unexpected axios call to mock:', config);
       return Promise.reject(new Error(`Unexpected axios call in mock for URL: ${config.url}`));
@@ -115,6 +123,10 @@ describe('worker: API job handling', () => {
   afterAll(() => {
     jest.restoreAllMocks(); // Restores all mocks, including console.log spy
     actualJobHandler = null; // Clear captured handler
+  });
+
+  beforeEach(() => {
+    saveResult.mockClear();
   });
 
   it('should create a job of type "api" for the product search endpoint and send it to the API server', async () => {
@@ -169,5 +181,45 @@ describe('worker: API job handling', () => {
         }),
       })
     );
+    expect(saveResult).toHaveBeenCalledWith({
+      id: jobId,
+      resultValue: expect.objectContaining({
+        ti2CatalogProductCount: null,
+        ti2ReturnedProductCount: null,
+      }),
+    });
+  });
+
+  it('reports committed and returned counts for a full catalog refresh', async () => {
+    axios.mockResolvedValueOnce({
+      status: 200,
+      data: {
+        products: [],
+        catalogRefreshOutcome: 'empty_result_preserved_cache',
+        cacheUpdated: false,
+        cachePreserved: true,
+        cachedProductCount: 7,
+      },
+    });
+    const job = {
+      id: 'catalog-refresh-job',
+      data: {
+        type: 'api',
+        method: 'POST',
+        url: '/products/testAppKey/testUserId/testTokenHint/search',
+        headers: { 'content-type': 'application/json' },
+        payload: { forceRefresh: true, backgroundJob: true },
+      },
+    };
+
+    await actualJobHandler(job);
+
+    expect(saveResult).toHaveBeenCalledWith({
+      id: job.id,
+      resultValue: expect.objectContaining({
+        ti2CatalogProductCount: 7,
+        ti2ReturnedProductCount: 0,
+      }),
+    });
   });
 });

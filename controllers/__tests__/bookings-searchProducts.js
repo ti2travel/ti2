@@ -16,7 +16,6 @@ jest.mock('../../worker/queue', () => ({
 const { addJob, jobStatus: mockJobStatus } = require('../../worker/queue'); // Now addJob is the mock
 
 const testUtils = require('../../test/utils'); // Require the module itself
-const bookingsControllerFactory = require('../bookings');
 
 // Global setup for the entire test file
 let globalDoApiPost, globalPlugins, globalUtils, globalSqldb;
@@ -24,7 +23,13 @@ let globalDoApiPost, globalPlugins, globalUtils, globalSqldb;
 beforeAll(async () => {
   // Initialize utils once for the entire test file
   // Ensure all plugins needed across different describe blocks are listed here.
-  globalUtils = await testUtils({ plugins: ['lockTestPlugin', 'travelgate'] });
+  globalUtils = await testUtils({
+    plugins: ['lockTestPlugin', 'travelgate'],
+    pluginCapabilities: {
+      lockTestPlugin: { weeklyProductCatalogSync: true },
+      travelgate: { weeklyProductCatalogSync: true },
+    },
+  });
   globalDoApiPost = globalUtils.doApiPost;
   globalPlugins = globalUtils.plugins; // Array of instantiated plugins from the app instance
   globalSqldb = globalUtils.sqldb; 
@@ -99,6 +104,17 @@ describe('user: bookings controller - searchProducts', () => {
   });
 
   describe('searchProducts', () => {
+    it('distinguishes a cache-only miss from a cached empty catalog', async () => {
+      const response = await doApiPost({
+        url: `/products/${testAppName}/${testUserId}/${testHint}/search`,
+        token: userToken,
+        payload: { cacheOnly: true },
+      });
+      expect(response.cacheFound).toBe(false);
+      expect(response.products).toEqual([]);
+      expect(travelgatePlugin.searchProducts).not.toHaveBeenCalled();
+    });
+
     it('should be able to get bookings products for most users without special setup: no cache', async () => {
       const payload = {};
       const { products } = await doApiPost({
@@ -111,6 +127,20 @@ describe('user: bookings controller - searchProducts', () => {
       expect(products.length).toBe(2);
       expect(products[0].options.length).toBe(1);
       expect(products[1].options.length).toBe(2);
+    });
+    it('rejects plugin results that do not expose the canonical products array', async () => {
+      travelgatePlugin.searchProducts.mockResolvedValueOnce({ accommodation: [] });
+
+      const response = await doApiPost({
+        url: `/products/${testAppName}/${testUserId}/${testHint}/search`,
+        token: userToken,
+        payload: { forceRefresh: true },
+        expectStatusCode: 500,
+      });
+
+      expect(response.message).toContain(
+        'travelgate product search must return an object with a products array',
+      );
     });
     it('should be able to get booking products: no cache, forceRefresh', async () => {
       // NOTE: we SHOULD NOT need to remove the cache first, since we are forceRefreshing, we are testing the endpoint get's called while having a cache created
@@ -138,6 +168,25 @@ describe('user: bookings controller - searchProducts', () => {
           payload,
         });
         expect(travelgatePlugin.searchProducts).not.toHaveBeenCalled();
+        expect(Array.isArray(products)).toBeTruthy();
+        expect(products.length).toBe(2);
+        expect(products[0].options.length).toBe(1);
+        expect(products[1].options.length).toBe(2);
+      });
+      it('cacheOnly should return the cache and never call the plugin', async () => {
+        await doApiPost({
+          url: `/products/${testAppName}/${testUserId}/${testHint}/search`,
+          token: userToken,
+          payload: {},
+        });
+        travelgatePlugin.searchProducts.mockClear();
+        const { products, cacheFound } = await doApiPost({
+          url: `/products/${testAppName}/${testUserId}/${testHint}/search`,
+          token: userToken,
+          payload: { cacheOnly: true, forceRefresh: true },
+        });
+        expect(travelgatePlugin.searchProducts).not.toHaveBeenCalled();
+        expect(cacheFound).toBe(true);
         expect(Array.isArray(products)).toBeTruthy();
         expect(products.length).toBe(2);
         expect(products[0].options.length).toBe(1);
@@ -216,6 +265,51 @@ describe('user: bookings controller - searchProducts', () => {
         expect(cacheSavePayload.hint).toBe(testHint);
         expect(cacheSavePayload.userIdHash).toBeTruthy();
         expect(cacheSavePayload.hintHash).toBeTruthy();
+        emitSpy.mockRestore();
+      });
+
+      it('carries a manual override reason on cache-save events', async () => {
+        const emitSpy = jest.spyOn(travelgatePlugin.events, 'emit');
+        const result = await doApiPost({
+          url: `/products/${testAppName}/${testUserId}/${testHint}/search`,
+          token: userToken,
+          payload: {
+            forceRefresh: true,
+            fullSyncTrigger: 'manual',
+            admissionOverrideReason: '  urgent catalog repair  ',
+            fullSyncStartedAt: 1700000000,
+            fullSyncAdmissionToken: 'admission-token',
+          },
+        });
+        expect(result).toEqual(expect.objectContaining({
+          catalogRefreshOutcome: 'cache_updated',
+          cacheUpdated: true,
+          cachePreserved: false,
+          cachedProductCount: 2,
+        }));
+        const cacheSavePayload = emitSpy.mock.calls
+          .filter(call => call[0] === 'bookingsProductSearch:cache:save')
+          .map(call => call[1])
+          .find(payload => payload.action === 'cache_saved');
+
+        expect(cacheSavePayload).toEqual(expect.objectContaining({
+          fullSyncTrigger: 'manual',
+          admissionOverrideReason: 'urgent catalog repair',
+          fullSyncStartedAt: 1700000000,
+          fullSyncAdmissionToken: 'admission-token',
+        }));
+        const decisionPayload = emitSpy.mock.calls
+          .filter(call => call[0] === 'bookingsProductSearch:cache:decision')
+          .map(call => call[1])
+          .find(payload => payload.action === 'cache_saved');
+        expect(decisionPayload.fullSyncAdmissionToken).toBeUndefined();
+        expect(decisionPayload.fullSyncAdmissionTokenHash).toBeTruthy();
+        expect(travelgatePlugin.searchProducts.mock.calls[0][0].payload)
+          .not.toHaveProperty('admissionOverrideReason');
+        expect(travelgatePlugin.searchProducts.mock.calls[0][0].payload)
+          .not.toHaveProperty('fullSyncStartedAt');
+        expect(travelgatePlugin.searchProducts.mock.calls[0][0].payload)
+          .not.toHaveProperty('fullSyncAdmissionToken');
         emitSpy.mockRestore();
       });
     });
@@ -343,7 +437,7 @@ describe('user: bookings controller - searchProducts', () => {
         ).toEqual(['AC', 'SM']);
       });
 
-      it('preserves configured omissions in stale background refreshes', async () => {
+      it('does not queue a catalog refresh from a stale organic search', async () => {
         await cache.save({
           pluginName: testAppName,
           key: cacheKey,
@@ -365,16 +459,7 @@ describe('user: bookings controller - searchProducts', () => {
 
         expect(result.products).toEqual([{ productId: 'stale-product' }]);
         expect(travelgatePlugin.searchProducts).not.toHaveBeenCalled();
-        expect(addJob).toHaveBeenCalledTimes(1);
-        expect(addJob.mock.calls[0][0].payload.payload).toEqual({
-          forceRefresh: false,
-          omitServiceCodes: ['AC', 'SM'],
-        });
-        expect(addJob.mock.calls[0][0].postProcess.args).toEqual({
-          appKey: testAppName,
-          userId: testUserId,
-          hint: configuredOmitHint,
-        });
+        expect(addJob).not.toHaveBeenCalled();
       });
     });
     describe('cache TTR and lock mechanism', () => {
@@ -421,9 +506,9 @@ describe('user: bookings controller - searchProducts', () => {
             setTimeout(resolve, 2100);
           });
         });
-        it('call outside of TTR should serve stale data and queue background refresh with correct parameters', async () => {
+        it('call outside of TTR should serve stale data and not queue a catalog refresh', async () => {
           travelgatePlugin.searchProducts.mockClear(); // Clear before action
-          addJob.mockClear(); // Clear addJob mock before this action that should trigger it
+          addJob.mockClear();
           const emitSpy = jest.spyOn(travelgatePlugin.events, 'emit');
 
           const { products } = await doApiPost({
@@ -431,39 +516,15 @@ describe('user: bookings controller - searchProducts', () => {
             token: userToken,
             payload: {},
           });
-          // This synchronous call should serve stale data.
-          // The plugin should NOT be called by *this* request directly as a background job is queued.
           expect(travelgatePlugin.searchProducts).not.toHaveBeenCalled();
+          expect(addJob).not.toHaveBeenCalled();
           expect(Array.isArray(products)).toBeTruthy();
-          expect(products.length).toBe(2); // Assuming stale data (from initial cache population) is available and has 2 products
-          
-          // Check that addJob was called and verify its parameters
-          expect(addJob).toHaveBeenCalledTimes(1);
-          
-          const jobCall = addJob.mock.calls[0]; // Get the first (and only expected) call to addJob
-          const jobData = jobCall[0]; // First argument to addJob is the job payload
-          const jobParams = jobCall[1]; // Second argument is params like removeOnComplete
-
-          const expectedPluginMethod = travelgatePlugin.searchProducts ? 'searchProducts' : 'searchProductsForItinerary';
-
-          expect(jobData.type).toBe('plugin');
-          expect(jobData.pluginName).toBe(testAppName); // 'travelgate'
-          expect(jobData.method).toBe(expectedPluginMethod);
-          expect(jobData.token).toBeDefined(); // Token passed to the job
-          expect(jobData.payload.userId).toBe(testUserId);
-          expect(jobData.payload.payload).toEqual({ forceRefresh: false }); // Original payload for the plugin method
-          expect(jobData.postProcess.controller).toBe('bookings');
-          expect(jobData.postProcess.action).toBe('$updateProductSearchCache');
-          expect(jobData.postProcess.args.appKey).toBe(testAppName);
-          expect(jobData.postProcess.args.userId).toBe(testUserId);
-          expect(jobData.postProcess.args.hint).toBe(ttrTestHint);
-          expect(jobParams).toEqual({ removeOnComplete: true });
+          expect(products.length).toBe(2);
           expect(emitSpy).toHaveBeenCalledWith(
             'bookingsProductSearch:cache:decision',
             expect.objectContaining({
               action: 'stale_served',
-              reason: 'backgroundRefreshQueued',
-              jobId: 'mockJobId',
+              reason: 'awaitingScheduledRefresh',
             }),
           );
           emitSpy.mockRestore();
@@ -522,7 +583,6 @@ describe('user: bookings controller - searchProducts', () => {
 
     it('should return stale products and preserve the cache when refresh yields empty products', async () => {
       const initialProductsInCache = [{ productId: 'staleProd1', name: 'Stale Product One', optionId: 'optStale1' }];
-      const productsFromPluginRefresh = []; // Simulate plugin returning empty on refresh
       const cacheKeyForTest = hash({
         userId: testUserId,
         hint: staleCacheTestHint,
@@ -545,64 +605,61 @@ describe('user: bookings controller - searchProducts', () => {
       // 2. Wait for TTL to expire (shortTtlForProducts is 2s, wait 3s)
       await new Promise(resolve => setTimeout(resolve, (shortTtlForProducts + 1) * 1000));
 
-      // 3. Second call: TTR has expired. A background job will be queued.
-      //    The plugin method for the *background job* will return empty results.
-      //    This mock is for the plugin call that the *worker* would make.
-      travelgatePlugin.searchProducts.mockResolvedValueOnce({ products: productsFromPluginRefresh });
-      
+      // 3. Second call: TTR has expired. Serve stale data and do not queue a catalog refresh.
       const { products: secondCallResult } = await doApiPost({
         url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
         token: userToken,
         payload: { searchInput: '' },
       });
 
-      // Assert that the stale data (initialProductsInCache) is returned by this synchronous call.
       expect(secondCallResult).toEqual(initialProductsInCache);
       expect(secondCallResult.length).toBeGreaterThan(0);
-      
-      // Verify that addJob was called to queue the background refresh.
-      expect(addJob).toHaveBeenCalledTimes(1);
-      // The travelgatePlugin.searchProducts mock was for the *job*, so it shouldn't be called by the API directly here.
-      // The controller serves stale and queues job; it doesn't call plugin directly in this path.
+      expect(addJob).not.toHaveBeenCalled();
       expect(travelgatePlugin.searchProducts).not.toHaveBeenCalled();
-
-      // Note: This test verifies the immediate response serves stale data and a job is queued.
-      // Cache preservation for empty background refreshes is covered below.
     });
 
-    it('should keep existing non-empty cache when background refresh returns empty products', async () => {
+    it('should keep existing non-empty cache when forceRefresh returns empty products', async () => {
       const initialProductsInCache = [{ productId: 'staleProd1', name: 'Stale Product One', optionId: 'optStale1' }];
       const cacheKeyForTest = hash({
         userId: testUserId,
         hint: staleCacheTestHint,
         operationId: 'bookingsProductSearch',
       });
-      await cache.save({
-        pluginName: testAppName,
-        key: cacheKeyForTest,
-        value: { products: initialProductsInCache },
-        ttl: 60,
+      travelgatePlugin.searchProducts.mockResolvedValueOnce({ products: initialProductsInCache });
+      await doApiPost({
+        url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
+        token: userToken,
+        payload: { searchInput: '' },
       });
-      await cache.save({
+      travelgatePlugin.searchProducts.mockReset();
+      travelgatePlugin.searchProducts.mockResolvedValueOnce({ products: [] });
+      const emitSpy = jest.spyOn(travelgatePlugin.events, 'emit');
+      const lastUpdatedBefore = await cache.get({
         pluginName: testAppName,
         key: `${cacheKeyForTest}:lastUpdated`,
-        value: 1,
-        ttl: 60,
       });
-      const emitSpy = jest.spyOn(travelgatePlugin.events, 'emit');
 
-      await bookingsControllerFactory(globalPlugins).$updateProductSearchCache({
-        appKey: testAppName,
-        userId: testUserId,
-        hint: staleCacheTestHint,
-        pluginResult: { products: [] },
-        requestId: 'empty-refresh-test',
+      const result = await doApiPost({
+        url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
+        token: userToken,
+        payload: { forceRefresh: true },
       });
 
       const cached = await cache.get({ pluginName: testAppName, key: cacheKeyForTest });
-      const lastUpdated = await cache.get({ pluginName: testAppName, key: `${cacheKeyForTest}:lastUpdated` });
+      const lastUpdatedAfter = await cache.get({
+        pluginName: testAppName,
+        key: `${cacheKeyForTest}:lastUpdated`,
+      });
+      expect(travelgatePlugin.searchProducts).toHaveBeenCalledTimes(1);
+      expect(result).toEqual(expect.objectContaining({
+        products: initialProductsInCache,
+        catalogRefreshOutcome: 'empty_result_preserved_cache',
+        cacheUpdated: false,
+        cachePreserved: true,
+        cachedProductCount: initialProductsInCache.length,
+      }));
       expect(cached.products).toEqual(initialProductsInCache);
-      expect(lastUpdated).toBeGreaterThan(1);
+      expect(lastUpdatedAfter).toBe(lastUpdatedBefore);
       expect(emitSpy).toHaveBeenCalledWith(
         'bookingsProductSearch:cache:decision',
         expect.objectContaining({
@@ -612,40 +669,7 @@ describe('user: bookings controller - searchProducts', () => {
           existingProductCount: initialProductsInCache.length,
         }),
       );
-      expect(emitSpy).toHaveBeenCalledWith(
-        'bookingsProductSearch:cache:emptyRefreshSkipped',
-        expect.objectContaining({
-          action: 'empty_refresh_skipped',
-          reason: 'emptyResultPreservedExistingCache',
-          cachePreserved: true,
-        }),
-      );
       emitSpy.mockRestore();
-    });
-
-    it('should not cache partial product refreshes as complete results', async () => {
-      const cacheKeyForTest = hash({
-        userId: testUserId,
-        hint: staleCacheTestHint,
-        operationId: 'bookingsProductSearch',
-      });
-      await cache.drop({ pluginName: testAppName, key: cacheKeyForTest });
-
-      await bookingsControllerFactory(globalPlugins).$updateProductSearchCache({
-        appKey: testAppName,
-        userId: testUserId,
-        hint: staleCacheTestHint,
-        pluginResult: {
-          catalogPartial: true,
-          products: [{ productId: 'partialProd1' }],
-        },
-        requestId: 'partial-refresh-test',
-      });
-
-      const cached = await cache.get({ pluginName: testAppName, key: cacheKeyForTest });
-      const lastUpdated = await cache.get({ pluginName: testAppName, key: `${cacheKeyForTest}:lastUpdated` });
-      expect(cached).toBeFalsy();
-      expect(lastUpdated).toBeTruthy();
     });
 
     it('should not update cache metadata when direct force refresh returns partial products', async () => {
@@ -673,8 +697,8 @@ describe('user: bookings controller - searchProducts', () => {
       expect(lastUpdated).toBeFalsy();
     });
 
-    it('should keep existing non-empty cache when background refresh returns partial products', async () => {
-      const initialProductsInCache = [{ productId: 'staleProd1', name: 'Stale Product One', optionId: 'optStale1' }];
+    it('keeps an existing cache and reports it when forceRefresh returns partial products', async () => {
+      const initialProductsInCache = [{ productId: 'completeProd1' }];
       const pluginResult = {
         catalogPartial: true,
         products: [{ productId: 'partialProd1' }],
@@ -696,93 +720,142 @@ describe('user: bookings controller - searchProducts', () => {
         value: 1,
         ttl: 60,
       });
-      const emitSpy = jest.spyOn(travelgatePlugin.events, 'emit');
+      travelgatePlugin.searchProducts.mockResolvedValueOnce(pluginResult);
 
-      await bookingsControllerFactory(globalPlugins).$updateProductSearchCache({
-        appKey: testAppName,
-        userId: testUserId,
-        hint: staleCacheTestHint,
-        pluginResult,
-        requestId: 'partial-refresh-test',
+      const result = await doApiPost({
+        url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
+        token: userToken,
+        payload: { forceRefresh: true },
       });
 
       const cached = await cache.get({ pluginName: testAppName, key: cacheKeyForTest });
-      const lastUpdated = await cache.get({ pluginName: testAppName, key: `${cacheKeyForTest}:lastUpdated` });
+      const lastUpdated = await cache.get({
+        pluginName: testAppName,
+        key: `${cacheKeyForTest}:lastUpdated`,
+      });
+      expect(result).toEqual(expect.objectContaining({
+        products: initialProductsInCache,
+        catalogRefreshOutcome: 'partial_result_preserved_cache',
+        cacheUpdated: false,
+        cachePreserved: true,
+        cachedProductCount: initialProductsInCache.length,
+      }));
       expect(cached.products).toEqual(initialProductsInCache);
-      expect(lastUpdated).toBeGreaterThan(1);
-      expect(emitSpy).toHaveBeenCalledWith(
-        'bookingsProductSearch:cache:decision',
-        expect.objectContaining({
-          action: 'partial_refresh_skipped',
-          reason: 'partialResultPreservedExistingCache',
-          cachePreserved: true,
-          existingProductCount: initialProductsInCache.length,
-          returnedProductCount: pluginResult.products.length,
-        }),
-      );
-      expect(emitSpy).toHaveBeenCalledWith(
-        'bookingsProductSearch:cache:partialRefreshSkipped',
-        expect.objectContaining({
-          action: 'partial_refresh_skipped',
-          reason: 'partialResultPreservedExistingCache',
-          cachePreserved: true,
-        }),
-      );
-      emitSpy.mockRestore();
+      expect(lastUpdated).toBe(1);
     });
 
-    it('should not cache empty products if non-empty cache appears before the empty save', async () => {
-      const cacheKeyForTest = hash({
-        userId: 'race-user',
-        hint: 'race-hint',
-        operationId: 'bookingsProductSearch',
-      });
-      const pluginResult = { products: [] };
-      const fakePlugin = {
-        name: 'racePlugin',
-        cache: {
-          get: jest.fn()
-            .mockResolvedValueOnce(null)
-            .mockResolvedValueOnce({ products: [{ productId: 'raceProd1' }] }),
-          save: jest.fn(async () => {}),
-        },
-        events: {
-          emit: jest.fn(),
-        },
-      };
+    it.each(['searchInput', 'optionId', 'productId', 'productName', 'lastUpdatedFrom'])(
+      'rejects a declared scheduled catalog refresh with the %s selector',
+      async selector => {
+        const selectorValue = selector === 'optionId' ? ['option-1'] : 'selected';
+        const response = await doApiPost({
+          url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
+          token: userToken,
+          payload: {
+            forceRefresh: true,
+            fullSyncTrigger: 'scheduled',
+            [selector]: selectorValue,
+          },
+          expectStatusCode: 400,
+        });
 
-      await bookingsControllerFactory([fakePlugin]).$updateProductSearchCache({
-        appKey: fakePlugin.name,
-        userId: 'race-user',
-        hint: 'race-hint',
-        pluginResult,
-        requestId: 'race-refresh-test',
+        expect(response.message).toContain('must not include product selectors');
+        expect(travelgatePlugin.searchProducts).not.toHaveBeenCalled();
+      },
+    );
+
+    it('rejects a forced selector when fullSyncTrigger is omitted', async () => {
+      const response = await doApiPost({
+        url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
+        token: userToken,
+        payload: { forceRefresh: true, optionId: 'option-1' },
+        expectStatusCode: 400,
       });
 
-      expect(fakePlugin.cache.save).toHaveBeenCalledWith(expect.objectContaining({
-        key: `${cacheKeyForTest}:lastUpdated`,
+      expect(response.message).toContain('must not include product selectors');
+      expect(travelgatePlugin.searchProducts).not.toHaveBeenCalled();
+    });
+
+    it('rejects a full catalog force refresh without the catalog capability', async () => {
+      const originalCapabilities = travelgatePlugin.capabilities;
+      travelgatePlugin.capabilities = {};
+
+      try {
+        const response = await doApiPost({
+          url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
+          token: userToken,
+          payload: {
+            forceRefresh: true,
+            fullSyncTrigger: 'manual',
+            admissionOverrideReason: 'catalog repair',
+          },
+          expectStatusCode: 400,
+        });
+
+        expect(response.message).toContain(
+          'does not support complete product catalog refreshes',
+        );
+        expect(travelgatePlugin.searchProducts).not.toHaveBeenCalled();
+      } finally {
+        travelgatePlugin.capabilities = originalCapabilities;
+      }
+    });
+
+    it('treats searchInput wildcard as an unscoped forced catalog refresh', async () => {
+      const products = [{ productId: 'catalog-product', options: [] }];
+      travelgatePlugin.searchProducts.mockResolvedValueOnce({ products });
+
+      const result = await doApiPost({
+        url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
+        token: userToken,
+        payload: {
+          forceRefresh: true,
+          fullSyncTrigger: 'scheduled',
+          searchInput: '*',
+        },
+      });
+
+      expect(result).toEqual(expect.objectContaining({
+        products,
+        catalogRefreshOutcome: 'cache_updated',
+        cachedProductCount: 1,
       }));
-      expect(fakePlugin.cache.save).not.toHaveBeenCalledWith(expect.objectContaining({
-        key: cacheKeyForTest,
-        value: { products: [] },
+      expect(travelgatePlugin.searchProducts).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not let token configuration overwrite force-refresh outcome fields', async () => {
+      const configuredHint = 'refresh-outcome-configuration-hint';
+      await globalUtils.appSetup({
+        appName: testAppName,
+        userId: testUserId,
+        tokenHint: configuredHint,
+        token: {
+          endpoint: 'https://api.travelgatex.com/configuration-test',
+          apiKey: chance.guid(),
+          configuration: {
+            catalogRefreshOutcome: 'configured-value',
+            cacheUpdated: false,
+            cachePreserved: true,
+            cachedProductCount: 999,
+          },
+        },
+      });
+      travelgatePlugin.searchProducts.mockResolvedValueOnce({
+        products: [{ productId: 'configured-product', options: [] }],
+      });
+
+      const result = await doApiPost({
+        url: `/products/${testAppName}/${testUserId}/${configuredHint}/search`,
+        token: userToken,
+        payload: { forceRefresh: true },
+      });
+
+      expect(result).toEqual(expect.objectContaining({
+        catalogRefreshOutcome: 'cache_updated',
+        cacheUpdated: true,
+        cachePreserved: false,
+        cachedProductCount: 1,
       }));
-      expect(fakePlugin.events.emit).toHaveBeenCalledWith(
-        'bookingsProductSearch:cache:decision',
-        expect.objectContaining({
-          action: 'empty_refresh_skipped',
-          reason: 'emptyResultPreservedConcurrentCache',
-          cachePreserved: true,
-          existingProductCount: 1,
-        }),
-      );
-      expect(fakePlugin.events.emit).toHaveBeenCalledWith(
-        'bookingsProductSearch:cache:emptyRefreshSkipped',
-        expect.objectContaining({
-          action: 'empty_refresh_skipped',
-          reason: 'emptyResultPreservedConcurrentCache',
-          cachePreserved: true,
-        }),
-      );
     });
   });
 });
@@ -848,6 +921,7 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
     await cache.drop({ pluginName: testAppName, key: cacheKey });
     await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lastUpdated` });
     await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lock` });
+    await cache.drop({ pluginName: testAppName, key: `${cacheKey}:lock:outcome` });
     await cache.drop({ pluginName: testAppName, key: `${cacheKey}:jobLock` });
   };
 
@@ -867,7 +941,7 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
     if (mockJobStatus && mockJobStatus.mockClear) mockJobStatus.mockClear();
   });
 
-  it('multiple concurrent requests to stale cache should serve stale data and queue only one new refresh job', async () => {
+  it('multiple concurrent requests to stale cache should serve stale data and not queue a catalog refresh', async () => {
     // 1. First call: Populate the cache using the specific lockTestPlugin
     lockTestPlugin.searchProducts.mockResolvedValueOnce({ products: [{ id: 'prod1', name: 'Initial Product' }] });
 
@@ -884,9 +958,6 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
     await new Promise(resolve => setTimeout(resolve, 1500));
 
     // 3. Make multiple concurrent requests to the now stale cache
-    // Mock plugin response for the background refresh. This mock is for the job that addJob is supposed to queue.
-    lockTestPlugin.searchProducts.mockResolvedValueOnce({ products: [{ id: 'prod2', name: 'Refreshed Product' }] });
-
     const makeRequest = () => doApiPost({
       url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
       token: userToken,
@@ -894,52 +965,20 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
     });
 
     const requestPromises = [];
-    requestPromises.push(makeRequest()); // First request hits stale cache, should queue job
-    await global.sleep(50); // Small delay to simulate near concurrency
-    requestPromises.push(makeRequest()); // Second request should also hit stale cache, but not queue another job
+    requestPromises.push(makeRequest());
     await global.sleep(50);
-    requestPromises.push(makeRequest()); // Third request
+    requestPromises.push(makeRequest());
+    await global.sleep(50);
+    requestPromises.push(makeRequest());
 
     const results = await Promise.all(requestPromises);
 
-    // Assertions:
-    // a. All requests should serve stale data (the "Initial Product")
     results.forEach(result => {
       expect(result.products).toEqual([{ id: 'prod1', name: 'Initial Product' }]);
     });
 
-    // b. The plugin's searchProducts method (on lockTestPlugin) should NOT have been called directly by these API requests
     expect(lockTestPlugin.searchProducts).not.toHaveBeenCalled();
-
-    // c. addJob should have been called exactly once
-    expect(addJob).toHaveBeenCalledTimes(1);
-
-    // d. Verify arguments of addJob
-    if (addJob.mock.calls.length > 0) {
-      const expectedPluginMethodName = lockTestPlugin.searchProducts ? 'searchProducts' : 'searchProductsForItinerary';
-      expect(addJob).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'plugin',
-          pluginName: testAppName, // This should be 'lockTestPlugin'
-          method: expectedPluginMethodName,
-          token: expect.objectContaining({ ttlForProducts: shortTTRTokenConfig.ttlForProducts }),
-          payload: expect.objectContaining({
-            payload: { forceRefresh: false }, // originalRequestBody was empty for the product search
-            userId: testUserId,
-          }),
-          postProcess: expect.objectContaining({
-            controller: 'bookings',
-            action: '$updateProductSearchCache',
-            args: expect.objectContaining({
-              appKey: testAppName, // 'lockTestPlugin'
-              userId: testUserId,
-              hint: ttrTestHint,
-            }),
-          }),
-        }),
-        { removeOnComplete: true }
-      );
-    }
+    expect(addJob).not.toHaveBeenCalled();
   });
 
   it('multiple concurrent requests with no cache should wait for one plugin fetch', async () => {
@@ -1027,7 +1066,7 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
     emitSpy.mockRestore();
   });
 
-  it('queues an unscoped refresh when an optionId request finds stale catalog data', async () => {
+  it('serves a stale catalog for an optionId search without queueing a refresh', async () => {
     await clearProductSearchCache();
     const cachedProducts = [{
       productId: 'cached-product',
@@ -1053,13 +1092,23 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
 
     expect(result.products).toEqual(cachedProducts);
     expect(lockTestPlugin.searchProducts).not.toHaveBeenCalled();
-    expect(addJob).toHaveBeenCalledTimes(1);
-    expect(addJob.mock.calls[0][0].payload.payload).toEqual({ forceRefresh: false });
+    expect(addJob).not.toHaveBeenCalled();
   });
 
   it('concurrent forceRefresh requests should wait for one plugin fetch', async () => {
     await clearProductSearchCache();
 
+    const cacheKey = hash({
+      userId: testUserId,
+      hint: ttrTestHint,
+      operationId: 'bookingsProductSearch',
+    });
+    await cache.save({
+      pluginName: testAppName,
+      key: cacheKey,
+      value: { products: [{ productId: 'stale-force-product', options: [] }] },
+      ttl: 60,
+    });
     const refreshedProducts = [{
       productId: 'force-product',
       productName: 'Force Product',
@@ -1093,9 +1142,119 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
 
     results.forEach(result => {
       expect(result.products).toEqual(refreshedProducts);
+      expect(result).toEqual(expect.objectContaining({
+        catalogRefreshOutcome: 'cache_updated',
+        cacheUpdated: true,
+        cachePreserved: false,
+        cachedProductCount: refreshedProducts.length,
+      }));
     });
     expect(lockTestPlugin.searchProducts).toHaveBeenCalledTimes(1);
     expect(addJob).not.toHaveBeenCalled();
+  });
+
+  it('concurrent forceRefresh waiters receive a preserved-cache outcome', async () => {
+    await clearProductSearchCache();
+
+    const cachedProducts = [{
+      productId: 'preserved-product',
+      productName: 'Preserved Product',
+      options: [],
+    }];
+    const cacheKey = hash({
+      userId: testUserId,
+      hint: ttrTestHint,
+      operationId: 'bookingsProductSearch',
+    });
+    await cache.save({
+      pluginName: testAppName,
+      key: cacheKey,
+      value: { products: cachedProducts },
+      ttl: 60,
+    });
+    lockTestPlugin.searchProducts.mockReset();
+    let releasePluginFetch;
+    const pluginFetchStarted = new Promise(resolve => {
+      lockTestPlugin.searchProducts.mockImplementation(() => {
+        resolve();
+        return new Promise(pluginResolve => {
+          releasePluginFetch = () => pluginResolve({ products: [] });
+        });
+      });
+    });
+    const makeForceRequest = () => doApiPost({
+      url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
+      token: userToken,
+      payload: { forceRefresh: true },
+    });
+
+    const requestPromises = [makeForceRequest(), makeForceRequest(), makeForceRequest()];
+    await pluginFetchStarted;
+    await new Promise(resolve => setTimeout(resolve, 50));
+    releasePluginFetch();
+    const results = await Promise.all(requestPromises);
+
+    results.forEach(result => {
+      expect(result).toEqual(expect.objectContaining({
+        products: cachedProducts,
+        catalogRefreshOutcome: 'empty_result_preserved_cache',
+        cacheUpdated: false,
+        cachePreserved: true,
+        cachedProductCount: cachedProducts.length,
+      }));
+    });
+    expect(lockTestPlugin.searchProducts).toHaveBeenCalledTimes(1);
+    expect(addJob).not.toHaveBeenCalled();
+  });
+
+  it('serves cache with an in-progress outcome when a forceRefresh wait times out', async () => {
+    await clearProductSearchCache();
+
+    const cachedProducts = [{ productId: 'in-progress-product', options: [] }];
+    const cacheKey = hash({
+      userId: testUserId,
+      hint: ttrTestHint,
+      operationId: 'bookingsProductSearch',
+    });
+    const lockKey = `${cacheKey}:lock`;
+    await cache.save({
+      pluginName: testAppName,
+      key: cacheKey,
+      value: { products: cachedProducts },
+      ttl: 60,
+    });
+    await cache.save({
+      pluginName: testAppName,
+      key: lockKey,
+      value: 'active-refresh-owner',
+      ttl: 60,
+    });
+    const originalLockWaitMs = process.env.PRODUCT_SEARCH_LOCK_WAIT_MS;
+    process.env.PRODUCT_SEARCH_LOCK_WAIT_MS = '10';
+
+    try {
+      const result = await doApiPost({
+        url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
+        token: userToken,
+        payload: { forceRefresh: true },
+      });
+
+      expect(result).toEqual(expect.objectContaining({
+        products: cachedProducts,
+        catalogRefreshOutcome: 'refresh_in_progress_cache_served',
+        cacheUpdated: false,
+        cachePreserved: true,
+        cachedProductCount: cachedProducts.length,
+      }));
+      expect(lockTestPlugin.searchProducts).not.toHaveBeenCalled();
+    } finally {
+      await cache.drop({ pluginName: testAppName, key: lockKey });
+      if (originalLockWaitMs === undefined) {
+        delete process.env.PRODUCT_SEARCH_LOCK_WAIT_MS;
+      } else {
+        process.env.PRODUCT_SEARCH_LOCK_WAIT_MS = originalLockWaitMs;
+      }
+    }
   });
 
   it('renews the plugin execution lock while a cold product fetch exceeds the initial TTL', async () => {

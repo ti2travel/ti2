@@ -60,6 +60,7 @@ const axiosSafeResponse = response => {
 
 module.exports = async ({
   apiDocs = true,
+  pluginCapabilities: pluginCapabilitiesParam = {},
   plugins: pluginsParam = {},
   pluginsInstantiated = false,
   port: portParam,
@@ -83,7 +84,7 @@ module.exports = async ({
     // Create a new axios instance for this plugin and configure SSL if needed
     const pluginAxios = axios.create();
     configureAxiosSSL(pluginAxios, process.env.SSL_INSECURE_ALLOWED_DOMAINS);
-    
+
     const pluginInstance = await new Plugin({
       cache: {
         drop: args => cache.drop({ ...args, pluginName }),
@@ -99,8 +100,17 @@ module.exports = async ({
       events: ti2Events,
       name: pluginName,
       ...params,
+      capabilities: R.pathOr({}, [pluginName], pluginCapabilitiesParam),
     });
     return pluginInstance;
+  });
+  plugins.forEach(plugin => {
+    const configuredCapabilities = R.path([plugin.name], pluginCapabilitiesParam);
+    Object.assign(plugin, {
+      capabilities: configuredCapabilities === undefined
+        ? plugin.capabilities || {}
+        : configuredCapabilities,
+    });
   });
   if (worker) {
     return require('./worker/index')({ plugins });

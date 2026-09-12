@@ -70,7 +70,7 @@ const tokenTemplate = async (req, res, next) => {
       ttlForProducts: {
         type: 'number',
         regExp: /.+/,
-        default: 60 * 60 * 24, // 1 day
+        default: 60 * 60 * 24 * 7, // 7 days; weekly full product catalog refresh
       },
       doNotCallPluginForProducts: {
         type: 'boolean',
