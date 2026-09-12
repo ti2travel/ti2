@@ -38,6 +38,7 @@ const adminController = require('./controllers/admin');
 const appController = require('./controllers/app');
 const userController = require('./controllers/user');
 const bookingsController = require('./controllers/bookings');
+const bookingToolsController = require('./controllers/booking-tools');
 const allotmentController = require('./controllers/allotment');
 const { Integration } = require('./models');
 const cache = require('./cache');
@@ -134,6 +135,7 @@ module.exports = async ({
     ...appController(plugins),
     ...userController(plugins),
     ...bookingsController(plugins),
+    ...bookingToolsController(plugins),
     ...allotmentController(plugins),
     cache: R.omit(['cache'], cache),
   }; // mehthods that should map to the yaml api spec
