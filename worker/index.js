@@ -100,7 +100,22 @@ const worker = ({ plugins: pluginsParam }) => { // pluginsParam are instantiated
               jobLog(`Worker internal server for job ${jobId} closed.`);
             }
           }
-          resultValue = { code, result, success: code >= 200 && code < 300 };
+          const isCatalogRefreshResult = Boolean(
+            result && typeof result.catalogRefreshOutcome === 'string',
+          );
+          const returnedProducts = isCatalogRefreshResult && result.products;
+          resultValue = {
+            code,
+            result,
+            success: code >= 200 && code < 300,
+            ti2CatalogProductCount: isCatalogRefreshResult
+              && Number.isInteger(result.cachedProductCount)
+              ? result.cachedProductCount
+              : null,
+            ti2ReturnedProductCount: Array.isArray(returnedProducts)
+              ? returnedProducts.length
+              : null,
+          };
 
         } else if (type === 'callback') {
           const { callbackUrl, request, result } = jobDataPayload; // jobDataPayload is job.data.payload

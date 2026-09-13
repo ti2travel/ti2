@@ -3,7 +3,6 @@ const crypto = require('crypto');
 const hash = require('object-hash');
 const R = require('ramda');
 const { UserAppKey } = require('../models/index');
-const { addJob } = require('../worker/queue');
 const { typeDefs: productTypeDefs, query: productQuery } = require('./graphql-schemas/product');
 const { typeDefs: availTypeDefs, query: availQuery } = require('./graphql-schemas/availability');
 const { typeDefs: bookingTypeDefs, query: bookingQuery } = require('./graphql-schemas/booking');
@@ -36,10 +35,19 @@ const getPositiveIntegerEnv = (name, defaultValue) => {
 };
 
 const getProductSearchLockTtlSeconds = () => getPositiveIntegerEnv('PRODUCT_SEARCH_LOCK_TTL_SECONDS', 120);
-const productSearchLockWaitMs = getPositiveIntegerEnv('PRODUCT_SEARCH_LOCK_WAIT_MS', 25 * 1000);
+const getProductSearchLockWaitMs = () => getPositiveIntegerEnv('PRODUCT_SEARCH_LOCK_WAIT_MS', 25 * 1000);
 const productSearchLockPollMs = getPositiveIntegerEnv('PRODUCT_SEARCH_LOCK_POLL_MS', 250);
+const productSearchRefreshOutcomeTtlSeconds = 60;
 const emptyProductSearchCacheTtlSeconds = 60;
 const productSearchCacheTtlSeconds = 30 * 24 * 60 * 60;
+const oneDayProductSearchTtrSeconds = 60 * 60 * 24;
+const defaultProductSearchTtrSeconds = oneDayProductSearchTtrSeconds * 7;
+
+const resolveProductSearchTtrSeconds = (token = {}, app = {}) => {
+  const configured = token.ttlForProducts
+    || R.path(['cacheSettings', 'bookingsProductSearch', 'ttr'], app);
+  return configured == null ? defaultProductSearchTtrSeconds : configured;
+};
 const productSearchOperationId = 'bookingsProductSearch';
 const productSearchCacheDecisionEvent = 'bookingsProductSearch:cache:decision';
 const legacyProductSearchCacheEvents = {
@@ -75,7 +83,10 @@ const productSearchSelectorFields = [
 const hasProductSearchSelector = payload => productSearchSelectorFields.some(field => {
   const value = R.path([field], payload);
   if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === 'string') return Boolean(value.trim());
+  if (typeof value === 'string') {
+    const trimmedValue = value.trim();
+    return Boolean(trimmedValue) && !(field === 'searchInput' && trimmedValue === '*');
+  }
   return value !== undefined && value !== null && value !== false;
 });
 
@@ -99,6 +110,10 @@ const emitProductSearchCacheDecision = ({
   searchInput,
   optionId,
   forceRefresh,
+  fullSyncTrigger,
+  admissionOverrideReason,
+  fullSyncStartedAt,
+  fullSyncAdmissionToken,
   startedAt,
 }, action, extra = {}) => {
   if (!app.events || !app.events.emit) return;
@@ -111,6 +126,10 @@ const emitProductSearchCacheDecision = ({
     hintHash: safeHash(hint),
     cacheKeyHash: safeHash(cacheKey),
     forceRefresh: Boolean(forceRefresh),
+    fullSyncTrigger,
+    admissionOverrideReason,
+    fullSyncStartedAt,
+    fullSyncAdmissionTokenHash: safeHash(fullSyncAdmissionToken),
     hasSearchInput: Boolean((searchInput || '').trim()),
     hasOptionId: Boolean(optionId && optionId.length),
     elapsedMs: Date.now() - startedAt,
@@ -122,6 +141,9 @@ const emitProductSearchCacheDecision = ({
       ...payload,
       userId,
       hint,
+      ...(action === 'cache_saved' && fullSyncAdmissionToken
+        ? { fullSyncAdmissionToken }
+        : {}),
     });
   }
 };
@@ -160,6 +182,22 @@ const createLockRenewal = ({ app, key, value, ttl, onDecision }) => {
 const createProductSearchUnavailableError = () => {
   const err = new Error('Product search cache refresh did not produce cached results');
   err.status = 503;
+  return err;
+};
+
+const createScopedCatalogRefreshError = () => {
+  const err = new Error(
+    'Scheduled and manual catalog refreshes must not include product selectors',
+  );
+  err.status = 400;
+  return err;
+};
+
+const createUnsupportedCatalogRefreshError = appKey => {
+  const err = new Error(
+    `${appKey} does not support complete product catalog refreshes`,
+  );
+  err.status = 400;
   return err;
 };
 
@@ -271,7 +309,8 @@ const confirmBooking = plugins => async (req, res, next) => {
 const $searchProductList = (products, searchInput = '', optionId = '') => {
   // NOTE: optionId could be a string or an array of strings
   // NOTE: searchInput should not appear at the same time as optionId
-  if (!(searchInput && searchInput.trim()) && !(optionId && optionId.length)) {
+  const trimmedSearchInput = (searchInput || '').trim();
+  if ((!trimmedSearchInput || trimmedSearchInput === '*') && !(optionId && optionId.length)) {
     return products;
   }
   const getFullSearchStr = (product, option) => `${
@@ -279,7 +318,7 @@ const $searchProductList = (products, searchInput = '', optionId = '') => {
   } ${R.path(['optionName'], option) || ''
   } ${R.path(['optionId'], option) || ''
   } ${R.path(['supplierId'], product) || ''}`;
-  const inputValueLower = (searchInput || '').trim().toLowerCase();
+  const inputValueLower = trimmedSearchInput.toLowerCase();
   const parts = inputValueLower.split(' ').filter(Boolean); // Filter out any empty strings just in case
   const pwFilteredOptions = products.map(product => {
     const filteredOptions = R.pathOr([], ['options'], product).filter(option => {
@@ -309,6 +348,13 @@ const hasCacheableProductResults = pluginResults => Boolean(
   && !pluginResults.partial
 );
 
+const assertCanonicalProductSearchResult = (pluginResults, appKey) => {
+  assert(
+    pluginResults && Array.isArray(pluginResults.products),
+    `${appKey} product search must return an object with a products array`,
+  );
+};
+
 const hasNonEmptyProductCache = cacheContent => Boolean(
   cacheContent
   && cacheContent.products
@@ -322,7 +368,7 @@ const $bookingsProductSearch = plugins => async ({
   hint,
   payload: originalRequestBody, // Renamed for clarity, this is req.body
   requestId,
-  headers, // To pass original request headers for background job
+  headers,
 }) => {
   const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
   assert(userId, 'userId is required');
@@ -345,18 +391,56 @@ const $bookingsProductSearch = plugins => async ({
     searchInput = '', // Provide defaults
     optionId = '',
     forceRefresh = false,
+    cacheOnly = false,
+    fullSyncTrigger: requestedFullSyncTrigger,
+    admissionOverrideReason: requestedOverrideReason,
+    fullSyncStartedAt: requestedFullSyncStartedAt,
+    fullSyncAdmissionToken: requestedAdmissionToken,
   } = normalizedRequestBody;
+
+  const fullSyncTrigger = ['organic', 'scheduled', 'manual'].indexOf(
+    requestedFullSyncTrigger,
+  ) >= 0
+    ? requestedFullSyncTrigger
+    : (forceRefresh ? 'scheduled' : 'organic');
+  const admissionOverrideReason = typeof requestedOverrideReason === 'string'
+    ? requestedOverrideReason.trim() || undefined
+    : undefined;
+  const fullSyncStartedAt = requestedFullSyncStartedAt !== undefined
+    && requestedFullSyncStartedAt !== null
+    && requestedFullSyncStartedAt !== ''
+    && Number.isFinite(Number(requestedFullSyncStartedAt))
+    ? Number(requestedFullSyncStartedAt)
+    : undefined;
+  const fullSyncAdmissionToken = typeof requestedAdmissionToken === 'string'
+    ? requestedAdmissionToken.trim() || undefined
+    : undefined;
 
   // Keep forceRefresh in the plugin payload so plugins can trigger their own rebuilds.
   const payloadForPlugin = {
-    ...R.omit(['forceRefresh'], normalizedRequestBody),
+    ...R.omit([
+      'forceRefresh',
+      'cacheOnly',
+      'fullSyncTrigger',
+      'admissionOverrideReason',
+      'fullSyncStartedAt',
+      'fullSyncAdmissionToken',
+    ], normalizedRequestBody),
     forceRefresh,
   };
   const isScopedSearch = hasProductSearchSelector(normalizedRequestBody);
-  const payloadForBackgroundJob = R.omit(
-    ['credentials', ...productSearchSelectorFields],
-    payloadForPlugin,
-  );
+  const isDeclaredFullCatalogRefresh = forceRefresh
+    && ['scheduled', 'manual'].indexOf(fullSyncTrigger) >= 0;
+  if (isDeclaredFullCatalogRefresh && isScopedSearch) {
+    throw createScopedCatalogRefreshError();
+  }
+  if (
+    forceRefresh
+    && !cacheOnly
+    && R.path(['capabilities', 'weeklyProductCatalogSync'], app) !== true
+  ) {
+    throw createUnsupportedCatalogRefreshError(appKey);
+  }
 
   const cacheKey = productSearchCacheKey({ userId, hint });
   const telemetryContext = {
@@ -368,6 +452,10 @@ const $bookingsProductSearch = plugins => async ({
     searchInput,
     optionId,
     forceRefresh,
+    fullSyncTrigger,
+    admissionOverrideReason,
+    fullSyncStartedAt,
+    fullSyncAdmissionToken,
     startedAt: Date.now(),
   };
   const emitDecision = (action, extra = {}) => emitProductSearchCacheDecision(
@@ -376,12 +464,12 @@ const $bookingsProductSearch = plugins => async ({
     extra,
   );
   const pluginExecutionLockKey = `${cacheKey}:lock`; // Lock for direct plugin execution
-  const jobQueueLockKey = `${cacheKey}:jobLock`;   // Lock for preventing multiple job queues
+  const refreshOutcomeCacheKey = `${pluginExecutionLockKey}:outcome`;
 
   // Fetch actualCacheContent once at the beginning.
   const initialActualCacheContent = await app.cache.get({ key: cacheKey });
   const lastUpdated = await app.cache.get({ key: `${cacheKey}:lastUpdated` });
-  const ttr = token.ttlForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'ttr'], app) || 60 * 60 * 24;
+  const ttr = resolveProductSearchTtrSeconds(token, app);
   const isStaleByTTR = lastUpdated && (Date.now() - lastUpdated > ttr * 1000);
   const doNotCallPluginForProducts = token.doNotCallPluginForProducts || R.path(['cacheSettings', 'bookingsProductSearch', 'doNotCall'], app);
   const hasPluginExecutionLock = await app.cache.get({ key: pluginExecutionLockKey });
@@ -400,19 +488,30 @@ const $bookingsProductSearch = plugins => async ({
     return null;
   };
 
-  const waitForProductSearchCache = async () => {
-    const timeoutAt = Date.now() + productSearchLockWaitMs;
+  const waitForProductSearchRefresh = async previousLockOwnerToken => {
+    const timeoutAt = Date.now() + getProductSearchLockWaitMs();
     while (Date.now() < timeoutAt) {
-      const cacheContent = await getCachedProductSearchResults();
-      if (cacheContent) return cacheContent;
+      const refreshOutcome = await app.cache.get({ key: refreshOutcomeCacheKey });
+      if (refreshOutcome && refreshOutcome.lockOwnerToken !== previousLockOwnerToken) {
+        return refreshOutcome;
+      }
 
       const lockStillActive = await app.cache.get({ key: pluginExecutionLockKey });
-      if (!lockStillActive) return null;
+      if (!lockStillActive) {
+        const completedOutcome = await app.cache.get({ key: refreshOutcomeCacheKey });
+        return completedOutcome
+          && completedOutcome.lockOwnerToken !== previousLockOwnerToken
+          ? completedOutcome
+          : null;
+      }
 
       await sleep(productSearchLockPollMs);
     }
 
-    return getCachedProductSearchResults();
+    const refreshOutcome = await app.cache.get({ key: refreshOutcomeCacheKey });
+    return refreshOutcome && refreshOutcome.lockOwnerToken !== previousLockOwnerToken
+      ? refreshOutcome
+      : null;
   };
 
   const acquirePluginExecutionLock = async lockOwnerToken => app.cache.saveIfNotExists({
@@ -434,6 +533,7 @@ const $bookingsProductSearch = plugins => async ({
         userId,
         hint,
       });
+      assertCanonicalProductSearchResult(pluginResults, appKey);
       emitDecision('scoped_result_not_cached', {
         reason,
         pluginElapsedMs: Date.now() - pluginStartedAt,
@@ -444,13 +544,29 @@ const $bookingsProductSearch = plugins => async ({
     }
 
     const lockOwnerToken = crypto.randomBytes(16).toString('hex');
+    const previousRefreshOutcome = await app.cache.get({ key: refreshOutcomeCacheKey });
     const lockStartedAt = Date.now();
     const lockAcquired = await acquirePluginExecutionLock(lockOwnerToken);
     if (!lockAcquired) {
       emitDecision('lock_wait', { reason, lockWaitMs: 0 });
-      const cacheContent = await waitForProductSearchCache();
+      const refreshOutcome = await waitForProductSearchRefresh(
+        previousRefreshOutcome && previousRefreshOutcome.lockOwnerToken,
+      );
+      const cacheContent = await getCachedProductSearchResults();
       const lockWaitMs = Date.now() - lockStartedAt;
-      if (cacheContent) {
+      if (forceRefresh && refreshOutcome) {
+        emitDecision('cache_hit', {
+          reason: 'waitedForLeader',
+          lockWaitMs,
+          cacheProductCount: productCount(cacheContent),
+          cacheOptionCount: optionCount(cacheContent),
+        });
+        return {
+          ...(cacheContent || { products: [] }),
+          ...R.omit(['lockOwnerToken'], refreshOutcome),
+        };
+      }
+      if (!forceRefresh && cacheContent) {
         emitDecision('cache_hit', {
           reason: 'waitedForLeader',
           lockWaitMs,
@@ -458,6 +574,21 @@ const $bookingsProductSearch = plugins => async ({
           cacheOptionCount: optionCount(cacheContent),
         });
         return cacheContent;
+      }
+      if (forceRefresh && cacheContent) {
+        emitDecision('stale_served', {
+          reason: 'refreshInProgress',
+          lockWaitMs,
+          cacheProductCount: productCount(cacheContent),
+          cacheOptionCount: optionCount(cacheContent),
+        });
+        return {
+          ...cacheContent,
+          catalogRefreshOutcome: 'refresh_in_progress_cache_served',
+          cacheUpdated: false,
+          cachePreserved: true,
+          cachedProductCount: productCount(cacheContent),
+        };
       }
       emitDecision('lock_timeout', { reason, lockWaitMs });
       throw createProductSearchUnavailableError();
@@ -474,6 +605,11 @@ const $bookingsProductSearch = plugins => async ({
     });
 
     let pluginResults;
+    let catalogRefreshOutcome;
+    let cacheUpdated = false;
+    let cachePreserved = false;
+    let cachedProductCount;
+    let effectiveCatalogResults;
     try {
       const pluginStartedAt = Date.now();
       pluginResults = await func({
@@ -485,11 +621,10 @@ const $bookingsProductSearch = plugins => async ({
         userId,
         hint,
       });
+      assertCanonicalProductSearchResult(pluginResults, appKey);
       const pluginElapsedMs = Date.now() - pluginStartedAt;
 
-      // This function is responsible for caching if it fetched usable results.
-      // This applies to forceRefresh, initial load, or direct calls that result in a fetch.
-      // The $updateProductSearchCache function handles caching for background jobs queued due to stale data.
+      // Cache usable results from a direct plugin fetch (forceRefresh or cache miss).
       if (hasCacheableProductResults(pluginResults)) {
         await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: productSearchCacheTtlSeconds });
         await app.cache.save({ key: cacheKey, value: pluginResults, ttl: productSearchCacheTtlSeconds });
@@ -499,22 +634,85 @@ const $bookingsProductSearch = plugins => async ({
           cacheProductCount: productCount(pluginResults),
           cacheOptionCount: optionCount(pluginResults),
         });
+        catalogRefreshOutcome = 'cache_updated';
+        cacheUpdated = true;
+        cachedProductCount = productCount(pluginResults);
       } else if (pluginResults && (pluginResults.catalogPartial || pluginResults.partial)) {
+        const existingCacheContent = await app.cache.get({ key: cacheKey });
+        cachePreserved = hasNonEmptyProductCache(existingCacheContent);
+        effectiveCatalogResults = cachePreserved ? existingCacheContent : undefined;
+        catalogRefreshOutcome = cachePreserved
+          ? 'partial_result_preserved_cache'
+          : 'partial_result_not_cached';
+        cachedProductCount = cachePreserved
+          ? existingCacheContent.products.length
+          : null;
         emitDecision('partial_refresh_skipped', {
-          reason: 'directPartialResultNotCached',
+          reason: cachePreserved
+            ? 'partialResultPreservedExistingCache'
+            : 'partialResultNotCached',
           pluginElapsedMs,
-          cachePreserved: false,
+          cachePreserved,
+          existingProductCount: cachePreserved
+            ? existingCacheContent.products.length
+            : undefined,
           returnedProductCount: productCount(pluginResults),
         });
       } else if (pluginResults && pluginResults.products && pluginResults.products.length === 0) {
-        // Short-lived empty cache gives concurrent waiters the same answer as the lock holder.
-        await app.cache.save({ key: cacheKey, value: pluginResults, ttl: emptyProductSearchCacheTtlSeconds });
-        emitDecision('empty_cache_saved', {
-          reason,
-          pluginElapsedMs,
-          cacheProductCount: 0,
-        });
+        const existingCacheContent = await app.cache.get({ key: cacheKey });
+        if (hasNonEmptyProductCache(existingCacheContent)) {
+          catalogRefreshOutcome = 'empty_result_preserved_cache';
+          cachePreserved = true;
+          cachedProductCount = existingCacheContent.products.length;
+          effectiveCatalogResults = existingCacheContent;
+          emitDecision('empty_refresh_skipped', {
+            reason: 'emptyResultPreservedExistingCache',
+            pluginElapsedMs,
+            cachePreserved: true,
+            existingProductCount: existingCacheContent.products.length,
+          });
+        } else {
+          const latestCacheContent = await app.cache.get({ key: cacheKey });
+          if (hasNonEmptyProductCache(latestCacheContent)) {
+            catalogRefreshOutcome = 'empty_result_preserved_cache';
+            cachePreserved = true;
+            cachedProductCount = latestCacheContent.products.length;
+            effectiveCatalogResults = latestCacheContent;
+            emitDecision('empty_refresh_skipped', {
+              reason: 'emptyResultPreservedConcurrentCache',
+              pluginElapsedMs,
+              cachePreserved: true,
+              existingProductCount: latestCacheContent.products.length,
+            });
+          } else {
+            // Short-lived empty cache gives concurrent waiters the same answer as the lock holder.
+            await app.cache.save({
+              key: cacheKey,
+              value: pluginResults,
+              ttl: emptyProductSearchCacheTtlSeconds,
+            });
+            catalogRefreshOutcome = 'empty_cache_saved';
+            cacheUpdated = true;
+            cachedProductCount = 0;
+            emitDecision('empty_cache_saved', {
+              reason,
+              pluginElapsedMs,
+              cacheProductCount: 0,
+            });
+          }
+        }
       }
+      await app.cache.save({
+        key: refreshOutcomeCacheKey,
+        value: {
+          lockOwnerToken,
+          catalogRefreshOutcome,
+          cacheUpdated,
+          cachePreserved,
+          cachedProductCount,
+        },
+        ttl: productSearchRefreshOutcomeTtlSeconds,
+      });
     } finally {
       await lockRenewal.stop();
       if (app.cache.dropIfValue) {
@@ -523,8 +721,38 @@ const $bookingsProductSearch = plugins => async ({
         await app.cache.drop({ key: pluginExecutionLockKey });
       }
     }
-    return pluginResults || { products: [] }; // Ensure products array exists
+    const result = effectiveCatalogResults || pluginResults || { products: [] };
+    if (!forceRefresh) return result;
+    return {
+      ...result,
+      catalogRefreshOutcome,
+      cacheUpdated,
+      cachePreserved,
+      cachedProductCount,
+    };
   };
+
+  // 0. `cacheOnly`: return current Ti2 cache or empty. Never call the plugin.
+  if (cacheOnly) {
+    if (hasProductCache(initialActualCacheContent)) {
+      const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId);
+      emitDecision('cache_hit', {
+        reason: 'cacheOnly',
+        cacheProductCount: initialActualCacheContent.products.length,
+        cacheOptionCount: optionCount(initialActualCacheContent),
+        returnedProductCount: searchResults.length,
+        returnedOptionCount: optionCount({ products: searchResults }),
+      });
+      return {
+        ...initialActualCacheContent,
+        products: searchResults,
+        ...(token.configuration || {}),
+        cacheFound: true,
+      };
+    }
+    emitDecision('cache_miss', { reason: 'cacheOnly' });
+    return { products: [], ...(token.configuration || {}), cacheFound: false };
+  }
 
   // 1. `doNotCallPluginForProducts` is true, and not `forceRefresh`: Serve from cache or empty.
   if (doNotCallPluginForProducts && !forceRefresh) {
@@ -549,7 +777,15 @@ const $bookingsProductSearch = plugins => async ({
     emitDecision('force_refresh');
     const funcResults = await fetchFromPluginAndCache('force_refresh');
     const searchResults = $searchProductList(funcResults.products, searchInput, optionId);
-    return { ...funcResults, products: searchResults, ...(token.configuration || {}) };
+    return {
+      ...funcResults,
+      products: searchResults,
+      ...(token.configuration || {}),
+      catalogRefreshOutcome: funcResults.catalogRefreshOutcome,
+      cacheUpdated: funcResults.cacheUpdated,
+      cachePreserved: funcResults.cachePreserved,
+      cachedProductCount: funcResults.cachedProductCount,
+    };
   }
 
   // 3. Cache exists (initialActualCacheContent) and not forceRefresh:
@@ -577,38 +813,13 @@ const $bookingsProductSearch = plugins => async ({
 
       const isEffectivelyStale = isStaleByTTR && !doNotCallPluginForProducts;
 
-      // Cache is fresh or plugin execution in progress: serve from cache
+      // Cache is fresh, a plugin fetch is already running, or the cache is
+      // stale: organic search never starts a catalog refresh. The scheduled
+      // forceRefresh search is the only catalog owner.
       if (!isEffectivelyStale || hasPluginExecutionLock) {
         return returnCachedResults('cache_hit', { reason: hasPluginExecutionLock ? 'lockActive' : 'freshCache' });
       }
-
-      // Cache is stale - queue at most one background refresh job and serve stale data.
-      const jobQueueLockAcquired = await app.cache.saveIfNotExists({
-        key: jobQueueLockKey,
-        value: true,
-        ttl: 60,
-      });
-      if (!jobQueueLockAcquired) {
-        return returnCachedResults('stale_served', { reason: 'backgroundRefreshDeduped' });
-      }
-
-      const jobId = await addJob({
-        type: 'plugin',
-        pluginName: appKey,
-        method: app.searchProducts ? 'searchProducts' : 'searchProductsForItinerary',
-        token,
-        payload: { payload: payloadForBackgroundJob, userId, hint },
-        postProcess: {
-          controller: 'bookings',
-          action: '$updateProductSearchCache',
-          args: { appKey, userId, hint },
-        },
-      }, { removeOnComplete: true });
-
-      return returnCachedResults('stale_served', {
-        reason: 'backgroundRefreshQueued',
-        jobId,
-      });
+      return returnCachedResults('stale_served', { reason: 'awaitingScheduledRefresh' });
     }
   }
 
@@ -889,93 +1100,6 @@ const getCreateBookingFields = plugins => async (req, res, next) => {
   }
 };
 
-const $updateProductSearchCache = plugins => async ({
-  appKey,
-  userId,
-  hint,
-  pluginResult, // Result from the plugin method call
-  requestId,
-  // 'plugins' is available via the factory closure
-}) => {
-  const app = plugins.find(({ name }) => name === appKey);
-  if (!app) {
-    console.error(`[$updateProductSearchCache][requestId: ${requestId}] Plugin ${appKey} not found.`);
-    return; // Or throw error
-  }
-
-  const cacheKey = productSearchCacheKey({ userId, hint });
-  const markRefreshAttempted = () => app.cache.save({
-    key: `${cacheKey}:lastUpdated`,
-    value: Date.now(),
-    ttl: productSearchCacheTtlSeconds,
-  });
-  const emitCacheEvent = (action, extra = {}) => emitProductSearchCacheDecision({
-    app,
-    cacheKey,
-    userId,
-    hint,
-    requestId,
-    searchInput: '',
-    optionId: '',
-    forceRefresh: false,
-    startedAt: Date.now(),
-  }, action, extra);
-
-  if (hasCacheableProductResults(pluginResult)) {
-    await markRefreshAttempted();
-    await app.cache.save({ key: cacheKey, value: pluginResult, ttl: productSearchCacheTtlSeconds });
-    emitCacheEvent('cache_saved', {
-      cacheProductCount: productCount(pluginResult),
-      cacheOptionCount: optionCount(pluginResult),
-    });
-  } else {
-    const isPartialRefresh = pluginResult && (pluginResult.catalogPartial || pluginResult.partial);
-    const existingCacheContent = await app.cache.get({ key: cacheKey });
-    if (hasNonEmptyProductCache(existingCacheContent)) {
-      await markRefreshAttempted();
-      const eventExtra = {
-        reason: isPartialRefresh ? 'partialResultPreservedExistingCache' : 'emptyResultPreservedExistingCache',
-        cachePreserved: true,
-        existingProductCount: existingCacheContent.products.length,
-      };
-      if (isPartialRefresh) eventExtra.returnedProductCount = productCount(pluginResult);
-      emitCacheEvent(
-        isPartialRefresh ? 'partial_refresh_skipped' : 'empty_refresh_skipped',
-        eventExtra,
-      );
-      return;
-    }
-
-    if (isPartialRefresh) {
-      await markRefreshAttempted();
-      emitCacheEvent('partial_refresh_skipped', {
-        reason: 'partialResultNotCached',
-        cachePreserved: false,
-        returnedProductCount: productCount(pluginResult),
-      });
-      return;
-    }
-
-    // Best-effort race guard: avoid overwriting a non-empty cache written after the first read.
-    const latestCacheContent = await app.cache.get({ key: cacheKey });
-    if (hasNonEmptyProductCache(latestCacheContent)) {
-      await markRefreshAttempted();
-      emitCacheEvent('empty_refresh_skipped', {
-        reason: 'emptyResultPreservedConcurrentCache',
-        cachePreserved: true,
-        existingProductCount: latestCacheContent.products.length,
-      });
-      return;
-    }
-
-    // Empty complete refreshes are authoritative only when there is no existing non-empty cache.
-    await markRefreshAttempted();
-    await app.cache.save({ key: cacheKey, value: { products: [] }, ttl: productSearchCacheTtlSeconds });
-    emitCacheEvent('empty_cache_saved', { cacheProductCount: 0 });
-  }
-};
-
-// Update the module.exports to correctly assign the plugin-wrapped function
 const controllerFactory = plugins => {
   const controllerFunctions = {
     bookingsSearch: bookingsSearch(plugins),
@@ -993,7 +1117,6 @@ const controllerFactory = plugins => {
     getAffiliateDesks: getAffiliateDesks(plugins),
     getPickupPoints: getPickupPoints(plugins),
     getCreateBookingFields: getCreateBookingFields(plugins),
-    $updateProductSearchCache: $updateProductSearchCache(plugins), // Add the new function here
   };
   // Ensure $bookingsProductSearch can be called internally by worker with plugins already bound
   // This is more of a conceptual note as the factory pattern already handles this.
@@ -1002,5 +1125,8 @@ const controllerFactory = plugins => {
 
 // Add this line to attach typeDefsAndQueries to the factory:
 controllerFactory.typeDefsAndQueries = typeDefsAndQueries;
+controllerFactory.resolveProductSearchTtrSeconds = resolveProductSearchTtrSeconds;
+controllerFactory.defaultProductSearchTtrSeconds = defaultProductSearchTtrSeconds;
+controllerFactory.oneDayProductSearchTtrSeconds = oneDayProductSearchTtrSeconds;
 
 module.exports = controllerFactory;

@@ -42,6 +42,7 @@ const getAppMethods = plugins => async (req, res, next) => {
     const app = plugins.filter(({ name }) => name === appKey)[0];
     const methods = getAllFuncs(app);
     return res.json({
+      capabilities: app.capabilities || {},
       methods,
     });
   } catch (err) {

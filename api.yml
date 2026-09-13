@@ -275,6 +275,11 @@ components:
     appMethods:
       type: object
       properties:
+        capabilities:
+          type: object
+          properties:
+            weeklyProductCatalogSync:
+              type: boolean
         methods:
           type: array
           items:
@@ -426,15 +431,56 @@ components:
     bookingsProductQuery:
       type: object
       additionalProperties: true
-      description: Additional properties may be included
+      description: Product search or full-catalog refresh request. Scheduled and manual force refreshes must not include selectors.
       properties:
+        searchInput:
+          type: string
+          description: Free-text product selector. An empty value or "*" means the full catalog.
+        optionId:
+          description: Option ID selector
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        productId:
+          type: string
+          description: Product ID selector
         productName:
           type: string
-          required: false
           description: Product Name wildcard match
           example: '*bus*'
+        lastUpdatedFrom:
+          description: Return products updated since this value
+        forceRefresh:
+          type: boolean
+          default: false
+          description: Call the plugin directly. Full-catalog refreshes require the app's weeklyProductCatalogSync capability and default to a scheduled trigger when fullSyncTrigger is omitted.
+        cacheOnly:
+          type: boolean
+          default: false
+          description: Return the current Ti2 cache without calling the plugin. cacheFound distinguishes a miss from a cached empty catalog.
+        backgroundJob:
+          type: boolean
+          default: false
+          description: Execute the request through the Ti2 worker.
+        fullSyncTrigger:
+          type: string
+          description: Catalog refresh owner. Scheduled and manual triggers reject selector fields.
+          enum:
+            - organic
+            - scheduled
+            - manual
+        admissionOverrideReason:
+          type: string
+          description: Audit reason for an admitted manual refresh override.
+        fullSyncStartedAt:
+          type: number
+          description: Start time supplied by the full-sync admission owner.
+        fullSyncAdmissionToken:
+          type: string
+          description: Opaque token supplied by the full-sync admission owner.
         omitServiceCodes:
-          required: false
           description: Service codes to omit from the product catalog. When the integration has productSearchOmitServiceCodes, that list is used instead.
           example: ['AC', 'SM']
           oneOf:
@@ -443,25 +489,42 @@ components:
               items:
                 type: string
         credentials:
-          required: false
           $ref: '#/components/schemas/integrationCredentials'
     bookingsProductSearchReturn:
       type: object
       additionalProperties: true
-      description: Additional properties may be included
+      required:
+        - products
+      description: Canonical product search response. Additional properties may be included.
       properties:
         products:
           type: array
-          required: false
-          description: Product Search Results
+          description: Effective Ti2 catalog; preserved refreshes return the retained cached products.
           items: 
             type: object
-        accommodation:
-          type: array
-          required: false,
-          decription: Accommodation search results
-          items:
-            type: object
+        cacheFound:
+          type: boolean
+          description: For cacheOnly requests, whether Ti2 had a cached catalog (including an intentionally cached empty catalog).
+        catalogRefreshOutcome:
+          type: string
+          description: Outcome of an unscoped forceRefresh catalog operation
+          enum:
+            - cache_updated
+            - empty_cache_saved
+            - empty_result_preserved_cache
+            - partial_result_preserved_cache
+            - partial_result_not_cached
+            - refresh_in_progress_cache_served
+        cacheUpdated:
+          type: boolean
+          description: Whether this forceRefresh wrote the returned catalog to Ti2 cache
+        cachePreserved:
+          type: boolean
+          description: Whether this forceRefresh retained a prior catalog instead of replacing it
+        cachedProductCount:
+          type: integer
+          nullable: true
+          description: Product count in the Ti2 cache after the forceRefresh decision
     pricingItem:
       type: object
       additionalProperties: true

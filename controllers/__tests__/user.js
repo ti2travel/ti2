@@ -40,6 +40,9 @@ describe('user', () => {
       plugins,
     } = await testUtils({
       plugins: [appName],
+      pluginCapabilities: {
+        [appName]: { weeklyProductCatalogSync: true },
+      },
     }));
     await db.models.UserAppKey.destroy({ where: { userId } });
     // create an App
@@ -353,10 +356,11 @@ describe('user', () => {
     expect(returnValue.success).toBe(true);
   });
   it('should be able to get all the methods for an app', async () => {
-    const { methods } = await doApiGet({
+    const { capabilities, methods } = await doApiGet({
       url: `/app/${appName}/methods`,
       token: userKey,
     });
+    expect(capabilities).toEqual({ weeklyProductCatalogSync: true });
     expect(methods).toEqual(
       expect.arrayContaining([
         'validateToken', 'getProduct',

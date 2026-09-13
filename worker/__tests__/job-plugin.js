@@ -27,7 +27,7 @@ const mockBookingsPostProcessAction = jest.fn();
 jest.mock('../../controllers/bookings', () => {
   return jest.fn(() => ({
     // This action name must match what's in job.data.postProcess.action
-    $updateProductSearchCache: mockBookingsPostProcessAction,
+    $postProcessAction: mockBookingsPostProcessAction,
     // Add other methods if the worker's initialization of bookingsCtrl calls them
   }));
 });
@@ -111,7 +111,7 @@ describe('worker: Plugin job handling', () => {
       inTesting: true,
       postProcess: {
         controller: 'bookings',
-        action: '$updateProductSearchCache', // Must match the mocked action name in bookings mock
+        action: '$postProcessAction',
         args: { staticArg1: 'value1', appKey: mockPluginName }, // Static args for postProcess
       },
     };
@@ -192,7 +192,7 @@ describe('worker: Plugin job handling', () => {
       inTesting: true,
       postProcess: {
         controller: 'bookings',
-        action: '$updateProductSearchCache',
+        action: '$postProcessAction',
         args: { appKey: mockPluginName },
       },
     };

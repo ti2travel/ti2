@@ -65,6 +65,34 @@ Plugins are the connectores to other systems and/or features you intent to use; 
 |searchItineraries|||||||||&check;|
 |queryAllotment|||||||||&check;|
 
+### Product catalog refresh contract
+
+`POST /products/{appKey}/{userId}/{hint}/search` returns a canonical object with a
+`products` array. Use `cacheOnly: true` to read Ti2's current catalog without
+calling the integration; `cacheFound` distinguishes a cache miss from a cached
+empty catalog.
+
+A forced request is a full-catalog refresh by default. `fullSyncTrigger` may be
+`scheduled`, `manual`, or `organic`; scheduled and manual refreshes reject
+`searchInput`, `optionId`, `productId`, `productName`, or `lastUpdatedFrom`
+selectors. An empty `searchInput` or `searchInput: "*"` represents the full
+catalog. Scheduler-owned requests may also carry `fullSyncStartedAt`,
+`fullSyncAdmissionToken`, and an `admissionOverrideReason`.
+
+Unscoped forced responses include `catalogRefreshOutcome`, `cacheUpdated`,
+`cachePreserved`, and `cachedProductCount`. Consumers that update a downstream
+catalog should use these fields instead of assuming that HTTP 200 or the returned
+`products.length` means Ti2 replaced its cache. Empty or partial plugin results
+can preserve an existing catalog. If a concurrent refresh remains in progress
+past the lock wait, Ti2 serves the retained catalog with
+`catalogRefreshOutcome: "refresh_in_progress_cache_served"`. This outcome is
+non-terminal: background-job `success` means the HTTP call completed, not that
+the catalog was written.
+
+The product cache refresh interval defaults to seven days when no TTR is set.
+Any explicit `ttlForProducts` or plugin `cacheSettings.bookingsProductSearch.ttr`
+value is honored, including `86400` for a one-day interval.
+
 ## Contributing
 
 Contributions are welcome and ecouraged.
@@ -94,4 +122,3 @@ TL;DR Here's what the license entails:
 7. Any modifications of this code base MUST be distributed with the same license, GPLv3.
 8. This software is provided without warranty.
 9. The software author or license can not be held liable for any damages inflicted by the software.
-
