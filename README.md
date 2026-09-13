@@ -73,11 +73,12 @@ calling the integration; `cacheFound` distinguishes a cache miss from a cached
 empty catalog.
 
 A forced request is a full-catalog refresh by default. `fullSyncTrigger` may be
-`scheduled`, `manual`, or `organic`; scheduled and manual refreshes reject
-`searchInput`, `optionId`, `productId`, `productName`, or `lastUpdatedFrom`
-selectors. An empty `searchInput` or `searchInput: "*"` represents the full
-catalog. Scheduler-owned requests may also carry `fullSyncStartedAt`,
-`fullSyncAdmissionToken`, and an `admissionOverrideReason`.
+`scheduled`, `manual`, or `organic`; an omitted trigger on a forced request is
+treated as manual. Manual refreshes require a non-blank `admissionOverrideReason`.
+Scheduled and manual refreshes reject `searchInput`, `optionId`, `productId`,
+`productName`, or `lastUpdatedFrom` selectors. An empty `searchInput` or
+`searchInput: "*"` represents the full catalog. Scheduler-owned requests may
+also carry `fullSyncStartedAt` and `fullSyncAdmissionToken`.
 
 Unscoped forced responses include `catalogRefreshOutcome`, `cacheUpdated`,
 `cachePreserved`, and `cachedProductCount`. Consumers that update a downstream
