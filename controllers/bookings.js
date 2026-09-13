@@ -193,6 +193,14 @@ const createScopedCatalogRefreshError = () => {
   return err;
 };
 
+const createManualCatalogRefreshReasonError = () => {
+  const err = new Error(
+    'A manual catalog refresh requires a non-blank admissionOverrideReason',
+  );
+  err.status = 400;
+  return err;
+};
+
 const createUnsupportedCatalogRefreshError = appKey => {
   const err = new Error(
     `${appKey} does not support complete product catalog refreshes`,
@@ -402,7 +410,7 @@ const $bookingsProductSearch = plugins => async ({
     requestedFullSyncTrigger,
   ) >= 0
     ? requestedFullSyncTrigger
-    : (forceRefresh ? 'scheduled' : 'organic');
+    : (forceRefresh ? 'manual' : 'organic');
   const admissionOverrideReason = typeof requestedOverrideReason === 'string'
     ? requestedOverrideReason.trim() || undefined
     : undefined;
@@ -431,6 +439,14 @@ const $bookingsProductSearch = plugins => async ({
   const isScopedSearch = hasProductSearchSelector(normalizedRequestBody);
   const isDeclaredFullCatalogRefresh = forceRefresh
     && ['scheduled', 'manual'].indexOf(fullSyncTrigger) >= 0;
+  if (
+    forceRefresh
+    && !cacheOnly
+    && fullSyncTrigger === 'manual'
+    && !admissionOverrideReason
+  ) {
+    throw createManualCatalogRefreshReasonError();
+  }
   if (isDeclaredFullCatalogRefresh && isScopedSearch) {
     throw createScopedCatalogRefreshError();
   }

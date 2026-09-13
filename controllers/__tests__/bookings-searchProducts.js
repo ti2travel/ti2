@@ -134,7 +134,7 @@ describe('user: bookings controller - searchProducts', () => {
       const response = await doApiPost({
         url: `/products/${testAppName}/${testUserId}/${testHint}/search`,
         token: userToken,
-        payload: { forceRefresh: true },
+        payload: { forceRefresh: true, fullSyncTrigger: 'scheduled' },
         expectStatusCode: 500,
       });
 
@@ -146,6 +146,7 @@ describe('user: bookings controller - searchProducts', () => {
       // NOTE: we SHOULD NOT need to remove the cache first, since we are forceRefreshing, we are testing the endpoint get's called while having a cache created
       const payload = {
         forceRefresh: true,
+        fullSyncTrigger: 'scheduled',
       };
       const { products } = await doApiPost({
         url: `/products/${testAppName}/${testUserId}/${testHint}/search`,
@@ -253,7 +254,10 @@ describe('user: bookings controller - searchProducts', () => {
         await doApiPost({
           url: `/products/${testAppName}/${testUserId}/${testHint}/search`,
           token: userToken,
-          payload: { forceRefresh: true },
+          payload: {
+            forceRefresh: true,
+            admissionOverrideReason: 'legacy manual refresh',
+          },
         });
         const cacheSavePayload = emitSpy.mock.calls
           .filter(call => call[0] === 'bookingsProductSearch:cache:save')
@@ -265,6 +269,8 @@ describe('user: bookings controller - searchProducts', () => {
         expect(cacheSavePayload.hint).toBe(testHint);
         expect(cacheSavePayload.userIdHash).toBeTruthy();
         expect(cacheSavePayload.hintHash).toBeTruthy();
+        expect(cacheSavePayload.fullSyncTrigger).toBe('manual');
+        expect(cacheSavePayload.admissionOverrideReason).toBe('legacy manual refresh');
         emitSpy.mockRestore();
       });
 
@@ -355,7 +361,7 @@ describe('user: bookings controller - searchProducts', () => {
         await doApiPost({
           url: `/products/${testAppName}/${testUserId}/${doNotCallHint}/search`,
           token: userToken,
-          payload: { forceRefresh: true },
+          payload: { forceRefresh: true, fullSyncTrigger: 'scheduled' },
         }).then(({ products: p }) => {
           products = p; // Assign to the outer scoped 'products'
         });
@@ -415,7 +421,11 @@ describe('user: bookings controller - searchProducts', () => {
         await doApiPost({
           url: `/products/${testAppName}/${testUserId}/${configuredOmitHint}/search`,
           token: userToken,
-          payload: { forceRefresh: true, omitServiceCodes: [] },
+          payload: {
+            forceRefresh: true,
+            fullSyncTrigger: 'scheduled',
+            omitServiceCodes: [],
+          },
         });
 
         expect(travelgatePlugin.searchProducts).toHaveBeenCalledTimes(1);
@@ -642,7 +652,7 @@ describe('user: bookings controller - searchProducts', () => {
       const result = await doApiPost({
         url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
         token: userToken,
-        payload: { forceRefresh: true },
+        payload: { forceRefresh: true, fullSyncTrigger: 'scheduled' },
       });
 
       const cached = await cache.get({ pluginName: testAppName, key: cacheKeyForTest });
@@ -687,7 +697,7 @@ describe('user: bookings controller - searchProducts', () => {
       await doApiPost({
         url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
         token: userToken,
-        payload: { forceRefresh: true },
+        payload: { forceRefresh: true, fullSyncTrigger: 'scheduled' },
       });
 
       const cached = await cache.get({ pluginName: testAppName, key: cacheKeyForTest });
@@ -725,7 +735,7 @@ describe('user: bookings controller - searchProducts', () => {
       const result = await doApiPost({
         url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
         token: userToken,
-        payload: { forceRefresh: true },
+        payload: { forceRefresh: true, fullSyncTrigger: 'scheduled' },
       });
 
       const cached = await cache.get({ pluginName: testAppName, key: cacheKeyForTest });
@@ -764,15 +774,22 @@ describe('user: bookings controller - searchProducts', () => {
       },
     );
 
-    it('rejects a forced selector when fullSyncTrigger is omitted', async () => {
+    it.each([
+      ['an omitted trigger', { forceRefresh: true }],
+      ['a blank reason', {
+        forceRefresh: true,
+        fullSyncTrigger: 'manual',
+        admissionOverrideReason: '  ',
+      }],
+    ])('rejects a manual catalog refresh with %s', async (_description, payload) => {
       const response = await doApiPost({
         url: `/products/${testAppName}/${testUserId}/${staleCacheTestHint}/search`,
         token: userToken,
-        payload: { forceRefresh: true, optionId: 'option-1' },
+        payload,
         expectStatusCode: 400,
       });
 
-      expect(response.message).toContain('must not include product selectors');
+      expect(response.message).toContain('requires a non-blank admissionOverrideReason');
       expect(travelgatePlugin.searchProducts).not.toHaveBeenCalled();
     });
 
@@ -847,7 +864,7 @@ describe('user: bookings controller - searchProducts', () => {
       const result = await doApiPost({
         url: `/products/${testAppName}/${testUserId}/${configuredHint}/search`,
         token: userToken,
-        payload: { forceRefresh: true },
+        payload: { forceRefresh: true, fullSyncTrigger: 'scheduled' },
       });
 
       expect(result).toEqual(expect.objectContaining({
@@ -1130,7 +1147,7 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
     const makeForceRequest = () => doApiPost({
       url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
       token: userToken,
-      payload: { forceRefresh: true },
+      payload: { forceRefresh: true, fullSyncTrigger: 'scheduled' },
     });
 
     const requestPromises = [makeForceRequest(), makeForceRequest(), makeForceRequest()];
@@ -1185,7 +1202,7 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
     const makeForceRequest = () => doApiPost({
       url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
       token: userToken,
-      payload: { forceRefresh: true },
+      payload: { forceRefresh: true, fullSyncTrigger: 'scheduled' },
     });
 
     const requestPromises = [makeForceRequest(), makeForceRequest(), makeForceRequest()];
@@ -1236,7 +1253,7 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
       const result = await doApiPost({
         url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
         token: userToken,
-        payload: { forceRefresh: true },
+        payload: { forceRefresh: true, fullSyncTrigger: 'scheduled' },
       });
 
       expect(result).toEqual(expect.objectContaining({

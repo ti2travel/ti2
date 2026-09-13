@@ -29,6 +29,7 @@ The `$bookingsProductSearch` function in `controllers/bookings.js` implements a 
     *   **Condition 3: `forceRefresh` is true**:
         *   This is the catalog refresh owner. The system fetches fresh data from the plugin.
         *   Ti2 rejects the request unless the host declared `weeklyProductCatalogSync: true` for the plugin. Manual audit reasons may override timing admission, but not catalog-completeness eligibility.
+        *   An omitted `fullSyncTrigger` is treated as `manual`, and manual refreshes require a non-blank `admissionOverrideReason`. Weekly scheduler requests must explicitly send `fullSyncTrigger: scheduled`.
         *   Unless `fullSyncTrigger: organic` is explicit, a force refresh is a scheduled or manual full-catalog request and rejects `searchInput`, `optionId`, `productId`, `productName`, and `lastUpdatedFrom` selectors. `searchInput: "*"` is unscoped.
         *   The `fetchFromPluginAndCache` helper function is invoked. This function:
             *   Sets the `pluginExecutionLockKey` before calling the plugin to prevent other concurrent direct calls.

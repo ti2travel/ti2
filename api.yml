@@ -455,7 +455,7 @@ components:
         forceRefresh:
           type: boolean
           default: false
-          description: Call the plugin directly. Full-catalog refreshes require the app's weeklyProductCatalogSync capability and default to a scheduled trigger when fullSyncTrigger is omitted.
+          description: Call the plugin directly. Full-catalog refreshes require the app's weeklyProductCatalogSync capability and default to a manual trigger when fullSyncTrigger is omitted. Manual refreshes require admissionOverrideReason.
         cacheOnly:
           type: boolean
           default: false
@@ -466,14 +466,14 @@ components:
           description: Execute the request through the Ti2 worker.
         fullSyncTrigger:
           type: string
-          description: Catalog refresh owner. Scheduled and manual triggers reject selector fields.
+          description: Catalog refresh owner. Forced requests default to manual when omitted. Scheduled and manual triggers reject selector fields.
           enum:
             - organic
             - scheduled
             - manual
         admissionOverrideReason:
           type: string
-          description: Audit reason for an admitted manual refresh override.
+          description: Required non-blank audit reason for a manual refresh override.
         fullSyncStartedAt:
           type: number
           description: Start time supplied by the full-sync admission owner.
