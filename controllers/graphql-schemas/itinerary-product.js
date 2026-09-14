@@ -43,6 +43,7 @@ const typeDefs = `
     extras: [Extra]
     units: [ProductUnit]
     restrictions: OptionRestrictions
+    duration: Int
   }
 
   type Query {
@@ -66,6 +67,7 @@ const query = `{
     optionName
     comment
     lastUpdateTimestamp
+    duration
     serviceType
     extras {
       id
