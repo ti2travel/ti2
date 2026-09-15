@@ -5,9 +5,11 @@ const { Umzug, SequelizeStorage } = require('umzug');
 const path = require('path');
 const Sequelize = require('sequelize');
 const fs = require('fs'); // Changed to synchronous fs for initial load
+const crypto = require('crypto');
 const yaml = require('js-yaml');
 const bb = require('bluebird');
 const R = require('ramda');
+const integrationLifecycle = require('../services/integrationLifecycle');
 
 // Load OpenAPI schema
 let openApiSchema = null;
@@ -27,7 +29,6 @@ const {
   queue,
   addJob,
   jobStatus,
-  removeJob,
 } = require('../worker/queue');
 
 const { env: { jwtSecret } } = process;
@@ -102,6 +103,7 @@ const createAppToken = async (req, res, next) => {
     },
   } = req;
   let transaction;
+  let lifecycle;
   try {
     const payload = {
       integrationId,
@@ -116,6 +118,12 @@ const createAppToken = async (req, res, next) => {
       where: { userId },
       transaction,
       lock: transaction.LOCK.UPDATE,
+    });
+    lifecycle = await integrationLifecycle.prepareActivation({
+      userId,
+      integrationId,
+      hint,
+      transaction,
     });
     const integrationCount = await sqldb.UserAppKey.count({
       where: { userId },
@@ -171,6 +179,12 @@ const createAppToken = async (req, res, next) => {
               },
             } : {}),
             ...(job.params || {}),
+            jobId: crypto.createHash('sha256').update(JSON.stringify({
+              pluginName: plugin.name,
+              pluginJobId: job.method,
+              userId,
+              hint,
+            })).digest('hex'),
             removeOnComplete: false,
           };
           if (existing) {
@@ -206,6 +220,11 @@ const createAppToken = async (req, res, next) => {
       throw cronErr;
     }
 
+    if (R.pathOr(false, ['artifacts', 'requiresCatalogActivation'], lifecycle)) {
+      await integrationLifecycle.activateCatalog(lifecycle);
+    }
+    await integrationLifecycle.completeActivation(lifecycle);
+
     return res.json(responsePayload);
   } catch (err) {
     if (transaction && !transaction.finished) {
@@ -213,6 +232,13 @@ const createAppToken = async (req, res, next) => {
         await transaction.rollback();
       } catch (rollbackErr) {
         console.error('Unable to roll back integration credential transaction', rollbackErr);
+      }
+    }
+    if (lifecycle && (!transaction || transaction.finished)) {
+      try {
+        await integrationLifecycle.failActivation(lifecycle, err);
+      } catch (lifecycleErr) {
+        console.error('Unable to record integration activation failure', lifecycleErr);
       }
     }
     return next(err);
@@ -250,24 +276,60 @@ const deleteAppToken = async (req, res, next) => {
   const {
     body: {
       tokenHint: hint,
+      deferCompletion = false,
     },
     params: {
       app: integrationId,
       userId,
     },
   } = req;
-  // check if the user exists
-  const userRecord = await sqldb.User.findOne({ where: { userId } });
-  if (!userRecord) return next({ status: 404, message: 'User does not exists' });
-  const retVal = await sqldb.UserAppKey.destroy({
-    where: {
-      integrationId,
+  try {
+    if (typeof hint !== 'string' || hint.length === 0 || hint.length > 256) {
+      return next({ status: 400, message: 'A valid tokenHint is required' });
+    }
+    const userRecord = await sqldb.User.findOne({ where: { userId } });
+    if (!userRecord) return next({ status: 404, message: 'User does not exists' });
+    const result = await integrationLifecycle.deleteIntegration({
       userId,
+      integrationId,
       hint,
+      pluginNames: req.app.plugins.map(plugin => plugin.name),
+      requestedBy: R.pathOr('api', ['auth', 'sub'], req),
+      deferCompletion,
+    });
+    return res.json({
+      message: 'Integration cleanup complete.',
+      cleanup: result,
+    });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+const finalizeIntegrationCleanup = async (req, res, next) => {
+  const {
+    body: {
+      hint,
+      generation,
+      artifacts,
     },
-  });
-  if (retVal === 0) return next({ status: 404, message: 'Key not found' });
-  return res.json({ message: `${retVal} erased` });
+    params: {
+      app: integrationId,
+      userId,
+    },
+  } = req;
+  try {
+    const cleanup = await integrationLifecycle.completeDeletion({
+      userId,
+      integrationId,
+      hint,
+      generation,
+      externalArtifacts: artifacts,
+    });
+    return res.json({ message: 'Integration cleanup finalized.', cleanup });
+  } catch (err) {
+    return next(err);
+  }
 };
 
 const validateAppToken = plugins => async (req, res, next) => {
@@ -807,6 +869,7 @@ module.exports = plugins => ({
   getAppSettings,
   updateAppToken,
   deleteAppToken,
+  finalizeIntegrationCleanup,
   deleteAppSettings,
   getAppScheduledJobs,
   getJobStatus,

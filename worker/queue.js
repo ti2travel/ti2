@@ -1,8 +1,8 @@
 const Queue = require('bull');
+const crypto = require('crypto');
 const R = require('ramda');
 const Redis = require('ioredis');
-const sqldb = require('../models');
-const { env: { redisHost, redisPort } } = process;
+
 const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
 const itemsTTL = 3 * 60 * 60; // 3 hours
 
@@ -49,63 +49,45 @@ const saveResult = async ({ id, resultValue }) => {
   await redisResults.set(id, JSON.stringify(resultValue), 'EX', itemsTTL);
 };
 
-const removeJob = async (jobId) => {
-  // For repeat jobs, the ID is in the format 'repeat:jobId:timestamp'
+const removeJob = async jobId => {
+  if (!jobId) return;
+  // Bull occurrence IDs use the format 'repeat:<repeat-definition-hash>:<timestamp>'.
   const jobIdParts = jobId.split(':');
   const isRepeatJob = jobIdParts[0] === 'repeat';
 
   if (isRepeatJob) {
-    // Get all repeatable jobs
-    const repeatableJobs = await queue.getRepeatableJobs();
-
-    // Find the job with matching cron pattern
-    const cronJob = await sqldb.CronJobs.findOne({
-      where: {
-        bullJobId: jobId,
-      },
-    });
-
-    if (cronJob) {
-      // First remove all repeatable jobs with matching cron pattern
-      for (const repeatableJob of repeatableJobs) {
-        if (repeatableJob.cron === cronJob.cron) {
-          await queue.removeRepeatableByKey(repeatableJob.key);
-        }
-      }
-
-      // Then remove all jobs with this pattern
-      const jobs = await queue.getJobs(['active', 'wait', 'delayed']);
-      for (const job of jobs) {
-        if (job.opts.repeat && job.opts.jobId === jobId) {
-          await job.remove();
-        }
-      }
-
-      // Wait for the queue to process the removals
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      // Clean up any remaining jobs
-      const remainingJobs = await queue.getJobs(['active', 'wait', 'delayed']);
-      for (const job of remainingJobs) {
-        if (job.opts.repeat && job.opts.jobId === jobId) {
-          await job.remove();
-        }
-      }
-
-      await redisResults.del(jobId);
-      return;
+    const job = await queue.getJob(jobId);
+    let repeatKey = R.path(['opts', 'repeat', 'key'], job);
+    if (!repeatKey) {
+      // Bull v4 does not expose occurrence-to-definition lookup. Recreate its
+      // internal hash only for legacy rows whose scheduled occurrence has expired.
+      const repeatHash = jobIdParts[1];
+      const repeatableJobs = await queue.getRepeatableJobs();
+      const repeatable = repeatableJobs.find(candidate => {
+        const candidateJobId = candidate.id ? `${candidate.id}:` : ':';
+        const namespace = crypto.createHash('md5').update(candidate.key).digest('hex');
+        const candidateHash = crypto.createHash('md5')
+          .update(`${candidate.name}${candidateJobId}${namespace}`)
+          .digest('hex');
+        return candidateHash === repeatHash;
+      });
+      repeatKey = repeatable && repeatable.key;
     }
-
-    // If we couldn't find the repeatable job, just delete from the database
-    // This can happen if the job was already removed from Bull but still exists in our database
+    if (repeatKey) await queue.removeRepeatableByKey(repeatKey);
+    if (job) {
+      try {
+        await job.remove();
+      } catch (error) {
+        if (error.message && !error.message.includes('not found')) throw error;
+      }
+    }
+    await redisResults.del(jobId);
     return;
   }
 
   // If not a repeatable job, try to remove as a regular job
   const job = await queue.getJob(jobId);
-  if (!job) {
-    throw new Error('Job not found');
-  }
+  if (!job) return;
   await job.remove();
   await redisResults.del(jobId);
 };
