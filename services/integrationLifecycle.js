@@ -35,6 +35,16 @@ const provisioningIsStale = lifecycle => {
     && Date.now() - lastUpdatedMs >= provisioningTimeoutMs();
 };
 
+const catalogLifecycleEndpoint = () => {
+  const eventsUrl = process.env.ti2_events2url_eventsURL;
+  if (!eventsUrl) return null;
+  const endpoint = new URL(eventsUrl);
+  endpoint.pathname = '/productSync/integration-lifecycle';
+  endpoint.search = '';
+  endpoint.hash = '';
+  return endpoint.toString();
+};
+
 const callCatalogLifecycle = async ({
   action,
   userId,
@@ -42,8 +52,8 @@ const callCatalogLifecycle = async ({
   hint,
   generation,
 }) => {
-  const catalogLifecycleUrl = process.env.PYFILEMATCH_URL;
-  if (!catalogLifecycleUrl) {
+  const endpoint = catalogLifecycleEndpoint();
+  if (!endpoint) {
     return {
       status: action === 'activate' ? 'active' : 'deleted',
       generation,
@@ -53,7 +63,7 @@ const callCatalogLifecycle = async ({
   }
   try {
     const response = await axios.post(
-      `${catalogLifecycleUrl}/productSync/integration-lifecycle`,
+      endpoint,
       {
         action,
         companyId: userId,
@@ -61,7 +71,12 @@ const callCatalogLifecycle = async ({
         hint,
         generation,
       },
-      { timeout: Number(process.env.PYFILEMATCH_TIMEOUT_MS) || 30e3 },
+      {
+        headers: {
+          Authorization: process.env.ti2_events2url_authorization,
+        },
+        timeout: Number(process.env.INTEGRATION_LIFECYCLE_TIMEOUT_MS) || 30e3,
+      },
     );
     return response.data;
   } catch (error) {

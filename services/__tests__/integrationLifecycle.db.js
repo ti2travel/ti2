@@ -10,7 +10,8 @@ const sqldb = require('../../models');
 const { removeJob } = require('../../worker/queue');
 const { deleteIntegration } = require('../integrationLifecycle');
 
-const originalPyfilematchUrl = process.env.PYFILEMATCH_URL;
+const originalEventsUrl = process.env.ti2_events2url_eventsURL;
+const originalEventsAuthorization = process.env.ti2_events2url_authorization;
 
 const deferred = () => {
   let resolve;
@@ -28,7 +29,8 @@ describe('integrationLifecycle database transitions', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    process.env.PYFILEMATCH_URL = 'http://catalog.test';
+    process.env.ti2_events2url_eventsURL = 'http://filematch.test/ti2events';
+    process.env.ti2_events2url_authorization = 'Bearer service-token';
     userId = `tc-1460-${uuidv4()}`;
     await sqldb.User.create({ userId });
   });
@@ -42,10 +44,15 @@ describe('integrationLifecycle database transitions', () => {
   });
 
   afterAll(() => {
-    if (originalPyfilematchUrl === undefined) {
-      delete process.env.PYFILEMATCH_URL;
+    if (originalEventsUrl === undefined) {
+      delete process.env.ti2_events2url_eventsURL;
     } else {
-      process.env.PYFILEMATCH_URL = originalPyfilematchUrl;
+      process.env.ti2_events2url_eventsURL = originalEventsUrl;
+    }
+    if (originalEventsAuthorization === undefined) {
+      delete process.env.ti2_events2url_authorization;
+    } else {
+      process.env.ti2_events2url_authorization = originalEventsAuthorization;
     }
   });
 

@@ -96,11 +96,13 @@ value is honored, including `86400` for a one-day interval.
 
 ### Optional catalog lifecycle service
 
-Ti2 can notify a catalog lifecycle service when an integration is removed or
-reactivated. Set `PYFILEMATCH_URL` to the service base URL to enable these calls;
-without it, Ti2 cleans its own credentials and schedules without making an
-external catalog request. `PYFILEMATCH_TIMEOUT_MS` controls the request timeout
-and defaults to 30 seconds. A save left in `provisioning` blocks deletion until
+Ti2 synchronously asks Filematch to update catalog lifecycle state when an
+integration is removed or reactivated. The call reuses
+`ti2_events2url_eventsURL` and `ti2_events2url_authorization`; Filematch then
+forwards the request to Pyfilematch. Without the events URL, Ti2 cleans its own
+credentials and schedules without making an external catalog request.
+`INTEGRATION_LIFECYCLE_TIMEOUT_MS` controls the request timeout and defaults to
+30 seconds. A save left in `provisioning` blocks deletion until
 it is older than `INTEGRATION_PROVISIONING_TIMEOUT_MS` (five minutes by
 default); deletion then advances the generation before removing local and
 catalog state. Catalog lifecycle consumers must accept newer generations so a

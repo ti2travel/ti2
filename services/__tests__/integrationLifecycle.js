@@ -33,7 +33,8 @@ const {
   touchActivation,
 } = require('../integrationLifecycle');
 
-const originalPyfilematchUrl = process.env.PYFILEMATCH_URL;
+const originalEventsUrl = process.env.ti2_events2url_eventsURL;
+const originalEventsAuthorization = process.env.ti2_events2url_authorization;
 
 const lifecycleRecord = overrides => ({
   userId: 'company-a',
@@ -65,7 +66,8 @@ const lifecycleRecord = overrides => ({
 describe('integrationLifecycle', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.PYFILEMATCH_URL = 'http://catalog.test';
+    process.env.ti2_events2url_eventsURL = 'http://filematch.test/ti2events';
+    process.env.ti2_events2url_authorization = 'Bearer service-token';
     sqldb.User.findOne.mockResolvedValue({ userId: 'company-a' });
     sqldb.UserAppKey.destroy.mockResolvedValue(1);
     sqldb.UserAppKey.findOne.mockResolvedValue({ id: 1 });
@@ -77,10 +79,15 @@ describe('integrationLifecycle', () => {
   });
 
   afterAll(() => {
-    if (originalPyfilematchUrl === undefined) {
-      delete process.env.PYFILEMATCH_URL;
+    if (originalEventsUrl === undefined) {
+      delete process.env.ti2_events2url_eventsURL;
     } else {
-      process.env.PYFILEMATCH_URL = originalPyfilematchUrl;
+      process.env.ti2_events2url_eventsURL = originalEventsUrl;
+    }
+    if (originalEventsAuthorization === undefined) {
+      delete process.env.ti2_events2url_authorization;
+    } else {
+      process.env.ti2_events2url_authorization = originalEventsAuthorization;
     }
   });
 
@@ -150,7 +157,7 @@ describe('integrationLifecycle', () => {
       where: { userId: 'company-a', integrationId: 'tourplan' },
     }));
     expect(axios.post).toHaveBeenCalledWith(
-      expect.stringContaining('/productSync/integration-lifecycle'),
+      'http://filematch.test/productSync/integration-lifecycle',
       {
         action: 'delete',
         companyId: 'company-a',
@@ -158,7 +165,10 @@ describe('integrationLifecycle', () => {
         hint: 'Desk A',
         generation: 2,
       },
-      expect.objectContaining({ timeout: expect.any(Number) }),
+      expect.objectContaining({
+        headers: { Authorization: 'Bearer service-token' },
+        timeout: expect.any(Number),
+      }),
     );
     expect(result).toEqual(expect.objectContaining({
       status: 'external_cleanup',
@@ -412,7 +422,7 @@ describe('integrationLifecycle', () => {
   });
 
   it('skips catalog lifecycle calls when no service is configured', async () => {
-    delete process.env.PYFILEMATCH_URL;
+    delete process.env.ti2_events2url_eventsURL;
     sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycleRecord());
 
     const result = await deleteIntegration({
