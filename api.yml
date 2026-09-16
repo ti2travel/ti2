@@ -101,6 +101,53 @@ components:
       properties:
         value:
           type: string
+    IntegrationCleanup:
+      type: object
+      required:
+        - userId
+        - integrationId
+        - hint
+        - generation
+        - requestId
+        - status
+      properties:
+        userId:
+          type: string
+        integrationId:
+          type: string
+        hint:
+          type: string
+        generation:
+          type: integer
+          minimum: 1
+        requestId:
+          type: string
+        requestedAt:
+          type: string
+          format: date-time
+        retryCount:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum:
+            - deleting
+            - failed
+            - external_cleanup
+            - complete
+        artifacts:
+          type: object
+          additionalProperties: true
+    IntegrationCleanupResponse:
+      type: object
+      required:
+        - message
+        - cleanup
+      properties:
+        message:
+          type: string
+        cleanup:
+          $ref: '#/components/schemas/IntegrationCleanup'
     CreateAppTokenResponse:
       type: object
       required:
@@ -186,6 +233,9 @@ components:
           type: string
           description: An identifier for this token, it should NOT be the token itself but a short safe version of it
           example: 'expediaTestLocation-23'
+        deferCompletion:
+          type: boolean
+          description: Keep re-creation blocked until the caller finalizes external cleanup
     UserAppValidate:
       description: A user + App configuration to validate
       type: object
@@ -254,6 +304,13 @@ components:
                 type: string
               updatedAt:
                 type: string
+              cleanupStatus:
+                type: string
+                description: Present when removal is incomplete and may be retried.
+                enum:
+                  - deleting
+                  - external_cleanup
+                  - failed
     appRequest:
       type: object
       properties:
@@ -982,7 +1039,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Message'
+                $ref: '#/components/schemas/IntegrationCleanupResponse'
     put:
       tags:
         - app
@@ -1020,6 +1077,56 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Message'
+  /{app}/{userId}/cleanup/finalize:
+    post:
+      tags:
+        - app
+        - user
+      summary: Finalize an integration cleanup after external artifacts are removed
+      security:
+        - bearerAuth: ['admin', 'app', 'user']
+      operationId: finalizeIntegrationCleanup
+      parameters:
+        - name: app
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - tokenHint
+                - generation
+                - requestId
+              properties:
+                tokenHint:
+                  type: string
+                generation:
+                  type: integer
+                  minimum: 1
+                requestId:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+                artifacts:
+                  type: object
+                  additionalProperties: true
+      responses:
+        200:
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationCleanupResponse'
   /{app}/{userId}/{hint}/token:
     get:
       tags:
