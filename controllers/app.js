@@ -219,6 +219,7 @@ const createAppToken = async (req, res, next) => {
       throw cronErr;
     }
 
+    await integrationLifecycle.touchActivation(lifecycle);
     if (R.pathOr(false, ['artifacts', 'requiresCatalogActivation'], lifecycle)) {
       await integrationLifecycle.activateCatalog(lifecycle);
     }

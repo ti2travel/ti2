@@ -101,6 +101,52 @@ components:
       properties:
         value:
           type: string
+    IntegrationCleanup:
+      type: object
+      required:
+        - userId
+        - integrationId
+        - hint
+        - generation
+        - status
+      properties:
+        userId:
+          type: string
+        integrationId:
+          type: string
+        hint:
+          type: string
+        generation:
+          type: integer
+          minimum: 1
+        requestId:
+          type: string
+        requestedAt:
+          type: string
+          format: date-time
+        retryCount:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum:
+            - deleting
+            - failed
+            - external_cleanup
+            - complete
+        artifacts:
+          type: object
+          additionalProperties: true
+    IntegrationCleanupResponse:
+      type: object
+      required:
+        - message
+        - cleanup
+      properties:
+        message:
+          type: string
+        cleanup:
+          $ref: '#/components/schemas/IntegrationCleanup'
     CreateAppTokenResponse:
       type: object
       required:
@@ -985,7 +1031,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Message'
+                $ref: '#/components/schemas/IntegrationCleanupResponse'
     put:
       tags:
         - app
@@ -1067,7 +1113,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Message'
+                $ref: '#/components/schemas/IntegrationCleanupResponse'
   /{app}/{userId}/{hint}/token:
     get:
       tags:

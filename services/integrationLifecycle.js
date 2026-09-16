@@ -136,17 +136,43 @@ const activateCatalog = async lifecycle => {
   throw lifecycleError(502, 'Product catalog activation returned an unexpected response.');
 };
 
-const completeActivation = lifecycle => sqldb.IntegrationLifecycle.update({
-  status: 'active',
-  artifacts: null,
-  lastError: null,
-}, {
-  where: {
-    ...identityWhere(lifecycle),
-    generation: lifecycle.generation,
-    status: 'provisioning',
-  },
+const activationWhere = lifecycle => ({
+  ...identityWhere(lifecycle),
+  generation: lifecycle.generation,
+  status: 'provisioning',
 });
+
+const assertActivationOwnership = updatedRows => {
+  if (updatedRows !== 1) {
+    throw lifecycleError(409, 'Integration save was superseded by a newer lifecycle.');
+  }
+};
+
+const touchActivation = async lifecycle => {
+  const [updatedRows] = await sqldb.IntegrationLifecycle.update({
+    updatedAt: new Date(),
+  }, {
+    where: activationWhere(lifecycle),
+  });
+  if (updatedRows === 1) return;
+  // MySQL reports zero changed rows when a sub-second heartbeat rounds to the
+  // same stored timestamp, so confirm the fenced row before treating it as lost.
+  const current = await sqldb.IntegrationLifecycle.findOne({
+    where: activationWhere(lifecycle),
+  });
+  if (!current) assertActivationOwnership(updatedRows);
+};
+
+const completeActivation = async lifecycle => {
+  const [updatedRows] = await sqldb.IntegrationLifecycle.update({
+    status: 'active',
+    artifacts: null,
+    lastError: null,
+  }, {
+    where: activationWhere(lifecycle),
+  });
+  assertActivationOwnership(updatedRows);
+};
 
 const failActivation = (lifecycle, error) => sqldb.IntegrationLifecycle.update({
   status: 'failed_activation',
@@ -345,8 +371,14 @@ const deleteIntegration = async ({
       hint,
       generation: lifecycle.generation,
     });
+    if (catalog && catalog.status === 'superseded') {
+      throw lifecycleError(409, 'A newer product catalog lifecycle already exists.');
+    }
+    if (catalog && catalog.status === 'retry') {
+      throw lifecycleError(503, 'Product catalog cleanup is not ready and can be retried.');
+    }
     if (!catalog || catalog.status !== 'deleted') {
-      throw new Error('Product catalog cleanup did not complete.');
+      throw lifecycleError(502, 'Product catalog cleanup returned an unexpected response.');
     }
     const artifacts = {
       ...observedArtifacts,
@@ -385,7 +417,6 @@ const deleteIntegration = async ({
       artifacts,
     };
   } catch (error) {
-    if (error.status === 409) throw error;
     await sqldb.IntegrationLifecycle.update({
       status: 'failed',
       artifacts: { ...observedArtifacts, failureStage },
@@ -397,6 +428,7 @@ const deleteIntegration = async ({
         status: 'deleting',
       },
     });
+    if (error.status) throw error;
     throw lifecycleError(
       503,
       `Integration cleanup stopped at ${failureStage} and can be retried: ${error.message}`,
@@ -441,4 +473,5 @@ module.exports = {
   deleteIntegration,
   failActivation,
   prepareActivation,
+  touchActivation,
 };

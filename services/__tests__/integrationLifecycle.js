@@ -26,9 +26,11 @@ const sqldb = require('../../models');
 const { removeJob } = require('../../worker/queue');
 const {
   activateCatalog,
+  completeActivation,
   completeDeletion,
   deleteIntegration,
   prepareActivation,
+  touchActivation,
 } = require('../integrationLifecycle');
 
 const originalPyfilematchUrl = process.env.PYFILEMATCH_URL;
@@ -235,6 +237,50 @@ describe('integrationLifecycle', () => {
 
     await expect(activateCatalog(lifecycleRecord()))
       .rejects.toMatchObject({ status: 503 });
+  });
+
+  it('refuses to complete an activation after its generation loses ownership', async () => {
+    sqldb.IntegrationLifecycle.update.mockResolvedValueOnce([0]);
+
+    await expect(completeActivation(lifecycleRecord({ status: 'provisioning' })))
+      .rejects.toMatchObject({
+        status: 409,
+        message: 'Integration save was superseded by a newer lifecycle.',
+      });
+  });
+
+  it('accepts an unchanged heartbeat timestamp while the fenced activation still exists', async () => {
+    sqldb.IntegrationLifecycle.update.mockResolvedValueOnce([0]);
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValueOnce(lifecycleRecord({
+      status: 'provisioning',
+    }));
+
+    await expect(touchActivation(lifecycleRecord({ status: 'provisioning' })))
+      .resolves.toBeUndefined();
+  });
+
+  it('rejects a heartbeat after its activation loses ownership', async () => {
+    sqldb.IntegrationLifecycle.update.mockResolvedValueOnce([0]);
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValueOnce(null);
+
+    await expect(touchActivation(lifecycleRecord({ status: 'provisioning' })))
+      .rejects.toMatchObject({ status: 409 });
+  });
+
+  it.each([
+    ['superseded', 409],
+    ['retry', 503],
+    ['unexpected', 502],
+  ])('maps catalog deletion status %s to HTTP %i', async (status, expectedStatus) => {
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycleRecord());
+    axios.post.mockResolvedValueOnce({ data: { status } });
+
+    await expect(deleteIntegration({
+      userId: 'company-a',
+      integrationId: 'tourplan',
+      hint: 'Desk A',
+      requestedBy: 'user-a',
+    })).rejects.toMatchObject({ status: expectedStatus });
   });
 
   it('advances the generation before deleting after a timed-out activation', async () => {
