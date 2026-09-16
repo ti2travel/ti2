@@ -304,6 +304,13 @@ components:
                 type: string
               updatedAt:
                 type: string
+              cleanupStatus:
+                type: string
+                description: Present when removal is incomplete and may be retried.
+                enum:
+                  - deleting
+                  - external_cleanup
+                  - failed
     appRequest:
       type: object
       properties:

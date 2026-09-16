@@ -1,16 +1,44 @@
 // controllers/user.js
-const { omit } = require('ramda');
+const { Op } = require('sequelize');
 
-const { UserAppKey } = require('../models');
+const { IntegrationLifecycle, UserAppKey } = require('../models');
+
+const pendingCleanupStatuses = ['deleting', 'external_cleanup', 'failed'];
+const integrationKey = ({ integrationId, hint }) => JSON.stringify([integrationId, hint]);
 
 const userAppList = async (req, res, next) => {
   const { params: { userId } } = req;
   try {
-    const userAppKeys = await UserAppKey.findAll({
-      where: { userId },
-      raw: true,
-      attributes: ['integrationId', 'userId', 'hint', 'createdAt', 'updatedAt'],
-    })
+    const [credentials, pendingCleanups] = await Promise.all([
+      UserAppKey.findAll({
+        where: { userId },
+        raw: true,
+        attributes: ['integrationId', 'userId', 'hint', 'createdAt', 'updatedAt'],
+      }),
+      IntegrationLifecycle.findAll({
+        where: {
+          userId,
+          status: { [Op.in]: pendingCleanupStatuses },
+        },
+        raw: true,
+        attributes: ['integrationId', 'userId', 'hint', 'status'],
+      }),
+    ]);
+    const cleanupByIntegration = new Map(
+      pendingCleanups.map(cleanup => [integrationKey(cleanup), cleanup]),
+    );
+    const userAppKeys = credentials.map(credential => {
+      const cleanup = cleanupByIntegration.get(integrationKey(credential));
+      if (!cleanup) return credential;
+      cleanupByIntegration.delete(integrationKey(credential));
+      return { ...credential, cleanupStatus: cleanup.status };
+    });
+    cleanupByIntegration.forEach(cleanup => userAppKeys.push({
+      integrationId: cleanup.integrationId,
+      userId: cleanup.userId,
+      hint: cleanup.hint,
+      cleanupStatus: cleanup.status,
+    }));
     return res.json({ userAppKeys });
   } catch (err) {
     return next(err);

@@ -185,6 +185,19 @@ describe('user', () => {
       cleanup: expect.objectContaining({ status: 'external_cleanup' }),
     }));
 
+    const pendingList = await doApiGet({
+      url: `/user/${userId}/apps`,
+      token: userKey,
+    });
+    expect(pendingList.userAppKeys).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        integrationId: appName,
+        userId,
+        hint: deferredHint,
+        cleanupStatus: 'external_cleanup',
+      }),
+    ]));
+
     await doApiPost({
       url: `/${appName}/${userId}/cleanup/finalize`,
       token: userKey,
@@ -206,6 +219,17 @@ describe('user', () => {
       },
     });
     expect(finalized.cleanup.status).toBe('complete');
+
+    const completedList = await doApiGet({
+      url: `/user/${userId}/apps`,
+      token: userKey,
+    });
+    expect(completedList.userAppKeys).toEqual(expect.not.arrayContaining([
+      expect.objectContaining({
+        integrationId: appName,
+        hint: deferredHint,
+      }),
+    ]));
   });
   it('reports post-save cron setup failure while preserving the committed credential', async () => {
     const postCommitUserId = chance.guid();
