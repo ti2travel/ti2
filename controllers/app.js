@@ -312,6 +312,7 @@ const finalizeIntegrationCleanup = async (req, res, next) => {
     body: {
       tokenHint: hint,
       generation,
+      requestId,
       artifacts,
     },
     params: {
@@ -323,11 +324,15 @@ const finalizeIntegrationCleanup = async (req, res, next) => {
     if (typeof hint !== 'string' || hint.length === 0 || hint.length > 256) {
       return next({ status: 400, message: 'A valid tokenHint is required' });
     }
+    if (typeof requestId !== 'string' || requestId.length === 0 || requestId.length > 64) {
+      return next({ status: 400, message: 'A valid requestId is required' });
+    }
     const cleanup = await integrationLifecycle.completeDeletion({
       userId,
       integrationId,
       hint,
       generation,
+      requestId,
       externalArtifacts: artifacts,
     });
     return res.json({ message: 'Integration cleanup finalized.', cleanup });

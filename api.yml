@@ -108,6 +108,7 @@ components:
         - integrationId
         - hint
         - generation
+        - requestId
         - status
       properties:
         userId:
@@ -1098,12 +1099,17 @@ paths:
               required:
                 - tokenHint
                 - generation
+                - requestId
               properties:
                 tokenHint:
                   type: string
                 generation:
                   type: integer
                   minimum: 1
+                requestId:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
                 artifacts:
                   type: object
                   additionalProperties: true

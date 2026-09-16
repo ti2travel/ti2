@@ -441,6 +441,7 @@ const completeDeletion = async ({
   integrationId,
   hint,
   generation,
+  requestId,
   externalArtifacts,
 }) => sqldb.sequelize.transaction(async transaction => {
   const where = identityWhere({ userId, integrationId, hint });
@@ -451,6 +452,9 @@ const completeDeletion = async ({
   });
   if (!lifecycle || lifecycle.generation !== generation) {
     throw lifecycleError(409, 'Integration cleanup generation no longer matches.');
+  }
+  if (lifecycle.requestId !== requestId) {
+    throw lifecycleError(409, 'Integration cleanup request no longer owns this generation.');
   }
   if (lifecycle.status === 'complete') return lifecycle.get({ plain: true });
   if (lifecycle.status !== 'external_cleanup') {

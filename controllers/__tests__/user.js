@@ -185,12 +185,23 @@ describe('user', () => {
       cleanup: expect.objectContaining({ status: 'external_cleanup' }),
     }));
 
+    await doApiPost({
+      url: `/${appName}/${userId}/cleanup/finalize`,
+      token: userKey,
+      payload: {
+        tokenHint: deferredHint,
+        generation: deletion.cleanup.generation,
+      },
+      expectStatusCode: 400,
+    });
+
     const finalized = await doApiPost({
       url: `/${appName}/${userId}/cleanup/finalize`,
       token: userKey,
       payload: {
         tokenHint: deferredHint,
         generation: deletion.cleanup.generation,
+        requestId: deletion.cleanup.requestId,
         artifacts: { test: true },
       },
     });

@@ -434,6 +434,7 @@ describe('integrationLifecycle', () => {
     sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycleRecord({
       status: 'external_cleanup',
       generation: 2,
+      requestId: 'external-request',
       artifacts: { catalog: { status: 'deleted' } },
     }));
 
@@ -445,7 +446,11 @@ describe('integrationLifecycle', () => {
       deferCompletion: true,
     });
 
-    expect(result.status).toBe('external_cleanup');
+    expect(result).toEqual(expect.objectContaining({
+      status: 'external_cleanup',
+      generation: 2,
+      requestId: 'external-request',
+    }));
     expect(sqldb.IntegrationLifecycle.update).not.toHaveBeenCalled();
     expect(axios.post).not.toHaveBeenCalled();
   });
@@ -463,6 +468,7 @@ describe('integrationLifecycle', () => {
       integrationId: 'tourplan',
       hint: 'Desk A',
       generation: 2,
+      requestId: 'request-1',
       externalArtifacts: { partnerMappings: 1 },
     });
 
@@ -473,6 +479,25 @@ describe('integrationLifecycle', () => {
     });
     expect(lifecycle.save).toHaveBeenCalled();
     expect(result.status).toBe('complete');
+  });
+
+  it('rejects finalization when the request no longer owns the generation', async () => {
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycleRecord({
+      status: 'external_cleanup',
+      generation: 2,
+      requestId: 'request-2',
+    }));
+
+    await expect(completeDeletion({
+      userId: 'company-a',
+      integrationId: 'tourplan',
+      hint: 'Desk A',
+      generation: 2,
+      requestId: 'stale-request',
+    })).rejects.toMatchObject({
+      status: 409,
+      message: 'Integration cleanup request no longer owns this generation.',
+    });
   });
 
   it('preserves shared integration settings while another hint remains', async () => {
