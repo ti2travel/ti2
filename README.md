@@ -94,6 +94,14 @@ The product cache refresh interval defaults to seven days when no TTR is set.
 Any explicit `ttlForProducts` or plugin `cacheSettings.bookingsProductSearch.ttr`
 value is honored, including `86400` for a one-day interval.
 
+### Optional catalog lifecycle service
+
+Ti2 can notify a catalog lifecycle service when an integration is removed or
+reactivated. Set `PYFILEMATCH_URL` to the service base URL to enable these calls;
+without it, Ti2 cleans its own credentials and schedules without making an
+external catalog request. `PYFILEMATCH_TIMEOUT_MS` controls the request timeout
+and defaults to 30 seconds.
+
 ## Contributing
 
 Contributions are welcome and ecouraged.

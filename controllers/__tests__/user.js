@@ -98,10 +98,11 @@ describe('user', () => {
     expect(R.path(['apiKey', 'regExp', 'source'], template)).toBeTruthy();
   });
   it('should be able to delete a user/app key', async () => {
+    const deletedHint = apiKey.split('-')[0];
     await doApiDelete({
       url: `/${appName}/${userId}`,
       token: userKey,
-      payload: { tokenHint: apiKey.split('-')[0] },
+      payload: { tokenHint: deletedHint },
     });
     const { userAppKeys } = await doApiGet({
       url: `/user/${userId}/apps`,
@@ -116,6 +117,14 @@ describe('user', () => {
         }),
       ]),
     );
+    const lifecycle = await db.models.IntegrationLifecycle.findOne({
+      where: {
+        userId,
+        integrationId: appName,
+        hint: deletedHint,
+      },
+    });
+    expect(lifecycle.requestedBy).toBe(`user:${userId}`);
   });
   it('should be able to create a user/app integration', async () => {
     // set up new token

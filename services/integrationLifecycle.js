@@ -5,9 +5,6 @@ const { Op } = require('sequelize');
 const sqldb = require('../models');
 const { removeJob } = require('../worker/queue');
 
-const PYFILEMATCH_URL = process.env.PYFILEMATCH_URL || 'http://pyfilematch:5000';
-const PYFILEMATCH_TIMEOUT_MS = Number(process.env.PYFILEMATCH_TIMEOUT_MS) || 30e3;
-
 const identityWhere = ({ userId, integrationId, hint }) => ({
   userId,
   integrationId,
@@ -29,8 +26,17 @@ const callCatalogLifecycle = async ({
   hint,
   generation,
 }) => {
+  const catalogLifecycleUrl = process.env.PYFILEMATCH_URL;
+  if (!catalogLifecycleUrl) {
+    return {
+      status: action === 'activate' ? 'active' : 'deleted',
+      generation,
+      skipped: true,
+      reason: 'catalog_lifecycle_not_configured',
+    };
+  }
   const response = await axios.post(
-    `${PYFILEMATCH_URL}/productSync/integration-lifecycle`,
+    `${catalogLifecycleUrl}/productSync/integration-lifecycle`,
     {
       action,
       companyId: userId,
@@ -38,7 +44,7 @@ const callCatalogLifecycle = async ({
       hint,
       generation,
     },
-    { timeout: PYFILEMATCH_TIMEOUT_MS },
+    { timeout: Number(process.env.PYFILEMATCH_TIMEOUT_MS) || 30e3 },
   );
   return response.data;
 };
@@ -143,7 +149,9 @@ const beginDeletion = async ({
       transaction,
       lock: transaction.LOCK.UPDATE,
     });
-    if (lifecycle && lifecycle.status === 'complete') return lifecycle;
+    if (lifecycle && ['complete', 'external_cleanup'].includes(lifecycle.status)) {
+      return lifecycle;
+    }
     if (lifecycle && lifecycle.status === 'provisioning') {
       throw lifecycleError(409, 'Integration save is still finishing. Retry removal shortly.');
     }
@@ -175,12 +183,15 @@ const beginDeletion = async ({
   });
 };
 
-const cleanupSchedules = async ({ userId, hint, pluginNames }) => {
-  if (!pluginNames.length) return 0;
+const cleanupSchedules = async ({
+  userId,
+  integrationId,
+  hint,
+}) => {
   const where = {
     userId,
     hint,
-    pluginName: { [Op.in]: pluginNames },
+    pluginName: integrationId,
   };
   return sqldb.sequelize.transaction(async transaction => {
     const schedules = await sqldb.CronJobs.findAll({
@@ -233,7 +244,6 @@ const deleteIntegration = async ({
   userId,
   integrationId,
   hint,
-  pluginNames,
   requestedBy,
   deferCompletion = false,
 }) => {
@@ -243,32 +253,44 @@ const deleteIntegration = async ({
     hint,
     requestedBy,
   });
-  if (lifecycle.status === 'complete') return lifecycle.get({ plain: true });
+  if (['complete', 'external_cleanup'].includes(lifecycle.status)) {
+    return lifecycle.get({ plain: true });
+  }
 
   const where = identityWhere({ userId, integrationId, hint });
   let failureStage = 'schedule cleanup';
   let observedArtifacts = lifecycle.artifacts || {};
   try {
-    const cronJobs = await cleanupSchedules({ userId, hint, pluginNames });
+    const cronJobs = await cleanupSchedules({ userId, integrationId, hint });
+    const previousArtifacts = { ...observedArtifacts };
+    delete previousArtifacts.failureStage;
+    observedArtifacts = {
+      ...previousArtifacts,
+      cronJobs: Math.max(previousArtifacts.cronJobs || 0, cronJobs),
+    };
+    await sqldb.IntegrationLifecycle.update({ artifacts: observedArtifacts }, {
+      where: {
+        ...where,
+        generation: lifecycle.generation,
+        status: { [Op.in]: ['deleting', 'failed'] },
+      },
+    });
     failureStage = 'credential and settings cleanup';
     const { credentials, settings } = await cleanupCredentialAndSettings({
       userId,
       integrationId,
       hint,
     });
-    const previousArtifacts = { ...observedArtifacts };
-    delete previousArtifacts.failureStage;
     observedArtifacts = {
-      ...previousArtifacts,
-      credentials: Math.max(previousArtifacts.credentials || 0, credentials),
-      cronJobs: Math.max(previousArtifacts.cronJobs || 0, cronJobs),
-      settings: Math.max(previousArtifacts.settings || 0, settings),
+      ...observedArtifacts,
+      credentials: Math.max(observedArtifacts.credentials || 0, credentials),
+      settings: Math.max(observedArtifacts.settings || 0, settings),
     };
     await sqldb.IntegrationLifecycle.update({ artifacts: observedArtifacts }, {
       where: {
         ...where,
         generation: lifecycle.generation,
-        status: { [Op.ne]: 'complete' },
+        status: { [Op.in]: ['deleting', 'failed'] },
       },
     });
     failureStage = 'product catalog cleanup';
@@ -295,7 +317,7 @@ const deleteIntegration = async ({
       where: {
         ...where,
         generation: lifecycle.generation,
-        status: { [Op.ne]: 'complete' },
+        status: { [Op.in]: ['deleting', 'failed'] },
       },
     });
     return {
@@ -316,7 +338,7 @@ const deleteIntegration = async ({
       where: {
         ...where,
         generation: lifecycle.generation,
-        status: { [Op.ne]: 'complete' },
+        status: 'deleting',
       },
     });
     throw lifecycleError(

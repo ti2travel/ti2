@@ -38,6 +38,7 @@ const appCheck = async req => {
     return 'Invalid api key';
   }
   req.appRecord = appRecord.dataValues;
+  req.auth = { subject: `app:${req.pathParams.app}` };
   return undefined;
 };
 
@@ -53,6 +54,7 @@ const app = async (req, res, next) => {
 const adminCheck = async req => {
   const token = getToken({ req });
   if (token !== adminKey) return 'Invalid admin key';
+  req.auth = { subject: 'admin' };
   return undefined;
 };
 
@@ -78,6 +80,7 @@ const userCheck = async req => {
   if (req.params.userId && userId !== req.params.userId) {
     return 'Non matching user id';
   }
+  req.auth = { subject: `user:${userId}` };
   return undefined;
 };
 

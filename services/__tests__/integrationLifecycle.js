@@ -1,4 +1,4 @@
-/* globals beforeEach describe expect it jest */
+/* globals afterAll beforeEach describe expect it jest */
 
 jest.mock('axios', () => ({ post: jest.fn() }));
 jest.mock('../../worker/queue', () => ({ removeJob: jest.fn() }));
@@ -29,6 +29,8 @@ const {
   prepareActivation,
 } = require('../integrationLifecycle');
 
+const originalPyfilematchUrl = process.env.PYFILEMATCH_URL;
+
 const lifecycleRecord = overrides => ({
   userId: 'company-a',
   integrationId: 'tourplan',
@@ -49,6 +51,7 @@ const lifecycleRecord = overrides => ({
       requestedAt: this.requestedAt,
       retryCount: this.retryCount,
       status: this.status,
+      artifacts: this.artifacts,
     };
   }),
   ...overrides,
@@ -57,6 +60,7 @@ const lifecycleRecord = overrides => ({
 describe('integrationLifecycle', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env.PYFILEMATCH_URL = 'http://catalog.test';
     sqldb.User.findOne.mockResolvedValue({ userId: 'company-a' });
     sqldb.UserAppKey.destroy.mockResolvedValue(1);
     sqldb.UserAppKey.count.mockResolvedValue(0);
@@ -64,6 +68,14 @@ describe('integrationLifecycle', () => {
     sqldb.CronJobs.findAll.mockResolvedValue([]);
     sqldb.IntegrationLifecycle.update.mockResolvedValue([1]);
     axios.post.mockResolvedValue({ data: { status: 'deleted' } });
+  });
+
+  afterAll(() => {
+    if (originalPyfilematchUrl === undefined) {
+      delete process.env.PYFILEMATCH_URL;
+    } else {
+      process.env.PYFILEMATCH_URL = originalPyfilematchUrl;
+    }
   });
 
   it('serializes a re-add behind a failed or active deletion', async () => {
@@ -106,7 +118,6 @@ describe('integrationLifecycle', () => {
       userId: 'company-a',
       integrationId: 'tourplan',
       hint: 'Desk A',
-      pluginNames: ['tourplan-plugin'],
       requestedBy: 'user-a',
       deferCompletion: true,
     });
@@ -115,7 +126,7 @@ describe('integrationLifecycle', () => {
       where: {
         userId: 'company-a',
         hint: 'Desk A',
-        pluginName: expect.any(Object),
+        pluginName: 'tourplan',
       },
       transaction: expect.any(Object),
       lock: 'UPDATE',
@@ -160,7 +171,6 @@ describe('integrationLifecycle', () => {
       userId: 'company-a',
       integrationId: 'tourplan',
       hint: 'Desk A',
-      pluginNames: [],
       requestedBy: 'user-a',
     })).rejects.toMatchObject({ status: 409 });
   });
@@ -176,7 +186,6 @@ describe('integrationLifecycle', () => {
       userId: 'company-a',
       integrationId: 'tourplan',
       hint: 'Desk A',
-      pluginNames: [],
       requestedBy: 'user-a',
     });
 
@@ -202,7 +211,6 @@ describe('integrationLifecycle', () => {
       userId: 'company-a',
       integrationId: 'tourplan',
       hint: 'Desk A',
-      pluginNames: [],
       requestedBy: 'user-a',
     });
 
@@ -222,7 +230,6 @@ describe('integrationLifecycle', () => {
       userId: 'company-a',
       integrationId: 'tourplan',
       hint: 'Desk A',
-      pluginNames: [],
       requestedBy: 'user-a',
     })).rejects.toMatchObject({
       status: 503,
@@ -239,6 +246,74 @@ describe('integrationLifecycle', () => {
       },
       lastError: 'catalog unavailable',
     }, expect.any(Object));
+  });
+
+  it('records completed schedule cleanup when credential cleanup fails', async () => {
+    const lifecycle = lifecycleRecord();
+    const schedule = { bullJobId: 'repeat:exact:123', destroy: jest.fn().mockResolvedValue() };
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycle);
+    sqldb.CronJobs.findAll
+      .mockResolvedValueOnce([schedule])
+      .mockResolvedValueOnce([schedule]);
+    sqldb.UserAppKey.destroy.mockRejectedValueOnce(new Error('database unavailable'));
+
+    await expect(deleteIntegration({
+      userId: 'company-a',
+      integrationId: 'tourplan',
+      hint: 'Desk A',
+      requestedBy: 'user-a',
+    })).rejects.toMatchObject({
+      status: 503,
+      message: expect.stringContaining('credential and settings cleanup'),
+    });
+
+    expect(sqldb.IntegrationLifecycle.update).toHaveBeenLastCalledWith({
+      status: 'failed',
+      artifacts: {
+        cronJobs: 1,
+        failureStage: 'credential and settings cleanup',
+      },
+      lastError: 'database unavailable',
+    }, expect.any(Object));
+  });
+
+  it('skips catalog lifecycle calls when no service is configured', async () => {
+    delete process.env.PYFILEMATCH_URL;
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycleRecord());
+
+    const result = await deleteIntegration({
+      userId: 'company-a',
+      integrationId: 'tourplan',
+      hint: 'Desk A',
+      requestedBy: 'user-a',
+    });
+
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(result.artifacts.catalog).toEqual(expect.objectContaining({
+      status: 'deleted',
+      skipped: true,
+      reason: 'catalog_lifecycle_not_configured',
+    }));
+  });
+
+  it('resumes external cleanup without reopening completed TI2 stages', async () => {
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycleRecord({
+      status: 'external_cleanup',
+      generation: 2,
+      artifacts: { catalog: { status: 'deleted' } },
+    }));
+
+    const result = await deleteIntegration({
+      userId: 'company-a',
+      integrationId: 'tourplan',
+      hint: 'Desk A',
+      requestedBy: 'user-a',
+      deferCompletion: true,
+    });
+
+    expect(result.status).toBe('external_cleanup');
+    expect(sqldb.IntegrationLifecycle.update).not.toHaveBeenCalled();
+    expect(axios.post).not.toHaveBeenCalled();
   });
 
   it('finalizes the matching generation and records external cleanup artifacts', async () => {
@@ -274,7 +349,6 @@ describe('integrationLifecycle', () => {
       userId: 'company-a',
       integrationId: 'tourplan',
       hint: 'Desk A',
-      pluginNames: [],
       requestedBy: 'user-a',
     });
 
@@ -293,7 +367,6 @@ describe('integrationLifecycle', () => {
       userId: 'company-a',
       integrationId: 'tourplan',
       hint: 'Desk A',
-      pluginNames: ['tourplan-plugin'],
       requestedBy: 'user-a',
     });
 
@@ -311,7 +384,6 @@ describe('integrationLifecycle', () => {
       userId: 'company-a',
       integrationId: 'tourplan',
       hint: 'Desk A',
-      pluginNames: ['tourplan-plugin'],
       requestedBy: 'user-a',
     });
 

@@ -293,8 +293,7 @@ const deleteAppToken = async (req, res, next) => {
       userId,
       integrationId,
       hint,
-      pluginNames: req.app.plugins.map(plugin => plugin.name),
-      requestedBy: R.pathOr('api', ['auth', 'sub'], req),
+      requestedBy: R.pathOr('api', ['auth', 'subject'], req),
       deferCompletion,
     });
     return res.json({
