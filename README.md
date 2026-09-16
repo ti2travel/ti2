@@ -101,8 +101,16 @@ integration is removed or reactivated. The call reuses
 `ti2_events2url_eventsURL` and `ti2_events2url_authorization`; Filematch then
 forwards the request to Pyfilematch. Without the events URL, Ti2 cleans its own
 credentials and schedules without making an external catalog request.
-`INTEGRATION_LIFECYCLE_TIMEOUT_MS` controls the request timeout and defaults to
-30 seconds. A save left in `provisioning` blocks deletion until
+`INTEGRATION_LIFECYCLE_TIMEOUT_MS` controls catalog activation and defaults to
+30 seconds. Catalog deletion uses `INTEGRATION_LIFECYCLE_DELETE_TIMEOUT_MS`,
+which defaults to 135 seconds. A valid delete-specific value is an explicit
+override and may be shorter. When it is unset or invalid, the general lifecycle
+timeout can raise, but cannot shorten, that deletion default.
+Because removal is synchronous, callers, proxies, and load balancers must allow
+more time than the configured deletion timeout. If an intermediary returns a
+timeout first, Ti2 can continue catalog cleanup while a retry begins another
+deletion attempt. A save left in
+`provisioning` blocks deletion until
 it is older than `INTEGRATION_PROVISIONING_TIMEOUT_MS` (five minutes by
 default); deletion then advances the generation before removing local and
 catalog state. Catalog lifecycle consumers must accept newer generations so a
