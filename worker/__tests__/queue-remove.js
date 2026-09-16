@@ -61,4 +61,17 @@ describe('removeJob', () => {
     expect(mockQueue.removeRepeatableByKey).not.toHaveBeenCalled();
     expect(mockRedis.del).toHaveBeenCalledWith('repeat:missing:1700000000000');
   });
+
+  it('removes a repeat definition referenced by a legacy custom job id', async () => {
+    const target = {
+      id: 'company-a-tourplan-desk-a',
+      key: '__default__:company-a-tourplan-desk-a:::0 9 * * *',
+    };
+    mockQueue.getRepeatableJobs.mockResolvedValue([target]);
+
+    await removeJob(target.id);
+
+    expect(mockQueue.removeRepeatableByKey).toHaveBeenCalledWith(target.key);
+    expect(mockRedis.del).toHaveBeenCalledWith(target.id);
+  });
 });

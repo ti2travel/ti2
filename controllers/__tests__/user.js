@@ -97,6 +97,19 @@ describe('user', () => {
     expect(template).toBeTruthy();
     expect(R.path(['apiKey', 'regExp', 'source'], template)).toBeTruthy();
   });
+  it('returns 404 when deleting a hint with no credential or lifecycle', async () => {
+    const unknownHint = chance.word({ length: 12 });
+    await doApiDelete({
+      url: `/${appName}/${userId}`,
+      token: userKey,
+      payload: { tokenHint: unknownHint },
+      expectStatusCode: 404,
+    });
+
+    expect(await db.models.IntegrationLifecycle.count({
+      where: { userId, integrationId: appName, hint: unknownHint },
+    })).toBe(0);
+  });
   it('should be able to delete a user/app key', async () => {
     const deletedHint = apiKey.split('-')[0];
     await doApiDelete({
@@ -153,6 +166,35 @@ describe('user', () => {
         }),
       ]),
     );
+  });
+  it('reports deferred deletion as pending until tokenHint finalization', async () => {
+    const deferredHint = chance.word({ length: 12 });
+    await doApiPost({
+      url: `/${appName}/${userId}`,
+      token: userKey,
+      payload: { tokenHint: deferredHint, token },
+    });
+
+    const deletion = await doApiDelete({
+      url: `/${appName}/${userId}`,
+      token: userKey,
+      payload: { tokenHint: deferredHint, deferCompletion: true },
+    });
+    expect(deletion).toEqual(expect.objectContaining({
+      message: 'Integration cleanup is awaiting external finalization.',
+      cleanup: expect.objectContaining({ status: 'external_cleanup' }),
+    }));
+
+    const finalized = await doApiPost({
+      url: `/${appName}/${userId}/cleanup/finalize`,
+      token: userKey,
+      payload: {
+        tokenHint: deferredHint,
+        generation: deletion.cleanup.generation,
+        artifacts: { test: true },
+      },
+    });
+    expect(finalized.cleanup.status).toBe('complete');
   });
   it('reports post-save cron setup failure while preserving the committed credential', async () => {
     const postCommitUserId = chance.guid();

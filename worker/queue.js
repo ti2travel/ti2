@@ -40,9 +40,9 @@ const addJob = async (payload, paramsParam) => {
     removeOnComplete: true,
     ...params,
   });
-  // For repeat jobs, we need to store the full repeat key
-  const id = job.opts.repeat ? job.opts.jobId : job.id;
-  return id;
+  // Repeat jobs use an occurrence ID containing Bull's repeat-definition hash.
+  // Persisting it lets removeJob identify one exact definition without matching by cron.
+  return job.id;
 };
 
 const saveResult = async ({ id, resultValue }) => {
@@ -87,7 +87,14 @@ const removeJob = async jobId => {
 
   // If not a repeatable job, try to remove as a regular job
   const job = await queue.getJob(jobId);
-  if (!job) return;
+  if (!job) {
+    // Older CronJobs rows stored opts.jobId instead of the repeat occurrence ID.
+    const repeatableJobs = await queue.getRepeatableJobs() || [];
+    const repeatable = repeatableJobs.find(candidate => candidate.id === jobId);
+    if (repeatable) await queue.removeRepeatableByKey(repeatable.key);
+    await redisResults.del(jobId);
+    return;
+  }
   await job.remove();
   await redisResults.del(jobId);
 };

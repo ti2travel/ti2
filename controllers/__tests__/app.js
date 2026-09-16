@@ -1,9 +1,11 @@
 /* globals beforeAll describe it expect */
 const chance = require('chance').Chance();
+const crypto = require('crypto');
 const jwt = require('jwt-promise');
 const R = require('ramda');
 
 const slugify = require('../../test/slugify');
+const { queue } = require('../../worker/queue');
 let appController = require('../app');
 
 const { env: { adminKey, jwtSecret } } = process;
@@ -13,6 +15,7 @@ describe('app', () => {
   const appName = slugify(
     chance.company(),
   );
+  const otherAppName = slugify(chance.company());
   const newApp = {
     name: appName,
     packageName: `ti2-${appName}`,
@@ -21,6 +24,8 @@ describe('app', () => {
   let doApiPost;
   let doApiGet;
   let doApiPut;
+  let db;
+  let plugins;
   let appKey;
   const userId = chance.guid();
   const apiKey = chance.guid();
@@ -34,8 +39,10 @@ describe('app', () => {
   };
   let encodedKey;
   beforeAll(async () => {
-    ({ doApiPost, doApiGet, doApiPut } = await testUtils({
-      plugins: [appName],
+    ({
+      doApiPost, doApiGet, doApiPut, plugins, sqldb: db,
+    } = await testUtils({
+      plugins: [appName, otherAppName],
     }));
     appController = appController([appName]);
   });
@@ -69,6 +76,12 @@ describe('app', () => {
       },
     });
     expect(parseInt(value, 10)).toBeGreaterThan(0);
+    expect(await db.models.CronJobs.count({
+      where: { userId, hint: apiKey.split('-')[0], pluginName: appName },
+    })).toBeGreaterThan(0);
+    expect(await db.models.CronJobs.count({
+      where: { userId, hint: apiKey.split('-')[0], pluginName: otherAppName },
+    })).toBe(0);
   });
   it('should be able to test a user token for the app', async () => {
     const { valid } = await doApiPost({
@@ -96,7 +109,39 @@ describe('app', () => {
           cron: '0 9 * * *',
         });
     });
-    it.todo('if a new version of the plugin has a different set of scheduled tasks, they should be re-synced');
+    it('replaces the repeatable definition when a cron pattern changes', async () => {
+      const plugin = plugins.find(({ name }) => name === appName);
+      plugin.jobs[0].cron = '0 10 * * *';
+
+      await doApiPost({
+        url: `/${appName}/${userId}`,
+        token: appKey,
+        payload: {
+          tokenHint: apiKey.split('-')[0],
+          token,
+        },
+      });
+
+      const jobs = R.path(
+        ['jobs'],
+        await appController.getAppScheduledJobs({ integrationId: appName, userId }),
+      );
+      expect(R.head(R.project(['pluginJobId', 'cron'], jobs))).toEqual({
+        pluginJobId: 'dailyReport',
+        cron: '0 10 * * *',
+      });
+      const repeatId = crypto.createHash('sha256').update(JSON.stringify({
+        pluginName: appName,
+        pluginJobId: 'dailyReport',
+        userId,
+        hint: apiKey.split('-')[0],
+      })).digest('hex');
+      const repeatDefinitions = (await queue.getRepeatableJobs())
+        .filter(({ id }) => id === repeatId);
+      expect(repeatDefinitions).toEqual([
+        expect.objectContaining({ cron: '0 10 * * *' }),
+      ]);
+    });
     let jobId;
     it('should be able to run a job', async () => {
       let status;

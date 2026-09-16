@@ -100,7 +100,11 @@ Ti2 can notify a catalog lifecycle service when an integration is removed or
 reactivated. Set `PYFILEMATCH_URL` to the service base URL to enable these calls;
 without it, Ti2 cleans its own credentials and schedules without making an
 external catalog request. `PYFILEMATCH_TIMEOUT_MS` controls the request timeout
-and defaults to 30 seconds.
+and defaults to 30 seconds. A save left in `provisioning` blocks deletion until
+it is older than `INTEGRATION_PROVISIONING_TIMEOUT_MS` (five minutes by
+default); deletion then advances the generation before removing local and
+catalog state. Catalog lifecycle consumers must accept newer generations so a
+failed activation followed by deletion can move from generation N to N+1.
 
 ## Contributing
 

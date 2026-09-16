@@ -5,6 +5,8 @@ const { Op } = require('sequelize');
 const sqldb = require('../models');
 const { removeJob } = require('../worker/queue');
 
+const DEFAULT_PROVISIONING_TIMEOUT_MS = 5 * 60e3;
+
 const identityWhere = ({ userId, integrationId, hint }) => ({
   userId,
   integrationId,
@@ -18,6 +20,20 @@ const lifecycleError = (status, message) => {
 };
 
 const newRequestId = () => crypto.randomBytes(16).toString('hex');
+
+const provisioningTimeoutMs = () => {
+  const configured = Number(process.env.INTEGRATION_PROVISIONING_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_PROVISIONING_TIMEOUT_MS;
+};
+
+const provisioningIsStale = lifecycle => {
+  const lastUpdatedAt = lifecycle.updatedAt || lifecycle.requestedAt;
+  const lastUpdatedMs = new Date(lastUpdatedAt).getTime();
+  return Number.isFinite(lastUpdatedMs)
+    && Date.now() - lastUpdatedMs >= provisioningTimeoutMs();
+};
 
 const callCatalogLifecycle = async ({
   action,
@@ -35,18 +51,26 @@ const callCatalogLifecycle = async ({
       reason: 'catalog_lifecycle_not_configured',
     };
   }
-  const response = await axios.post(
-    `${catalogLifecycleUrl}/productSync/integration-lifecycle`,
-    {
-      action,
-      companyId: userId,
-      integrationId,
-      hint,
-      generation,
-    },
-    { timeout: Number(process.env.PYFILEMATCH_TIMEOUT_MS) || 30e3 },
-  );
-  return response.data;
+  try {
+    const response = await axios.post(
+      `${catalogLifecycleUrl}/productSync/integration-lifecycle`,
+      {
+        action,
+        companyId: userId,
+        integrationId,
+        hint,
+        generation,
+      },
+      { timeout: Number(process.env.PYFILEMATCH_TIMEOUT_MS) || 30e3 },
+    );
+    return response.data;
+  } catch (error) {
+    const responseData = error.response && error.response.data;
+    if (responseData && ['retry', 'superseded'].includes(responseData.status)) {
+      return responseData;
+    }
+    throw error;
+  }
 };
 
 const prepareActivation = async ({
@@ -102,10 +126,14 @@ const activateCatalog = async lifecycle => {
     hint: lifecycle.hint,
     generation: lifecycle.generation,
   });
-  if (!result || result.status !== 'active') {
+  if (result && result.status === 'active') return result;
+  if (result && result.status === 'superseded') {
     throw lifecycleError(409, 'A newer integration lifecycle already exists.');
   }
-  return result;
+  if (result && result.status === 'retry') {
+    throw lifecycleError(503, 'Product catalog activation is not ready and can be retried.');
+  }
+  throw lifecycleError(502, 'Product catalog activation returned an unexpected response.');
 };
 
 const completeActivation = lifecycle => sqldb.IntegrationLifecycle.update({
@@ -152,10 +180,20 @@ const beginDeletion = async ({
     if (lifecycle && ['complete', 'external_cleanup'].includes(lifecycle.status)) {
       return lifecycle;
     }
-    if (lifecycle && lifecycle.status === 'provisioning') {
+    if (
+      lifecycle
+      && lifecycle.status === 'provisioning'
+      && !provisioningIsStale(lifecycle)
+    ) {
       throw lifecycleError(409, 'Integration save is still finishing. Retry removal shortly.');
     }
     if (!lifecycle) {
+      const credential = await sqldb.UserAppKey.findOne({
+        where,
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!credential) throw lifecycleError(404, 'Integration credential not found.');
       lifecycle = await sqldb.IntegrationLifecycle.create({
         ...where,
         generation: 1,
@@ -167,7 +205,13 @@ const beginDeletion = async ({
       }, { transaction });
       return lifecycle;
     }
-    if (['active', 'failed_activation'].includes(lifecycle.status)) {
+    if (
+      ['active', 'failed_activation'].includes(lifecycle.status)
+      || (lifecycle.status === 'provisioning' && provisioningIsStale(lifecycle))
+    ) {
+      // Deletion intentionally advances beyond a failed/stale activation. The catalog
+      // contract accepts a higher generation so an activation that committed remotely
+      // before TI2 crashed cannot resurrect the integration.
       lifecycle.generation += 1;
       lifecycle.requestId = newRequestId();
       lifecycle.retryCount = 0;
@@ -309,7 +353,7 @@ const deleteIntegration = async ({
       catalog,
     };
     const status = deferCompletion ? 'external_cleanup' : 'complete';
-    await sqldb.IntegrationLifecycle.update({
+    const [updatedRows] = await sqldb.IntegrationLifecycle.update({
       status,
       artifacts,
       lastError: null,
@@ -320,6 +364,17 @@ const deleteIntegration = async ({
         status: { [Op.in]: ['deleting', 'failed'] },
       },
     });
+    if (updatedRows === 0) {
+      const persisted = await sqldb.IntegrationLifecycle.findOne({ where });
+      if (
+        persisted
+        && persisted.generation === lifecycle.generation
+        && ['complete', 'external_cleanup'].includes(persisted.status)
+      ) {
+        return persisted.get({ plain: true });
+      }
+      throw lifecycleError(409, 'Integration cleanup state changed before completion.');
+    }
     return {
       ...where,
       generation: lifecycle.generation,
@@ -330,6 +385,7 @@ const deleteIntegration = async ({
       artifacts,
     };
   } catch (error) {
+    if (error.status === 409) throw error;
     await sqldb.IntegrationLifecycle.update({
       status: 'failed',
       artifacts: { ...observedArtifacts, failureStage },

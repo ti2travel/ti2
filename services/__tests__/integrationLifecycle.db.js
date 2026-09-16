@@ -49,7 +49,31 @@ describe('integrationLifecycle database transitions', () => {
     }
   });
 
+  const createActiveLifecycle = () => sqldb.IntegrationLifecycle.create({
+    userId,
+    integrationId: 'tourplan',
+    hint,
+    generation: 1,
+    status: 'active',
+    requestId: uuidv4(),
+    retryCount: 0,
+    requestedAt: new Date(),
+  });
+
+  it('returns 404 without lifecycle or catalog work for an unknown hint', async () => {
+    await expect(deleteIntegration({
+      userId,
+      integrationId: 'tourplan',
+      hint,
+      requestedBy: 'user:test',
+    })).rejects.toMatchObject({ status: 404 });
+
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(await sqldb.IntegrationLifecycle.count({ where: { userId } })).toBe(0);
+  });
+
   it('removes only schedules owned by the deleted integration', async () => {
+    await createActiveLifecycle();
     await sqldb.CronJobs.bulkCreate([
       {
         pluginName: 'tourplan',
@@ -88,6 +112,7 @@ describe('integrationLifecycle database transitions', () => {
   });
 
   it('does not let a late failure overwrite external cleanup', async () => {
+    await createActiveLifecycle();
     const successfulCatalog = deferred();
     const failedCatalog = deferred();
     const successfulCatalogCalled = deferred();
@@ -133,6 +158,7 @@ describe('integrationLifecycle database transitions', () => {
   });
 
   it('lets a successful concurrent attempt recover a failed attempt', async () => {
+    await createActiveLifecycle();
     const failedCatalog = deferred();
     const successfulCatalog = deferred();
     const failedCatalogCalled = deferred();
@@ -175,5 +201,44 @@ describe('integrationLifecycle database transitions', () => {
       where: { userId, integrationId: 'tourplan', hint },
     });
     expect(lifecycle.status).toBe('external_cleanup');
+  });
+
+  it('reports the persisted winner when concurrent deletes disagree on finalization', async () => {
+    await createActiveLifecycle();
+    const deferredCatalog = deferred();
+    const immediateCatalogCalled = deferred();
+    axios.post
+      .mockImplementationOnce(() => deferredCatalog.promise)
+      .mockImplementationOnce(() => {
+        immediateCatalogCalled.resolve();
+        return Promise.resolve({ data: { status: 'deleted' } });
+      });
+
+    const deferredDeletion = deleteIntegration({
+      userId,
+      integrationId: 'tourplan',
+      hint,
+      requestedBy: 'user:first',
+      deferCompletion: true,
+    });
+    const immediateDeletion = deleteIntegration({
+      userId,
+      integrationId: 'tourplan',
+      hint,
+      requestedBy: 'user:second',
+      deferCompletion: false,
+    });
+    await immediateCatalogCalled.promise;
+
+    const immediateResult = await immediateDeletion;
+    deferredCatalog.resolve({ data: { status: 'deleted' } });
+    const deferredResult = await deferredDeletion;
+    const lifecycle = await sqldb.IntegrationLifecycle.findOne({
+      where: { userId, integrationId: 'tourplan', hint },
+    });
+
+    expect(immediateResult.status).toBe('complete');
+    expect(deferredResult.status).toBe('complete');
+    expect(lifecycle.status).toBe('complete');
   });
 });

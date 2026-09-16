@@ -1050,10 +1050,10 @@ paths:
             schema:
               type: object
               required:
-                - hint
+                - tokenHint
                 - generation
               properties:
-                hint:
+                tokenHint:
                   type: string
                 generation:
                   type: integer

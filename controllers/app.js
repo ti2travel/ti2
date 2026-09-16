@@ -29,6 +29,7 @@ const {
   queue,
   addJob,
   jobStatus,
+  removeJob,
 } = require('../worker/queue');
 
 const { env: { jwtSecret } } = process;
@@ -154,7 +155,8 @@ const createAppToken = async (req, res, next) => {
     // Credential persistence is already committed, but cron provisioning must
     // remain caller-visible so missing scheduled functionality is not silent.
     try {
-      await bb.each(req.app.plugins, async plugin => {
+      const integrationPlugins = req.app.plugins.filter(plugin => plugin.name === integrationId);
+      await bb.each(integrationPlugins, async plugin => {
         if (!Array.isArray(plugin.jobs)) return;
         const validJobs = plugin.jobs.filter(job => Boolean(job.cron) && Boolean(job.method));
         await bb.each(validJobs, async job => {
@@ -188,19 +190,16 @@ const createAppToken = async (req, res, next) => {
             removeOnComplete: false,
           };
           if (existing) {
-            const bullJob = await queue.getJob(job.bullJobId);
-            if (!bullJob) {
+            if (existing.cron !== job.cron) {
+              await removeJob(existing.bullJobId);
               const rawBullJobId = await addJob(jobPayload, jobParams);
               existing.bullJobId = (rawBullJobId && typeof rawBullJobId === 'object'
                 && rawBullJobId.id) ? rawBullJobId.id : rawBullJobId;
+              existing.cron = job.cron;
               await existing.save();
             } else {
-              const bullCron = R.path(
-                ['opts', 'repeat', 'cron'],
-                await queue.getJob(existing.bullJobId),
-              );
-              if (bullCron !== job.cron) {
-                await queue.removeJobs(existing.bullJobId);
+              const bullJob = await queue.getJob(existing.bullJobId);
+              if (!bullJob) {
                 const rawBullJobId = await addJob(jobPayload, jobParams);
                 existing.bullJobId = (rawBullJobId && typeof rawBullJobId === 'object'
                   && rawBullJobId.id) ? rawBullJobId.id : rawBullJobId;
@@ -297,7 +296,9 @@ const deleteAppToken = async (req, res, next) => {
       deferCompletion,
     });
     return res.json({
-      message: 'Integration cleanup complete.',
+      message: result.status === 'external_cleanup'
+        ? 'Integration cleanup is awaiting external finalization.'
+        : 'Integration cleanup complete.',
       cleanup: result,
     });
   } catch (err) {
@@ -308,7 +309,7 @@ const deleteAppToken = async (req, res, next) => {
 const finalizeIntegrationCleanup = async (req, res, next) => {
   const {
     body: {
-      hint,
+      tokenHint: hint,
       generation,
       artifacts,
     },
@@ -318,6 +319,9 @@ const finalizeIntegrationCleanup = async (req, res, next) => {
     },
   } = req;
   try {
+    if (typeof hint !== 'string' || hint.length === 0 || hint.length > 256) {
+      return next({ status: 400, message: 'A valid tokenHint is required' });
+    }
     const cleanup = await integrationLifecycle.completeDeletion({
       userId,
       integrationId,
