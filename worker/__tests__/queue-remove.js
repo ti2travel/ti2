@@ -14,6 +14,7 @@ jest.mock('bull', () => jest.fn(() => mockQueue));
 jest.mock('ioredis', () => jest.fn(() => mockRedis));
 
 jest.resetModules();
+const Queue = require('bull');
 const { removeJob } = require('../queue');
 
 const occurrenceId = ({
@@ -25,6 +26,17 @@ const occurrenceId = ({
     .digest('hex');
   return `repeat:${repeatHash}:${timestamp}`;
 };
+
+describe('queue settings', () => {
+  it('keeps long-running jobs locked while the worker is active', () => {
+    expect(Queue).toHaveBeenCalledWith('work', expect.any(String), {
+      settings: {
+        lockDuration: 120e3,
+        lockRenewTime: 15e3,
+      },
+    });
+  });
+});
 
 describe('removeJob', () => {
   beforeEach(() => {

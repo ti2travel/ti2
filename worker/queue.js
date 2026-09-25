@@ -6,7 +6,12 @@ const Redis = require('ioredis');
 const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
 const itemsTTL = 3 * 60 * 60; // 3 hours
 
-const queue = new Queue('work', `${REDIS_URL}/0`);
+const queue = new Queue('work', `${REDIS_URL}/0`, {
+  settings: {
+    lockDuration: 120e3,
+    lockRenewTime: 15e3,
+  },
+});
 const redisResults = new Redis(`${REDIS_URL}/1`);
 
 const getPending = async () => {
