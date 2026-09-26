@@ -21,14 +21,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          registry-url: https://registry.npmjs.org
 
       - name: Determine release version
         id: version
         run: |
           node <<'NODE' >> "$GITHUB_OUTPUT"
           const version = require('./package.json').version
-          const packageName = require('./package.json').name
           const isSemver = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
 
           if (!isSemver.test(version)) {
@@ -37,7 +35,6 @@ jobs:
 
           console.log(`version=${version}`)
           console.log(`tag=v${version}`)
-          console.log(`package=${packageName}`)
           NODE
 
       - name: Create release tag
@@ -47,23 +44,9 @@ jobs:
           git fetch --tags origin
 
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            git merge-base --is-ancestor "$TAG" HEAD
-          else
-            git tag "$TAG"
-            git push origin "refs/tags/$TAG"
+            echo "Tag $TAG already exists"
+            exit 1
           fi
 
-      - name: Publish package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          PACKAGE: ${{ steps.version.outputs.package }}
-          TAG: ${{ steps.version.outputs.tag }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          git checkout "$TAG"
-
-          if npm view "${PACKAGE}@${VERSION}" version >/dev/null 2>&1; then
-            echo "${PACKAGE}@${VERSION} is already published"
-          else
-            npm publish
-          fi
+          git tag "$TAG"
+          git push origin "refs/tags/$TAG"
