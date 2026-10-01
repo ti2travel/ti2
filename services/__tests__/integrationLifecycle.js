@@ -35,6 +35,8 @@ const {
 
 const originalEventsUrl = process.env.ti2_events2url_eventsURL;
 const originalEventsAuthorization = process.env.ti2_events2url_authorization;
+const originalLifecycleTimeout = process.env.INTEGRATION_LIFECYCLE_TIMEOUT_MS;
+const originalLifecycleDeleteTimeout = process.env.INTEGRATION_LIFECYCLE_DELETE_TIMEOUT_MS;
 
 const lifecycleRecord = overrides => ({
   userId: 'company-a',
@@ -68,6 +70,8 @@ describe('integrationLifecycle', () => {
     jest.clearAllMocks();
     process.env.ti2_events2url_eventsURL = 'http://filematch.test/ti2events';
     process.env.ti2_events2url_authorization = 'Bearer service-token';
+    delete process.env.INTEGRATION_LIFECYCLE_TIMEOUT_MS;
+    delete process.env.INTEGRATION_LIFECYCLE_DELETE_TIMEOUT_MS;
     sqldb.User.findOne.mockResolvedValue({ userId: 'company-a' });
     sqldb.UserAppKey.destroy.mockResolvedValue(1);
     sqldb.UserAppKey.findOne.mockResolvedValue({ id: 1 });
@@ -88,6 +92,16 @@ describe('integrationLifecycle', () => {
       delete process.env.ti2_events2url_authorization;
     } else {
       process.env.ti2_events2url_authorization = originalEventsAuthorization;
+    }
+    if (originalLifecycleTimeout === undefined) {
+      delete process.env.INTEGRATION_LIFECYCLE_TIMEOUT_MS;
+    } else {
+      process.env.INTEGRATION_LIFECYCLE_TIMEOUT_MS = originalLifecycleTimeout;
+    }
+    if (originalLifecycleDeleteTimeout === undefined) {
+      delete process.env.INTEGRATION_LIFECYCLE_DELETE_TIMEOUT_MS;
+    } else {
+      process.env.INTEGRATION_LIFECYCLE_DELETE_TIMEOUT_MS = originalLifecycleDeleteTimeout;
     }
   });
 
@@ -167,7 +181,7 @@ describe('integrationLifecycle', () => {
       },
       expect.objectContaining({
         headers: { Authorization: 'Bearer service-token' },
-        timeout: expect.any(Number),
+        timeout: 135000,
       }),
     );
     expect(result).toEqual(expect.objectContaining({
@@ -177,6 +191,101 @@ describe('integrationLifecycle', () => {
       retryCount: 0,
     }));
   });
+
+  it('honors an explicit delete-only timeout below the default', async () => {
+    process.env.INTEGRATION_LIFECYCLE_TIMEOUT_MS = '30000';
+    process.env.INTEGRATION_LIFECYCLE_DELETE_TIMEOUT_MS = '90000';
+    const lifecycle = lifecycleRecord();
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycle);
+
+    await deleteIntegration({
+      userId: 'company-a',
+      integrationId: 'tourplan',
+      hint: 'Desk A',
+      requestedBy: 'user-a',
+    });
+
+    expect(axios.post).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ action: 'delete' }),
+      expect.objectContaining({ timeout: 90000 }),
+    );
+  });
+
+  it('keeps activation on the normal catalog lifecycle timeout', async () => {
+    process.env.INTEGRATION_LIFECYCLE_TIMEOUT_MS = '45000';
+    process.env.INTEGRATION_LIFECYCLE_DELETE_TIMEOUT_MS = '135000';
+    axios.post.mockResolvedValueOnce({ data: { status: 'active' } });
+
+    await activateCatalog(lifecycleRecord());
+
+    expect(axios.post).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ action: 'activate' }),
+      expect.objectContaining({ timeout: 45000 }),
+    );
+  });
+
+  it('uses a larger general catalog lifecycle timeout for deletion', async () => {
+    process.env.INTEGRATION_LIFECYCLE_TIMEOUT_MS = '140000';
+    const lifecycle = lifecycleRecord();
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycle);
+
+    await deleteIntegration({
+      userId: 'company-a',
+      integrationId: 'tourplan',
+      hint: 'Desk A',
+      requestedBy: 'user-a',
+    });
+
+    expect(axios.post).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ action: 'delete' }),
+      expect.objectContaining({ timeout: 140000 }),
+    );
+  });
+
+  it('does not let the general catalog lifecycle timeout shorten deletion', async () => {
+    process.env.INTEGRATION_LIFECYCLE_TIMEOUT_MS = '45000';
+    const lifecycle = lifecycleRecord();
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycle);
+
+    await deleteIntegration({
+      userId: 'company-a',
+      integrationId: 'tourplan',
+      hint: 'Desk A',
+      requestedBy: 'user-a',
+    });
+
+    expect(axios.post).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ action: 'delete' }),
+      expect.objectContaining({ timeout: 135000 }),
+    );
+  });
+
+  it.each(['0', '-1', 'abc'])(
+    'ignores invalid delete-only catalog timeout %s',
+    async deleteTimeout => {
+      process.env.INTEGRATION_LIFECYCLE_TIMEOUT_MS = '45000';
+      process.env.INTEGRATION_LIFECYCLE_DELETE_TIMEOUT_MS = deleteTimeout;
+      const lifecycle = lifecycleRecord();
+      sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycle);
+
+      await deleteIntegration({
+        userId: 'company-a',
+        integrationId: 'tourplan',
+        hint: 'Desk A',
+        requestedBy: 'user-a',
+      });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ action: 'delete' }),
+        expect.objectContaining({ timeout: 135000 }),
+      );
+    },
+  );
 
   it('blocks deletion while integration schedule provisioning is in progress', async () => {
     sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycleRecord({

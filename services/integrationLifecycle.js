@@ -6,6 +6,8 @@ const sqldb = require('../models');
 const { removeJob } = require('../worker/queue');
 
 const DEFAULT_PROVISIONING_TIMEOUT_MS = 5 * 60e3;
+const DEFAULT_LIFECYCLE_TIMEOUT_MS = 30e3;
+const DEFAULT_LIFECYCLE_DELETE_TIMEOUT_MS = 135e3;
 
 const identityWhere = ({ userId, integrationId, hint }) => ({
   userId,
@@ -21,11 +23,30 @@ const lifecycleError = (status, message) => {
 
 const newRequestId = () => crypto.randomBytes(16).toString('hex');
 
+const positiveTimeout = value => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
 const provisioningTimeoutMs = () => {
-  const configured = Number(process.env.INTEGRATION_PROVISIONING_TIMEOUT_MS);
-  return Number.isFinite(configured) && configured > 0
-    ? configured
-    : DEFAULT_PROVISIONING_TIMEOUT_MS;
+  return positiveTimeout(process.env.INTEGRATION_PROVISIONING_TIMEOUT_MS)
+    || DEFAULT_PROVISIONING_TIMEOUT_MS;
+};
+
+const lifecycleRequestTimeoutMs = action => {
+  const lifecycleTimeout = positiveTimeout(
+    process.env.INTEGRATION_LIFECYCLE_TIMEOUT_MS,
+  );
+  if (action === 'delete') {
+    const deleteTimeout = positiveTimeout(
+      process.env.INTEGRATION_LIFECYCLE_DELETE_TIMEOUT_MS,
+    );
+    return deleteTimeout || Math.max(
+      lifecycleTimeout || 0,
+      DEFAULT_LIFECYCLE_DELETE_TIMEOUT_MS,
+    );
+  }
+  return lifecycleTimeout || DEFAULT_LIFECYCLE_TIMEOUT_MS;
 };
 
 const provisioningIsStale = lifecycle => {
@@ -75,7 +96,7 @@ const callCatalogLifecycle = async ({
         headers: {
           Authorization: process.env.ti2_events2url_authorization,
         },
-        timeout: Number(process.env.INTEGRATION_LIFECYCLE_TIMEOUT_MS) || 30e3,
+        timeout: lifecycleRequestTimeoutMs(action),
       },
     );
     return response.data;
