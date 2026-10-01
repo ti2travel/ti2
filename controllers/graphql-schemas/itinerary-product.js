@@ -43,6 +43,8 @@ const typeDefs = `
     extras: [Extra]
     units: [ProductUnit]
     restrictions: OptionRestrictions
+    location: String
+    starRating: Int
   }
 
   type Query {
@@ -67,6 +69,8 @@ const query = `{
     comment
     lastUpdateTimestamp
     serviceType
+    location
+    starRating
     extras {
       id
       name
