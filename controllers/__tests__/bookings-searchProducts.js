@@ -24,7 +24,7 @@ beforeAll(async () => {
   // Initialize utils once for the entire test file
   // Ensure all plugins needed across different describe blocks are listed here.
   globalUtils = await testUtils({
-    plugins: ['lockTestPlugin', 'travelgate'],
+    plugins: ['lockTestPlugin', 'travelgate', 'tourplannx'],
     pluginCapabilities: {
       lockTestPlugin: { weeklyProductCatalogSync: true },
       travelgate: { weeklyProductCatalogSync: true },
@@ -875,6 +875,42 @@ describe('user: bookings controller - searchProducts', () => {
       }));
     });
   });
+});
+
+describe('Product option identifier lookup', () => {
+  it.each(['tourplannx', 'travelgate'])(
+    'preserves stored identifiers and applies the %s comparison policy',
+    async appName => {
+      const setup = await globalUtils.appSetup({ appName });
+      const plugin = globalPlugins.find(item => item.name === appName);
+      const products = [{
+        productId: 'supplier-1',
+        options: [
+          { optionId: 'ABCDEOPT   ROOM01' },
+          { optionId: 'ABCDELEV\tFEE001' },
+        ],
+      }];
+      plugin.searchProducts.mockResolvedValueOnce({ products });
+      const url = `/products/${appName}/${setup.userId}/${setup.hint}/search`;
+      const token = globalUtils.createUserToken(setup.userId);
+      await globalDoApiPost({ url, token, payload: {} });
+      plugin.searchProducts.mockClear();
+      const result = await globalDoApiPost({
+        url,
+        token,
+        payload: { optionId: ['ABCDEOPTROOM01', 'ABCDELEV FEE001'] },
+      });
+      expect(result.products).toEqual(appName === 'tourplannx' ? products : []);
+      expect(plugin.searchProducts).not.toHaveBeenCalled();
+      const exact = await globalDoApiPost({
+        url,
+        token,
+        payload: { optionId: 'ABCDEOPT   ROOM01', cacheOnly: true },
+      });
+      expect(exact.products[0].options).toEqual([products[0].options[0]]);
+      expect(products[0].options).toHaveLength(2);
+    },
+  );
 });
 
 describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', () => {
