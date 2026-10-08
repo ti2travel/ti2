@@ -14,6 +14,7 @@ const typeDefs = `
     maxAge: Int
     maxPax: Int
     maxAdults: Int
+    maxPaxWithInfants: Int
   }
 
   type OptionRestrictions {
@@ -26,6 +27,7 @@ const typeDefs = `
     Twin: UnitRestriction
     Triple: UnitRestriction
     Quad: UnitRestriction
+    Other: UnitRestriction
   }
 
   type ProductUnit {
@@ -40,6 +42,11 @@ const typeDefs = `
     comment: String
     lastUpdateTimestamp: Int
     serviceType: String
+    city: String
+    country: String
+    currency: String
+    optionClass: String
+    chargeUnit: String
     extras: [Extra]
     units: [ProductUnit]
     restrictions: OptionRestrictions
@@ -67,6 +74,11 @@ const query = `{
     comment
     lastUpdateTimestamp
     serviceType
+    city
+    country
+    currency
+    optionClass
+    chargeUnit
     extras {
       id
       name
@@ -83,6 +95,7 @@ const query = `{
         maxAge
         maxPax
         maxAdults
+        maxPaxWithInfants
       }
     }
     restrictions {
@@ -106,26 +119,37 @@ const query = `{
         allowed
         maxPax
         maxAdults
+        maxPaxWithInfants
       }
       Double {
         allowed
         maxPax
         maxAdults
+        maxPaxWithInfants
       }
       Twin {
         allowed
         maxPax
         maxAdults
+        maxPaxWithInfants
       }
       Triple {
         allowed
         maxPax
         maxAdults
+        maxPaxWithInfants
       }
       Quad {
         allowed
         maxPax
         maxAdults
+        maxPaxWithInfants
+      }
+      Other {
+        allowed
+        maxPax
+        maxAdults
+        maxPaxWithInfants
       }
     }
   }

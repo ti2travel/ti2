@@ -13,6 +13,126 @@ const jestPlugin = (() => {
 
 const chance = require('chance').Chance();
 
+// Shapes returned through the stock itinerary product query.
+// tourplan omits maxPaxWithInfants and Other; tourplannx fills both.
+const itineraryProducts = [{
+  productId: 'tourplan',
+  productName: 'DoubleTree by Hilton',
+  description: 'Hotel near Kings Cross',
+  serviceTypes: ['Accommodation'],
+  address: '1 King Street',
+  options: [{
+    optionId: 'tourplan-106784',
+    optionName: 'Executive Room',
+    comment: 'Breakfast included',
+    lastUpdateTimestamp: 1586595549,
+    serviceType: 'Accommodation',
+    city: 'London',
+    country: 'United Kingdom',
+    currency: 'GBP',
+    optionClass: 'Private',
+    chargeUnit: 'day',
+    extras: [],
+    units: [{
+      unitId: 'Double',
+      unitName: 'Double',
+      restrictions: {
+        allowed: true,
+        maxPax: 2,
+        maxAdults: 2,
+      },
+    }],
+    restrictions: {
+      roomTypeRequired: true,
+      Adult: { allowed: true, minAge: 16, maxAge: 999 },
+      Child: { allowed: true, minAge: 2, maxAge: 15 },
+      Infant: { allowed: true, minAge: 0, maxAge: 1 },
+      Single: { allowed: true, maxPax: 1, maxAdults: 1 },
+      Double: { allowed: true, maxPax: 2, maxAdults: 2 },
+      Twin: { allowed: false },
+      Triple: { allowed: false },
+      Quad: { allowed: false },
+    },
+  }],
+}, {
+  productId: 'tourplannx',
+  productName: 'NX Lodge',
+  description: 'Lodge with infant occupancy',
+  serviceTypes: ['Accommodation'],
+  address: '2 Queen Street',
+  options: [{
+    optionId: 'tourplannx-OPT',
+    optionName: 'Garden Room',
+    comment: '',
+    lastUpdateTimestamp: 1700000000,
+    serviceType: 'Accommodation',
+    city: 'Auckland',
+    country: 'New Zealand',
+    currency: 'NZD',
+    optionClass: '3*',
+    chargeUnit: 'night',
+    extras: [],
+    units: [{
+      unitId: 'Single',
+      unitName: 'Single',
+      restrictions: {
+        allowed: true,
+        maxPax: 1,
+        maxAdults: 1,
+        maxPaxWithInfants: 999,
+      },
+    }],
+    restrictions: {
+      roomTypeRequired: true,
+      Adult: { allowed: true, minAge: 18, maxAge: 999 },
+      Child: { allowed: true, minAge: 2, maxAge: 17 },
+      Infant: { allowed: true, minAge: 0, maxAge: 1 },
+      Single: {
+        allowed: true,
+        maxPax: 1,
+        maxAdults: 1,
+        maxPaxWithInfants: 999,
+      },
+      Double: {
+        allowed: true,
+        maxPax: 2,
+        maxAdults: 2,
+        maxPaxWithInfants: 4,
+      },
+      Twin: {
+        allowed: false,
+        maxPax: 0,
+        maxAdults: 0,
+        maxPaxWithInfants: 0,
+      },
+      Triple: { allowed: false },
+      Quad: { allowed: false },
+      Other: {
+        allowed: true,
+        maxPax: 2,
+        maxAdults: 2,
+        maxPaxWithInfants: 3,
+      },
+    },
+  }],
+}, {
+  productId: 'legacy',
+  productName: 'Legacy product',
+  options: [{
+    optionId: 'legacy-1',
+    optionName: 'Standard',
+    units: [{
+      unitId: 'Double',
+      unitName: 'Double',
+      restrictions: { allowed: true, maxPax: 2 },
+    }],
+    restrictions: {
+      roomTypeRequired: true,
+      Double: { allowed: true, maxPax: 2, maxAdults: 2 },
+    },
+  }],
+}];
+
 class Plugin {
   /**
    * For a comprehensive list of methods visit the
@@ -92,7 +212,7 @@ class Plugin {
     }));
     this.getAffiliateAgents = jestPlugin.fn(() => ({ agents: [] }));
     this.searchItineraries = jestPlugin.fn(() => ({ bookings: [] }));
-    this.searchProductsForItinerary = jestPlugin.fn(() => ({ products: [] }));
+    this.searchProductsForItinerary = jestPlugin.fn(() => ({ products: itineraryProducts }));
     this.searchAvailabilityForItinerary = jestPlugin.fn(({
       token,
       payload: {
@@ -624,6 +744,7 @@ class Plugin {
    * @property {boolean} allowed - Whether the unit is available
    * @property {number} [minAge] - Minimum age requirement
    * @property {number} [maxAge] - Maximum age requirement
+   * @property {number} [maxPaxWithInfants] - Maximum passengers including infants
    */
 
   /**
@@ -633,6 +754,11 @@ class Plugin {
    * @property {string} comment - Option comment
    * @property {number} [lastUpdateTimestamp] - Last update time
    * @property {string} serviceType - Type of service, one of 'Accommodation', 'Activity', 'Transfer'
+   * @property {string} [city] - City / locality for the option
+   * @property {string} [country] - Country for the option
+   * @property {string} [currency] - Currency code for the option
+   * @property {string} [optionClass] - Option class or category
+   * @property {string} [chargeUnit] - Charge unit, such as day or night
    * @property {Array<Extra>} extras - Extras allowed for this product option
    * @property {Array<ItineraryProductUnit>} units - Available units
    * @property {Object} restrictions - Aggregated restrictions of each unit for this product option
@@ -645,6 +771,7 @@ class Plugin {
    * @property {ItineraryUnitRestriction} [restrictions.Twin] - restrictions for Twin room type
    * @property {ItineraryUnitRestriction} [restrictions.Triple] - restrictions for Triple room type
    * @property {ItineraryUnitRestriction} [restrictions.Quad] - restrictions for Quad room type
+   * @property {ItineraryUnitRestriction} [restrictions.Other] - restrictions for Other room type
    */
 
   /**
