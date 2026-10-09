@@ -29,7 +29,10 @@ You can write your [own plugin]{@tutorial plugin-development} that hooks up to a
 
 ## Plugins
 
-Plugins are the connectores to other systems and/or features you intent to use; by default the server will start an API service on port 10010 and the swagger documentation on the path //api-docs, (you can disable wither by passing the startServer param as False or the apiDocs as False.
+Plugins connect Ti2 to other systems and features. By default, the API listens
+on port 10010 and serves Swagger documentation at `/api-docs`. Set
+`startServer: false` to disable the HTTP server or `apiDocs: false` to disable
+the Swagger route.
 
 ### Plugin Library
 
@@ -93,6 +96,25 @@ the catalog was written.
 The product cache refresh interval defaults to seven days when no TTR is set.
 Any explicit `ttlForProducts` or plugin `cacheSettings.bookingsProductSearch.ttr`
 value is honored, including `86400` for a one-day interval.
+
+### Shared itinerary product query
+
+`controllers/graphql-schemas/itinerary-product` exports the type definitions and
+query used for itinerary product searches. The option selection includes `city`,
+`country`, and `currency`, which Tourplan plugins already populated, as well as
+`optionClass` and `chargeUnit`. Room restrictions and room unit restrictions
+include `maxPaxWithInfants`; option restrictions also include `Other`. These
+fields are nullable. When a plugin omits one, the query returns `null` for that
+field, as it does for other optional fields such as `description` and
+`maxAdults`. `Adult`, `Child`, and `Infant` restrictions continue to select only
+`allowed`, `minAge`, and `maxAge`.
+
+The query selects fields from the product objects supplied by the plugin. A
+previously cached product does not gain new fields until its catalog entry is
+refreshed. Use the forced full-catalog refresh contract above when the latest
+plugin fields must appear immediately (`forceRefresh: true`, with a non-blank
+`admissionOverrideReason` for a manual refresh), and check `cacheUpdated`
+before treating the result as a refreshed catalog.
 
 ### Optional catalog lifecycle service
 
