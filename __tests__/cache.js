@@ -14,6 +14,56 @@ describe('cache', () => {
     testKeys.length = 0;
   });
 
+  describe('saveVersioned', () => {
+    it('rejects invalid TTLs before changing the catalog or version', async () => {
+      const key = 'versioned:invalid-ttl';
+      testKeys.push(key, `${key}:lastUpdated`, `${key}:version`);
+      const first = await cache.saveVersioned({
+        pluginName: testPluginName, key, value: { n: 1 }, ttl: 60,
+      });
+      for (const ttl of [0, 1.5]) {
+        await expect(cache.saveVersioned({
+          pluginName: testPluginName, key, value: { n: 2 }, ttl,
+        })).rejects.toThrow('positive integer TTL');
+      }
+      expect(await cache.get({ pluginName: testPluginName, key })).toEqual({ n: 1 });
+      expect(await cache.cache.get(`${testPluginName}:${key}:version`))
+        .toBe(String(first.cacheVersion));
+    });
+
+    it('keeps versions increasing when time repeats or moves backwards', async () => {
+      const key = 'versioned:test';
+      const ttl = 60;
+      testKeys.push(key, `${key}:lastUpdated`, `${key}:version`);
+      const now = Date.now();
+      const clock = jest.spyOn(Date, 'now');
+      let first;
+      let second;
+      let third;
+      try {
+        clock.mockReturnValue(now);
+        first = await cache.saveVersioned({ pluginName: testPluginName, key, value: { n: 1 }, ttl });
+        second = await cache.saveVersioned({ pluginName: testPluginName, key, value: { n: 2 }, ttl });
+        clock.mockReturnValue(now - 1000);
+        third = await cache.saveVersioned({ pluginName: testPluginName, key, value: { n: 3 }, ttl });
+      } finally {
+        clock.mockRestore();
+      }
+
+      expect(first.cacheVersion).toBeLessThan(second.cacheVersion);
+      expect(second.cacheVersion).toBeLessThan(third.cacheVersion);
+      expect(await cache.get({ pluginName: testPluginName, key })).toEqual({ n: 3 });
+      expect(await cache.get({ pluginName: testPluginName, key: `${key}:lastUpdated` }))
+        .toBe(now - 1000);
+      for (const expiringKey of [key, `${key}:lastUpdated`]) {
+        const remaining = await cache.cache.ttl(`${testPluginName}:${expiringKey}`);
+        expect(remaining).toBeGreaterThan(0);
+        expect(remaining).toBeLessThanOrEqual(ttl);
+      }
+      expect(await cache.cache.ttl(`${testPluginName}:${key}:version`)).toBe(-1);
+    });
+  });
+
 
   describe('saveIfNotExists', () => {
     it('should only save the first value for a key', async () => {

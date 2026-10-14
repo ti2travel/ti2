@@ -37,6 +37,15 @@ queue.on('failed', (job, err) => {
 
 const addJob = async (payload, paramsParam) => {
   const params = paramsParam || {};
+  const refresh = payload.type === 'api' && payload.method === 'POST'
+    && /^\/products\/tourplannx\/[^/]+\/[^/]+\/search(?:\?|$)/.test(payload.url || '')
+    && R.path(['payload', 'forceRefresh'], payload) === true;
+  // Bull inserts custom IDs atomically, so simultaneous requests join one job.
+  const refreshOptions = refresh ? {
+    jobId: `nx-refresh-${crypto.createHash('sha256')
+      .update(decodeURIComponent(payload.url.split('?')[0])).digest('hex')}`,
+    removeOnFail: true,
+  } : {};
   const inTesting = Boolean(process.env.JEST_WORKER_ID);
   const job = await queue.add({
     ...payload,
@@ -44,6 +53,7 @@ const addJob = async (payload, paramsParam) => {
   }, {
     removeOnComplete: true,
     ...params,
+    ...refreshOptions,
   });
   // Repeat jobs use an occurrence ID containing Bull's repeat-definition hash.
   // Persisting it lets removeJob identify one exact definition without matching by cron.

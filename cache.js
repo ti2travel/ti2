@@ -22,6 +22,30 @@ const normalizeKey = ({
 
 const buildKey = ({ pluginName, ...args }) => `${pluginName}:${normalizeKey(args)}`;
 
+const saveVersioned = async ({ pluginName, key, value, ttl = defaultTTL }) => {
+  if (!Number.isInteger(ttl) || ttl < 1) {
+    throw new Error('Versioned cache save requires a positive integer TTL');
+  }
+  const savedAt = Date.now();
+  const proposed = savedAt * 1000;
+  // Keep the version counter after the cache expires so a later save cannot reuse an older version.
+  // A runtime Redis error can leave a gap; version-first avoids publishing a new catalog with an old revision.
+  const version = await cache.eval(
+    "local proposed = tonumber(ARGV[1]) "
+      + "local previous = tonumber(redis.call('get', KEYS[3]) or '0') "
+      + "if proposed <= previous then proposed = previous + 1 end "
+      + "local version = string.format('%.0f', proposed) "
+      + "redis.call('set', KEYS[3], version) "
+      + "redis.call('setex', KEYS[1], ARGV[4], ARGV[2]) "
+      + "redis.call('setex', KEYS[2], ARGV[4], ARGV[3]) "
+      + "return version",
+    3, buildKey({ pluginName, key }), buildKey({ pluginName, key: `${key}:lastUpdated` }),
+    buildKey({ pluginName, key: `${key}:version` }),
+    proposed, JSON.stringify(value), JSON.stringify(savedAt), ttl,
+  );
+  return { cacheVersion: Number(version), cacheSavedAt: savedAt };
+};
+
 const save = async ({
   pluginName,
   key: keyParam,
@@ -157,6 +181,7 @@ const scan = ({
 module.exports = {
   cache,
   save,
+  saveVersioned,
   saveIfNotExists,
   expireIfValue,
   dropIfValue,

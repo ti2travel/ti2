@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 
 const mockQueue = {
+  add: jest.fn().mockResolvedValue({ id: 'job' }),
   getJob: jest.fn(),
   getRepeatableJobs: jest.fn(),
   on: jest.fn(),
@@ -15,7 +16,29 @@ jest.mock('ioredis', () => jest.fn(() => mockRedis));
 
 jest.resetModules();
 const Queue = require('bull');
-const { removeJob } = require('../queue');
+const { removeJob, addJob } = require('../queue');
+
+describe('force refresh admission', () => {
+  it('uses the same atomic job ID for manual and scheduled refresh of an instance', async () => {
+    const data = { type: 'api', method: 'POST',
+      url: '/products/tourplannx/company/Desk%20A/search',
+      payload: { forceRefresh: true, fullSyncTrigger: 'manual' } };
+    await addJob(data);
+    const first = mockQueue.add.mock.calls.slice(-1)[0][1];
+    await addJob({ ...data, payload: { forceRefresh: true, fullSyncTrigger: 'scheduled' } });
+    expect(mockQueue.add.mock.calls.slice(-1)[0][1]).toEqual(first);
+    expect(first).toMatchObject({ removeOnComplete: true, removeOnFail: true,
+      jobId: expect.stringMatching(/^nx-refresh-/) });
+    await addJob({ ...data, url: '/products/tourplannx/company/DeskB/search' });
+    expect(mockQueue.add.mock.calls.slice(-1)[0][1].jobId).not.toBe(first.jobId);
+  });
+
+  it('leaves ordinary API job IDs unchanged', async () => {
+    await addJob({ type: 'api', method: 'POST', url: '/products/tourplannx/company/Desk/search',
+      payload: {} });
+    expect(mockQueue.add.mock.calls.slice(-1)[0][1]).toEqual({ removeOnComplete: true });
+  });
+});
 
 const occurrenceId = ({
   name, id, key, timestamp = 1700000000000,

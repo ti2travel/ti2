@@ -5,6 +5,7 @@ const { queue, saveResult } = require('./queue');
 const bookingsControllerFactory = require('../controllers/bookings');
 const mainAxios = require('axios'); // Generic axios instance for direct calls
 const { configureAxiosSSL } = require('../lib/sslConfig');
+const { startAfterProductSync } = require('../services/tourplanSyncMetadata');
 
 // Configure SSL for the main axios instance
 configureAxiosSSL(mainAxios, process.env.SSL_INSECURE_ALLOWED_DOMAINS);
@@ -55,7 +56,14 @@ const worker = ({ plugins: pluginsParam }) => { // pluginsParam are instantiated
         if (type === 'api') {
           // params is job.data, so data.method, data.url etc. are correct here
           jobLog(`running method ${data.method} ${data.url}`);
+          const { token: jwtTokenForHeader, ...requestBodyForWorker } = data.payload || {};
           let code, result, server;
+          const sockets = new Set();
+          const configuredTimeout = Number(process.env.API_JOB_TIMEOUT_MS);
+          const timeout = Number.isFinite(configuredTimeout) && configuredTimeout > 0
+            ? configuredTimeout : 45 * 60 * 1000;
+          const cancellation = new AbortController();
+          const deadline = setTimeout(() => cancellation.abort(), timeout);
           const http = require('http');
           const axios = require('axios'); // Local axios for API call type
           try {
@@ -66,13 +74,17 @@ const worker = ({ plugins: pluginsParam }) => { // pluginsParam are instantiated
             });
 
             server = http.createServer(app);
-            await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+            server.on('connection', socket => {
+              sockets.add(socket);
+              socket.once('close', () => sockets.delete(socket));
+            });
+            await new Promise((resolve, reject) => {
+              server.once('error', reject);
+              server.listen({ port: 0, host: '127.0.0.1', exclusive: true }, resolve);
+            });
             const { address, port } = server.address();
             const baseURL = `http://${address}:${port}`;
             jobLog(`Worker internal server for job ${jobId} listening on: ${baseURL}`);
-
-            // data.payload is the payload for the API call job type
-            const { token: jwtTokenForHeader, ...requestBodyForWorker } = data.payload || {};
 
             const requestHeaders = {
               ...R.omit(['content-length', 'host', 'connection', 'accept-encoding'], data.headers),
@@ -85,6 +97,8 @@ const worker = ({ plugins: pluginsParam }) => { // pluginsParam are instantiated
               data: R.omit(['backgroundJob'], requestBodyForWorker),
               headers: requestHeaders,
               validateStatus: () => true,
+              signal: cancellation.signal,
+              timeout,
             });
 
             code = response.status;
@@ -92,10 +106,16 @@ const worker = ({ plugins: pluginsParam }) => { // pluginsParam are instantiated
             jobLog(`Worker internal request for job ${jobId} completed with code ${code}`);
           } catch (error) {
             jobErr(`Worker internal request error for job ${jobId}: ${error.message}`);
-            code = R.pathOr(500, ['response', 'status'], error);
-            result = R.pathOr({ message: error.message }, ['response', 'data'], error);
+            const timedOut = cancellation.signal.aborted || error.code === 'ECONNABORTED';
+            code = timedOut ? 504 : R.pathOr(500, ['response', 'status'], error);
+            result = timedOut
+              ? { message: `TI2 API job timed out after ${timeout}ms; retry the refresh.` }
+              : R.pathOr({ message: error.message }, ['response', 'data'], error);
           } finally {
+            clearTimeout(deadline);
             if (server) {
+              // close() alone can wait indefinitely for an unfinished request or keep-alive socket.
+              sockets.forEach(socket => socket.destroy());
               await new Promise(resolve => server.close(resolve));
               jobLog(`Worker internal server for job ${jobId} closed.`);
             }
@@ -116,6 +136,17 @@ const worker = ({ plugins: pluginsParam }) => { // pluginsParam are instantiated
               ? returnedProducts.length
               : null,
           };
+          try {
+            resultValue.syncMetadataGenerationId = await startAfterProductSync({
+              url: data.url,
+              payload: requestBodyForWorker,
+              result: resultValue,
+              plugins: pluginsParam,
+            });
+          } catch (error) {
+            resultValue.syncMetadataError = error.message;
+            jobErr(`TourPlan sync metadata handoff failed for job ${jobId}: ${error.message}`);
+          }
 
         } else if (type === 'callback') {
           const { callbackUrl, request, result } = jobDataPayload; // jobDataPayload is job.data.payload
@@ -220,6 +251,11 @@ const worker = ({ plugins: pluginsParam }) => { // pluginsParam are instantiated
       } catch (error) {
         jobErr(`Processing failed: ${error.message}`);
         if (error.stack) jobErr(error.stack); // Log full stack for debugging
+        if (type === 'api') {
+          await saveResult({ id: jobId, resultValue: {
+            success: false, code: 500, result: { message: error.message },
+          } });
+        }
         throw new Error(error.message) // Re-throw to mark job as failed in Bull (use a summarized mesage)
       }
     });
