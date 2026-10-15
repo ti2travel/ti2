@@ -494,15 +494,19 @@ components:
           type: string
           description: Free-text product selector. An empty value or "*" means the full catalog.
         optionId:
-          description: Option ID selector
+          description: Option ID selector. Can be combined with productId to return only matching product-option pairs from the cached catalog.
           oneOf:
             - type: string
             - type: array
               items:
                 type: string
         productId:
-          type: string
-          description: Product ID selector
+          description: Product ID selector. Can be combined with optionId to return only matching product-option pairs from the cached catalog.
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
         productName:
           type: string
           description: Product Name wildcard match

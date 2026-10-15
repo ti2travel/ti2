@@ -103,7 +103,8 @@ fails with `syncMetadataError` and the catalog cache save still succeeds.
 `POST /products/{appKey}/{userId}/{hint}/search` returns a canonical object with a
 `products` array. Use `cacheOnly: true` to read Ti2's current catalog without
 calling the integration; `cacheFound` distinguishes a cache miss from a cached
-empty catalog.
+empty catalog. `productId` and `optionId` accept arrays and can be combined to
+limit the returned products and options when an option ID is shared.
 
 A forced request is a full-catalog refresh by default. `fullSyncTrigger` may be
 `scheduled`, `manual`, or `organic`; an omitted trigger on a forced request is
