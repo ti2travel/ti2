@@ -916,6 +916,35 @@ describe('user: bookings controller - searchProducts', () => {
 });
 
 describe('Product option identifier lookup', () => {
+  it('limits a shared optionId to the requested productId in the cached catalog', async () => {
+    const setup = await globalUtils.appSetup({ appName: 'travelgate' });
+    const plugin = globalPlugins.find(item => item.name === 'travelgate');
+    const products = [
+      { productId: 'product-1', options: [{ optionId: 'default', units: [{ unitId: 'unit-1' }] }] },
+      { productId: 'product-2', options: [{ optionId: 'default', units: [{ unitId: 'unit-2' }] }] },
+    ];
+    plugin.searchProducts.mockResolvedValueOnce({ products });
+    const url = `/products/travelgate/${setup.userId}/${setup.hint}/search`;
+    const token = globalUtils.createUserToken(setup.userId);
+    await globalDoApiPost({ url, token, payload: {} });
+    plugin.searchProducts.mockClear();
+
+    const result = await globalDoApiPost({
+      url,
+      token,
+      payload: { productId: ['product-1'], optionId: ['default'], cacheOnly: true },
+    });
+    expect(result.products).toEqual([products[0]]);
+    expect(plugin.searchProducts).not.toHaveBeenCalled();
+
+    const wildcardResult = await globalDoApiPost({
+      url,
+      token,
+      payload: { productId: 'product-1', searchInput: '*', cacheOnly: true },
+    });
+    expect(wildcardResult.products).toEqual([products[0]]);
+  });
+
   it.each(['tourplannx', 'travelgate'])(
     'preserves stored identifiers and applies the %s comparison policy',
     async appName => {

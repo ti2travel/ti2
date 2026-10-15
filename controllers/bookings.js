@@ -303,11 +303,17 @@ const confirmBooking = plugins => async (req, res, next) => {
   }
 };
 
-const $searchProductList = (products, searchInput = '', optionId = '', appKey = '') => {
+const $searchProductList = (products, searchInput = '', optionId = '', appKey = '', productId = '') => {
   // NOTE: optionId could be a string or an array of strings
   // NOTE: searchInput should not appear at the same time as optionId
   const trimmedSearchInput = (searchInput || '').trim();
-  if ((!trimmedSearchInput || trimmedSearchInput === '*') && !(optionId && optionId.length)) {
+  const requestedProductIds = new Set(
+    (R.is(Array, productId) ? productId : [productId])
+      .map(value => String(value == null ? '' : value).trim())
+      .filter(Boolean),
+  );
+  if ((!trimmedSearchInput || trimmedSearchInput === '*')
+    && !(optionId && optionId.length) && !requestedProductIds.size) {
     return products;
   }
   const getFullSearchStr = (product, option) => `${
@@ -316,14 +322,15 @@ const $searchProductList = (products, searchInput = '', optionId = '', appKey = 
   } ${R.path(['optionId'], option) || ''
   } ${R.path(['supplierId'], product) || ''}`;
   const inputValueLower = trimmedSearchInput.toLowerCase();
-  const parts = inputValueLower.split(' ').filter(Boolean); // Filter out any empty strings just in case
+  const parts = inputValueLower === '*' ? [] : inputValueLower.split(' ').filter(Boolean);
   const optionKey = value => appKey === 'tourplannx'
     ? String(value || '').replace(/\s/g, '')
     : value;
   const requestedOptionIds = new Set(
     (R.is(Array, optionId) ? optionId : [optionId]).map(optionKey),
   );
-  const pwFilteredOptions = products.map(product => {
+  const pwFilteredOptions = products.filter(product => !requestedProductIds.size
+    || requestedProductIds.has(String(R.path(['productId'], product)))).map(product => {
     const filteredOptions = R.pathOr([], ['options'], product).filter(option => {
       if (optionId && optionId.length) {
         return requestedOptionIds.has(optionKey(R.path(['optionId'], option)));
@@ -392,6 +399,7 @@ const $bookingsProductSearch = plugins => async ({
   const {
     searchInput = '', // Provide defaults
     optionId = '',
+    productId = '',
     forceRefresh = false,
     cacheOnly = false,
     fullSyncTrigger: requestedFullSyncTrigger,
@@ -754,7 +762,7 @@ const $bookingsProductSearch = plugins => async ({
   // 0. `cacheOnly`: return current Ti2 cache or empty. Never call the plugin.
   if (cacheOnly) {
     if (hasProductCache(initialActualCacheContent)) {
-      const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId, appKey);
+      const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId, appKey, productId);
       emitDecision('cache_hit', {
         reason: 'cacheOnly',
         cacheProductCount: initialActualCacheContent.products.length,
@@ -776,7 +784,7 @@ const $bookingsProductSearch = plugins => async ({
   // 1. `doNotCallPluginForProducts` is true, and not `forceRefresh`: Serve from cache or empty.
   if (doNotCallPluginForProducts && !forceRefresh) {
     if (hasProductCache(initialActualCacheContent)) {
-      const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId, appKey);
+      const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId, appKey, productId);
       emitDecision('cache_hit', {
         reason: 'doNotCallPluginForProducts',
         cacheProductCount: initialActualCacheContent.products.length,
@@ -795,7 +803,7 @@ const $bookingsProductSearch = plugins => async ({
   if (forceRefresh) {
     emitDecision('force_refresh');
     const funcResults = await fetchFromPluginAndCache('force_refresh');
-    const searchResults = $searchProductList(funcResults.products, searchInput, optionId, appKey);
+    const searchResults = $searchProductList(funcResults.products, searchInput, optionId, appKey, productId);
     return {
       ...funcResults,
       products: searchResults,
@@ -813,13 +821,17 @@ const $bookingsProductSearch = plugins => async ({
   if (hasProductCache(initialActualCacheContent)) {
     const cacheIsEmpty = !initialActualCacheContent.products.length;
     const trimmedSearch = (searchInput || '').trim();
-    const searchFilterIsEmpty = (!trimmedSearch || trimmedSearch === '*') && !(optionId && optionId.length);
+    const hasProductIdFilter = (R.is(Array, productId) ? productId : [productId])
+      .some(value => Boolean(String(value == null ? '' : value).trim()));
+    const searchFilterIsEmpty = (!trimmedSearch || trimmedSearch === '*')
+      && !(optionId && optionId.length)
+      && !hasProductIdFilter;
 
     // If cache is empty and no search filter, skip to case 4 to fetch fresh data
     const shouldSkipEmptyCache = cacheIsEmpty && searchFilterIsEmpty;
     if (!shouldSkipEmptyCache) {
       const returnCachedResults = (action = 'cache_hit', extra = {}) => {
-        const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId, appKey);
+        const searchResults = $searchProductList(initialActualCacheContent.products, searchInput, optionId, appKey, productId);
         emitDecision(action, {
           cacheProductCount: initialActualCacheContent.products.length,
           cacheOptionCount: optionCount(initialActualCacheContent),
@@ -847,7 +859,7 @@ const $bookingsProductSearch = plugins => async ({
   // 4. No cache content (and not caught by previous conditions like forceRefresh or doNotCallPluginForProducts):
   //    Fetch from plugin. fetchFromPluginAndCache will handle caching.
   const funcResults = await fetchFromPluginAndCache('cache_miss');
-  const searchResults = $searchProductList(funcResults.products, searchInput, optionId, appKey);
+  const searchResults = $searchProductList(funcResults.products, searchInput, optionId, appKey, productId);
   return {
     ...funcResults,
     products: searchResults,
