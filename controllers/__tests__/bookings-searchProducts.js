@@ -28,6 +28,7 @@ beforeAll(async () => {
     pluginCapabilities: {
       lockTestPlugin: { weeklyProductCatalogSync: true },
       travelgate: { weeklyProductCatalogSync: true },
+      tourplannx: { weeklyProductCatalogSync: true },
     },
   });
   globalDoApiPost = globalUtils.doApiPost;
@@ -272,6 +273,43 @@ describe('user: bookings controller - searchProducts', () => {
         expect(cacheSavePayload.fullSyncTrigger).toBe('manual');
         expect(cacheSavePayload.admissionOverrideReason).toBe('legacy manual refresh');
         emitSpy.mockRestore();
+      });
+
+      it('leaves complete NX cache-save handoff to the worker', async () => {
+        const nxPlugin = globalPlugins.find(plugin => plugin.name === 'tourplannx');
+        const { userId, hint } = await globalUtils.appSetup({ appName: 'tourplannx' });
+        const emitSpy = jest.spyOn(nxPlugin.events, 'emit');
+        const catalogFingerprint = 'a'.repeat(64);
+        nxPlugin.searchProducts.mockResolvedValueOnce({
+          products: [{ productId: 'nx-product', options: [{ optionId: 'nx-option' }] }],
+          catalogOptionCount: 1,
+          catalogFingerprint,
+        });
+        try {
+          const result = await doApiPost({
+            url: `/products/tourplannx/${userId}/${hint}/search`,
+            token: globalUtils.createUserToken(userId),
+            payload: { forceRefresh: true, fullSyncTrigger: 'manual', searchInput: '*', optionId: [],
+              admissionOverrideReason: 'verify metadata handoff' },
+          });
+          expect(result).toEqual(expect.objectContaining({
+            cacheUpdated: true,
+            catalogOptionCount: 1,
+            catalogFingerprint,
+            cacheSavedAt: expect.any(Number),
+            cacheVersion: expect.any(Number),
+          }));
+          expect(emitSpy.mock.calls.some(([event, body]) =>
+            event === 'bookingsProductSearch:cache:decision' && body.action === 'cache_saved'))
+            .toBe(true);
+          expect(emitSpy.mock.calls.find(([event, body]) =>
+            event === 'bookingsProductSearch:cache:decision' && body.action === 'cache_saved')[1]
+            .hasSearchInput).toBe(false);
+          expect(emitSpy.mock.calls.some(([event]) =>
+            event === 'bookingsProductSearch:cache:save')).toBe(false);
+        } finally {
+          emitSpy.mockRestore();
+        }
       });
 
       it('carries a manual override reason on cache-save events', async () => {
@@ -1200,8 +1238,12 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
         cacheUpdated: true,
         cachePreserved: false,
         cachedProductCount: refreshedProducts.length,
+        cacheSavedAt: expect.any(Number),
+        cacheVersion: expect.any(Number),
       }));
     });
+    expect(new Set(results.map(result => result.cacheSavedAt)).size).toBe(1);
+    expect(new Set(results.map(result => result.cacheVersion)).size).toBe(1);
     expect(lockTestPlugin.searchProducts).toHaveBeenCalledTimes(1);
     expect(addJob).not.toHaveBeenCalled();
   });

@@ -127,9 +127,33 @@ describe('worker: API job handling', () => {
 
   beforeEach(() => {
     saveResult.mockClear();
+    axios.post.mockReset();
+  });
+
+  it('aborts a stuck API request and saves a visible timeout failure', async () => {
+    process.env.API_JOB_TIMEOUT_MS = '30';
+    axios.mockImplementationOnce(config => new Promise((resolve, reject) => {
+      if (config.signal.aborted) {
+        reject(new Error('canceled'));
+        return;
+      }
+      config.signal.addEventListener('abort', () => reject(new Error('canceled')));
+    }));
+    try {
+      await actualJobHandler({ id: 'timeout-job', data: {
+        type: 'api', method: 'POST', url: '/products/testAppKey/testUserId/testTokenHint/search',
+        headers: {}, payload: { forceRefresh: true },
+      } });
+      expect(saveResult).toHaveBeenCalledWith({ id: 'timeout-job',
+        resultValue: expect.objectContaining({ success: false, code: 504,
+          result: { message: expect.stringContaining('timed out') } }) });
+    } finally {
+      delete process.env.API_JOB_TIMEOUT_MS;
+    }
   });
 
   it('should create a job of type "api" for the product search endpoint and send it to the API server', async () => {
+    const listen = jest.spyOn(require('http').Server.prototype, 'listen');
     
     // 1. Test that we can create a job
     const jobData = {
@@ -164,6 +188,10 @@ describe('worker: API job handling', () => {
       update: jest.fn(),
     };
     await actualJobHandler(mockJob);
+    expect(listen).toHaveBeenCalledWith(
+      { port: 0, host: '127.0.0.1', exclusive: true }, expect.any(Function),
+    );
+    listen.mockRestore();
     // Job processing simulation complete.
     
     // Verify queue.process was called (to capture the handler)
@@ -221,5 +249,46 @@ describe('worker: API job handling', () => {
         ti2ReturnedProductCount: 0,
       }),
     });
+  });
+
+  it('records the Filematch marker and keeps a saved cache successful if handoff fails', async () => {
+    const recordProductCacheSave = jest.fn()
+      .mockResolvedValueOnce('metadata-generation')
+      .mockRejectedValueOnce(new Error('Filematch unavailable'));
+    const events2url = { name: 'events2url', recordProductCacheSave };
+    plugins.push(events2url);
+    axios.mockResolvedValueOnce({ status: 200, data: {
+      catalogRefreshOutcome: 'cache_updated', cacheUpdated: true,
+      cachedProductCount: 4, catalogOptionCount: 8, catalogFingerprint: 'a'.repeat(64),
+      cacheSavedAt: 1700000000000,
+      cacheVersion: 1700000000000000,
+    } });
+    const job = { id: 'nx-refresh', data: {
+      type: 'api', method: 'POST',
+      url: '/products/tourplannx/company/Desk%20A/search', headers: {},
+      payload: { backgroundJob: true, forceRefresh: true, fullSyncTrigger: 'manual' },
+    } };
+    try {
+      await actualJobHandler(job);
+      expect(saveResult).toHaveBeenCalledWith({ id: job.id, resultValue: expect.objectContaining({
+        syncMetadataGenerationId: 'metadata-generation',
+      }) });
+      expect(recordProductCacheSave).toHaveBeenCalledTimes(1);
+
+      saveResult.mockClear();
+      axios.mockResolvedValueOnce({ status: 200, data: {
+        catalogRefreshOutcome: 'cache_updated', cacheUpdated: true,
+        cachedProductCount: 4, catalogOptionCount: 8, catalogFingerprint: 'a'.repeat(64),
+        cacheSavedAt: 1700000000001,
+        cacheVersion: 1700000000000001,
+      } });
+      await actualJobHandler(job);
+      expect(saveResult).toHaveBeenCalledWith({ id: job.id, resultValue: expect.objectContaining({
+        success: true, syncMetadataError: 'Filematch unavailable',
+      }) });
+    } finally {
+      const index = plugins.indexOf(events2url);
+      if (index >= 0) plugins.splice(index, 1);
+    }
   });
 });

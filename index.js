@@ -39,6 +39,7 @@ const appController = require('./controllers/app');
 const userController = require('./controllers/user');
 const bookingsController = require('./controllers/bookings');
 const allotmentController = require('./controllers/allotment');
+const productFilesArchiveController = require('./controllers/productFilesArchive');
 const { Integration } = require('./models');
 const cache = require('./cache');
 const getErrorMessage = require('./lib/get-error-message.js');
@@ -91,6 +92,7 @@ module.exports = async ({
         get: args => cache.get({ ...args, pluginName }),
         getOrExec: args => cache.getOrExec({ ...args, pluginName }),
         save: args => cache.save({ ...args, pluginName }),
+        saveVersioned: args => cache.saveVersioned({ ...args, pluginName }),
         saveIfNotExists: args => cache.saveIfNotExists({ ...args, pluginName }),
         expireIfValue: args => cache.expireIfValue({ ...args, pluginName }),
         dropIfValue: args => cache.dropIfValue({ ...args, pluginName }),
@@ -138,6 +140,9 @@ module.exports = async ({
   }
   // create the API Web server
   const app = express();
+  // Usage maps for large integrations can exceed the parser's 1 MB default.
+  app.post('/:app/:userId/:hint/product-files-archive',
+    auth['admin,user'], express.json({ limit: '64mb' }));
   const api = {
     ...pingController,
     ...adminController,
@@ -145,6 +150,7 @@ module.exports = async ({
     ...userController(plugins),
     ...bookingsController(plugins),
     ...allotmentController(plugins),
+    ...productFilesArchiveController(plugins),
     cache: R.omit(['cache'], cache),
   }; // mehthods that should map to the yaml api spec
   app.plugins = plugins;
@@ -200,7 +206,11 @@ module.exports = async ({
         requestId,
         date: Math.floor(Date.now() / 1e3),
         url: req.url,
-        body: req.body,
+        body: req.openapi && req.openapi.operation
+          && req.openapi.operation.operationId === 'getProductFilesArchive'
+          ? { selection: req.body && req.body.selection, usageHash: req.body && req.body.usageHash,
+            usageCount: req.body && req.body.usage ? Object.keys(req.body.usage).length : 0 }
+          : req.body,
         params: req.pathParams,
         query: req.query,
         appRecord: req.appRecord,
@@ -230,6 +240,17 @@ module.exports = async ({
       });
 
       const axiosPlugin = axios.create({ headers: { requestId: req.requestId } });
+      if (/^\/products\/tourplannx\/[^/]+\/[^/]+\/search$/.test(req.path)
+          && req.body && req.body.forceRefresh === true && !req.body.backgroundJob) {
+        const cancellation = new AbortController();
+        axiosPlugin.defaults.signal = cancellation.signal;
+        const requestTimeout = Number(process.env.TOURPLAN_REQUEST_TIMEOUT_MS);
+        axiosPlugin.defaults.timeout = Number.isFinite(requestTimeout) && requestTimeout > 0
+          ? requestTimeout : 120 * 1000;
+        res.once('close', () => {
+          if (!res.writableFinished) cancellation.abort();
+        });
+      }
       const pluginName = R.pathOr(
         R.pathOr('ti2', ['params', 'app'], body),
         ['params', 'appKey'],

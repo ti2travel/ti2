@@ -70,6 +70,36 @@ the Swagger route.
 
 ### Product catalog refresh contract
 
+`POST /{app}/{userId}/{hint}/product-files-archive` generates four product
+JSON files from the existing TourPlan NX cache. It accepts an explicit
+`all` selection or a nonempty `usage` map, with an optional 64-character
+lowercase hexadecimal `usageHash`, and streams a temporary tar.gz archive to
+pyfilematch. A usage selection with no matching options returns
+`no_matching_options` JSON instead.
+The endpoint requires an admin or matching user token. TI2 does not upload
+files to S3 or create another raw catalog cache.
+
+`GET /{app}/{userId}/{hint}/product-files-archive` returns
+`{ "projectionVersion": number }` for the TourPlan NX exporter. Pyfilematch
+uses this version to republish product files when their projection changes,
+even if the source catalog and usage are unchanged. It uses the same admin or
+matching user authentication as the POST endpoint.
+
+For TourPlan NX, request a manual or scheduled full refresh with
+`backgroundJob: true` when the sync marker is required. After a successful
+catalog cache save, the worker calls the loaded `events2url` plugin's
+`recordProductCacheSave` API (`ti2-events2url` **>= 1.3.0**, configured with
+`ti2_events2url_eventsURL` and `ti2_events2url_authorization`) so Filematch can
+record product and option counts, cache fingerprint, cache save time, and cache
+revision in a small S3 marker. TI2 suppresses the in-process
+`bookingsProductSearch:cache:save` emit for those NX full refreshes so the
+plugin's fire-and-forget bus listener does not also forward them. A successful
+handoff returns `syncMetadataGenerationId`; a handoff failure returns
+`syncMetadataError` while the saved product cache remains a successful
+refresh. A synchronous full refresh and the internal plugin job do not record
+a marker. Without `ti2-events2url` >= 1.3.0 loaded in the worker, the handoff
+fails with `syncMetadataError` and the catalog cache save still succeeds.
+
 `POST /products/{appKey}/{userId}/{hint}/search` returns a canonical object with a
 `products` array. Use `cacheOnly: true` to read Ti2's current catalog without
 calling the integration; `cacheFound` distinguishes a cache miss from a cached
@@ -80,13 +110,32 @@ A forced request is a full-catalog refresh by default. `fullSyncTrigger` may be
 treated as manual. Manual refreshes require a non-blank `admissionOverrideReason`.
 Scheduled and manual refreshes reject `searchInput`, `optionId`, `productId`,
 `productName`, or `lastUpdatedFrom` selectors. An empty `searchInput` or
-`searchInput: "*"` represents the full catalog. Scheduler-owned requests may
-also carry `fullSyncStartedAt` and `fullSyncAdmissionToken`.
+`searchInput: "*"`, or an empty `optionId` array, represents the full catalog.
+Scheduler-owned requests may also carry `fullSyncStartedAt` and
+`fullSyncAdmissionToken`. TourPlan NX `forceRefresh` rebuilds the aggregate
+catalog but may reuse supplier entries fetched within the last 18 hours.
+
+Background NX force-refresh requests for the same company and integration hint
+share one Bull job while it is queued or active, including manual and scheduled
+requests. Each worker uses an exclusive temporary HTTP server. API jobs have a
+45-minute deadline (`API_JOB_TIMEOUT_MS`); individual NX HTTP requests during a
+forced refresh default to two minutes (`TOURPLAN_REQUEST_TIMEOUT_MS`). A worker
+request timeout aborts the internal request and cancels outstanding NX requests,
+then returns a failed result with HTTP code 504.
+
+The NX plugin saves successful supplier entries individually. It saves `_all`
+separately after a complete, nonempty fetch. A later supplier failure preserves
+successful supplier writes and the prior aggregate and translated product cache.
+There is no catalog-wide `saveMany` transaction. Product files are generated on
+demand during downstream aggregation, not by Force Refresh itself.
 
 Unscoped forced responses include `catalogRefreshOutcome`, `cacheUpdated`,
-`cachePreserved`, and `cachedProductCount`. Consumers that update a downstream
-catalog should use these fields instead of assuming that HTTP 200 or the returned
-`products.length` means Ti2 replaced its cache. Empty or partial plugin results
+`cachePreserved`, `cachedProductCount`, `cacheSavedAt`, and `cacheVersion`.
+TourPlan NX also returns `catalogOptionCount` and `catalogFingerprint` for a
+complete catalog refresh; the worker needs both to record the Filematch marker.
+Consumers that update a downstream catalog should use these fields instead of
+assuming that HTTP 200 or the returned `products.length` means Ti2 replaced its
+cache. Empty or partial plugin results
 can preserve an existing catalog. If a concurrent refresh remains in progress
 past the lock wait, Ti2 serves the retained catalog with
 `catalogRefreshOutcome: "refresh_in_progress_cache_served"`. This outcome is

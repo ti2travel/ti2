@@ -582,6 +582,24 @@ components:
           type: integer
           nullable: true
           description: Product count in the Ti2 cache after the forceRefresh decision
+        catalogOptionCount:
+          type: integer
+          nullable: true
+          description: Active TourPlan NX option count returned by a complete catalog refresh
+        catalogFingerprint:
+          type: string
+          nullable: true
+          description: SHA-256 fingerprint of the TourPlan NX supplier catalog snapshot
+        cacheSavedAt:
+          type: integer
+          nullable: true
+          format: int64
+          description: Millisecond time at which a successful refresh saved the cache
+        cacheVersion:
+          type: integer
+          nullable: true
+          format: int64
+          description: Monotonic cache revision assigned atomically with the saved catalog
     pricingItem:
       type: object
       additionalProperties: true
@@ -1276,6 +1294,84 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JobStatus'
+  /{app}/{userId}/{hint}/product-files-archive:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - products
+      summary: Get the TourPlan product files projection version
+      operationId: getProductFilesVersion
+      parameters:
+        - name: app
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current product files projection version
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - projectionVersion
+                properties:
+                  projectionVersion:
+                    type: integer
+                    minimum: 1
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - products
+      summary: Generate the four TourPlan product files from the existing cache
+      operationId: getProductFilesArchive
+      parameters:
+        - name: app
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [selection]
+              properties:
+                selection:
+                  type: string
+                  enum: [all, usage]
+                usage:
+                  type: object
+                usageHash:
+                  type: string
+      responses:
+        '200':
+          description: Gzip archive containing four JSON files and a transfer manifest, or no_matching_options JSON
   /{app}/{userId}/{hint}/jobRun:
     security:
       - bearerAuth: ['app', 'user', 'admin']

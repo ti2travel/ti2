@@ -2,6 +2,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const hash = require('object-hash');
 const R = require('ramda');
+const hasProductSearchSelector = require('../lib/hasProductSearchSelector');
 const { UserAppKey } = require('../models/index');
 const { typeDefs: productTypeDefs, query: productQuery } = require('./graphql-schemas/product');
 const { typeDefs: availTypeDefs, query: availQuery } = require('./graphql-schemas/availability');
@@ -72,24 +73,6 @@ const productSearchCacheKey = ({ userId, hint }) => hash({
   operationId: productSearchOperationId,
 });
 
-const productSearchSelectorFields = [
-  'searchInput',
-  'optionId',
-  'productId',
-  'productName',
-  'lastUpdatedFrom',
-];
-
-const hasProductSearchSelector = payload => productSearchSelectorFields.some(field => {
-  const value = R.path([field], payload);
-  if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === 'string') {
-    const trimmedValue = value.trim();
-    return Boolean(trimmedValue) && !(field === 'searchInput' && trimmedValue === '*');
-  }
-  return value !== undefined && value !== null && value !== false;
-});
-
 const productCount = value => R.pathOr([], ['products'], value).length;
 
 const optionCount = value => R.pathOr([], ['products'], value).reduce(
@@ -109,6 +92,7 @@ const emitProductSearchCacheDecision = ({
   requestId,
   searchInput,
   optionId,
+  isScopedSearch,
   forceRefresh,
   fullSyncTrigger,
   admissionOverrideReason,
@@ -130,13 +114,18 @@ const emitProductSearchCacheDecision = ({
     admissionOverrideReason,
     fullSyncStartedAt,
     fullSyncAdmissionTokenHash: safeHash(fullSyncAdmissionToken),
-    hasSearchInput: Boolean((searchInput || '').trim()),
+    hasSearchInput: hasProductSearchSelector({ searchInput }),
     hasOptionId: Boolean(optionId && optionId.length),
     elapsedMs: Date.now() - startedAt,
     ...extra,
   };
   app.events.emit(productSearchCacheDecisionEvent, payload);
-  if (legacyProductSearchCacheEvents[action]) {
+  const workerOwnsFullNxCacheSave = action === 'cache_saved'
+    && app.name === 'tourplannx'
+    && forceRefresh === true
+    && ['manual', 'scheduled'].includes(fullSyncTrigger)
+    && !isScopedSearch;
+  if (legacyProductSearchCacheEvents[action] && !workerOwnsFullNxCacheSave) {
     app.events.emit(legacyProductSearchCacheEvents[action], {
       ...payload,
       userId,
@@ -472,6 +461,7 @@ const $bookingsProductSearch = plugins => async ({
     requestId,
     searchInput,
     optionId,
+    isScopedSearch,
     forceRefresh,
     fullSyncTrigger,
     admissionOverrideReason,
@@ -502,6 +492,7 @@ const $bookingsProductSearch = plugins => async ({
     reason: hasPluginExecutionLock ? 'lockActive' : undefined,
   });
   assert(app.cache.saveIfNotExists, 'cache adapter must expose saveIfNotExists');
+  assert(app.cache.saveVersioned, 'cache adapter must expose saveVersioned');
 
   const getCachedProductSearchResults = async () => {
     const cacheContent = await app.cache.get({ key: cacheKey });
@@ -628,6 +619,8 @@ const $bookingsProductSearch = plugins => async ({
     let pluginResults;
     let catalogRefreshOutcome;
     let cacheUpdated = false;
+    let cacheSavedAt;
+    let cacheVersion;
     let cachePreserved = false;
     let cachedProductCount;
     let effectiveCatalogResults;
@@ -647,8 +640,9 @@ const $bookingsProductSearch = plugins => async ({
 
       // Cache usable results from a direct plugin fetch (forceRefresh or cache miss).
       if (hasCacheableProductResults(pluginResults)) {
-        await app.cache.save({ key: `${cacheKey}:lastUpdated`, value: Date.now(), ttl: productSearchCacheTtlSeconds });
-        await app.cache.save({ key: cacheKey, value: pluginResults, ttl: productSearchCacheTtlSeconds });
+        ({ cacheVersion, cacheSavedAt } = await app.cache.saveVersioned({
+          key: cacheKey, value: pluginResults, ttl: productSearchCacheTtlSeconds,
+        }));
         emitDecision('cache_saved', {
           reason,
           pluginElapsedMs,
@@ -731,6 +725,8 @@ const $bookingsProductSearch = plugins => async ({
           cacheUpdated,
           cachePreserved,
           cachedProductCount,
+          cacheSavedAt,
+          cacheVersion,
         },
         ttl: productSearchRefreshOutcomeTtlSeconds,
       });
@@ -750,6 +746,8 @@ const $bookingsProductSearch = plugins => async ({
       cacheUpdated,
       cachePreserved,
       cachedProductCount,
+      cacheSavedAt,
+      cacheVersion,
     };
   };
 
@@ -806,6 +804,8 @@ const $bookingsProductSearch = plugins => async ({
       cacheUpdated: funcResults.cacheUpdated,
       cachePreserved: funcResults.cachePreserved,
       cachedProductCount: funcResults.cachedProductCount,
+      cacheSavedAt: funcResults.cacheSavedAt,
+      cacheVersion: funcResults.cacheVersion,
     };
   }
 
