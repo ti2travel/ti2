@@ -541,6 +541,9 @@ components:
         fullSyncAdmissionToken:
           type: string
           description: Opaque token supplied by the full-sync admission owner.
+        pickupPointsRequired:
+          type: boolean
+          description: Request pickup and dropoff points. The productSearchPickupPointsRequired integration setting enables this for every product search.
         omitServiceCodes:
           description: Service codes to omit from the product catalog. When the integration has productSearchOmitServiceCodes, that list is used instead.
           example: ['AC', 'SM']

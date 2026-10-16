@@ -510,6 +510,108 @@ describe('user: bookings controller - searchProducts', () => {
         expect(addJob).not.toHaveBeenCalled();
       });
     });
+    describe('configured productSearchPickupPointsRequired', () => {
+      const pickupHint = 'configured-product-pickup-points';
+      const defaultHint = 'default-product-pickup-points';
+      const hints = [pickupHint, defaultHint];
+
+      beforeAll(async () => {
+        for (const hint of hints) {
+          await globalUtils.appSetup({
+            appName: testAppName,
+            userId: testUserId,
+            tokenHint: hint,
+            token: {
+              endpoint: 'https://api.travelgatex.com/pickup',
+              apiKey: chance.guid(),
+              client: 'tourconnect-pickup',
+              productSearchPickupPointsRequired: hint === pickupHint,
+            },
+          });
+        }
+      });
+
+      beforeEach(async () => {
+        await Promise.all(hints.flatMap(hint => {
+          const key = hash({ userId: testUserId, hint, operationId: 'bookingsProductSearch' });
+          return [key, `${key}:lastUpdated`, `${key}:lock`, `${key}:jobLock`]
+            .map(cacheKey => cache.drop({ pluginName: testAppName, key: cacheKey }));
+        }));
+      });
+
+      it('requests and saves returned pickup points on a catalog refresh', async () => {
+        const pickupPoints = { PickupPoint: [{ Point_ID: 2088, CanPickup: 'Y', puTime: '0950' }] };
+        travelgatePlugin.searchProducts.mockResolvedValueOnce({
+          products: [{
+            productId: 'supplier-1',
+            options: [{ optionId: 'option-1', pickupPoints }, { optionId: 'option-2' }],
+          }],
+        });
+
+        const response = await doApiPost({
+          url: `/products/${testAppName}/${testUserId}/${pickupHint}/search`,
+          token: userToken,
+          payload: { forceRefresh: true, fullSyncTrigger: 'scheduled' },
+        });
+
+        expect(travelgatePlugin.searchProducts.mock.calls[0][0].payload.pickupPointsRequired).toBe(true);
+        expect(response.catalogRefreshOutcome).toBe('cache_updated');
+        const key = hash({ userId: testUserId, hint: pickupHint, operationId: 'bookingsProductSearch' });
+        const saved = await cache.get({ pluginName: testAppName, key });
+        expect(saved.products[0].options).toEqual([
+          { optionId: 'option-1', pickupPoints },
+          { optionId: 'option-2' },
+        ]);
+      });
+
+      it('keeps pickup points enabled when a caller sends false', async () => {
+        await doApiPost({
+          url: `/products/${testAppName}/${testUserId}/${pickupHint}/search`,
+          token: userToken,
+          payload: {
+            forceRefresh: true,
+            fullSyncTrigger: 'manual',
+            admissionOverrideReason: 'catalog pickup check',
+            pickupPointsRequired: false,
+          },
+        });
+
+        expect(travelgatePlugin.searchProducts.mock.calls[0][0].payload.pickupPointsRequired).toBe(true);
+      });
+
+      it('leaves an omitted flag absent when the setting is false', async () => {
+        await doApiPost({
+          url: `/products/${testAppName}/${testUserId}/${defaultHint}/search`,
+          token: userToken,
+          payload: { forceRefresh: true, fullSyncTrigger: 'scheduled' },
+        });
+
+        expect(travelgatePlugin.searchProducts.mock.calls[0][0].payload)
+          .not.toHaveProperty('pickupPointsRequired');
+      });
+
+      it('preserves a caller-supplied flag when the setting is false', async () => {
+        await doApiPost({
+          url: `/products/${testAppName}/${testUserId}/${defaultHint}/search`,
+          token: userToken,
+          payload: { forceRefresh: true, fullSyncTrigger: 'scheduled', pickupPointsRequired: true },
+        });
+
+        expect(travelgatePlugin.searchProducts.mock.calls[0][0].payload.pickupPointsRequired).toBe(true);
+      });
+
+      it('still rejects a scoped catalog refresh', async () => {
+        const response = await doApiPost({
+          url: `/products/${testAppName}/${testUserId}/${pickupHint}/search`,
+          token: userToken,
+          payload: { forceRefresh: true, fullSyncTrigger: 'scheduled', optionId: 'option-1' },
+          expectStatusCode: 400,
+        });
+
+        expect(response.message).toContain('must not include product selectors');
+        expect(travelgatePlugin.searchProducts).not.toHaveBeenCalled();
+      });
+    });
     describe('cache TTR and lock mechanism', () => {
       const ttrTestHint = 'ttr-test'; // This hint is for UserAppKey within 'travelgate' appName
       const shortTTRToken = {

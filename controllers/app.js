@@ -85,6 +85,13 @@ const tokenTemplate = async (req, res, next) => {
         default: '',
         description: 'Service codes that every product search for this integration must omit',
       },
+      ...(pluginName === 'tourplan' ? {
+        productSearchPickupPointsRequired: {
+          type: 'boolean',
+          default: false,
+          description: 'Request pickup and dropoff points for every product search on this integration',
+        },
+      } : {}),
     });
     return res.json({ template });
   } catch (err) {
