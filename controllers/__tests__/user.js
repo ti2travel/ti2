@@ -39,7 +39,7 @@ describe('user', () => {
       doApiPost,
       plugins,
     } = await testUtils({
-      plugins: [appName],
+      plugins: [appName, 'tourplan'],
       pluginCapabilities: {
         [appName]: { weeklyProductCatalogSync: true },
       },
@@ -96,6 +96,15 @@ describe('user', () => {
     });
     expect(template).toBeTruthy();
     expect(R.path(['apiKey', 'regExp', 'source'], template)).toBeTruthy();
+    expect(template).not.toHaveProperty('productSearchPickupPointsRequired');
+    const { template: tourplanTemplate } = await doApiGet({
+      url: '/app/tourplan/tokenTemplate',
+      token: userKey,
+    });
+    expect(tourplanTemplate.productSearchPickupPointsRequired).toEqual(expect.objectContaining({
+      type: 'boolean',
+      default: false,
+    }));
   });
   it('returns 404 when deleting a hint with no credential or lifecycle', async () => {
     const unknownHint = chance.word({ length: 12 });

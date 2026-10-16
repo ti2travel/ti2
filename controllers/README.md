@@ -8,6 +8,7 @@ The `$bookingsProductSearch` function in `controllers/bookings.js` implements a 
     *   Retrieves user, application (`appKey`), and token details (including `hint`).
     *   Determines the specific plugin function to call for product search (e.g., `searchProducts` or `searchProductsForItinerary`).
     *   Injects the integration's configured `productSearchOmitServiceCodes` into the plugin payload so every caller for that token omits the same service codes. When the setting is empty, the request body is unchanged.
+    *   Enables `pickupPointsRequired` for every product search when the integration's `productSearchPickupPointsRequired` setting is true. Otherwise, a caller may still request pickup points explicitly.
     *   Calculates a `cacheKey` based on `userId`, `hint`, and a static `operationId` (`bookingsProductSearch`). Changing the omit setting does not change the key; clear that integration's product-search cache and resync.
     *   Defines a lock key derived from this `cacheKey`:
         *   `pluginExecutionLockKey` (resolves to `${cacheKey}:lock`): Used to serialize direct calls to the plugin.

@@ -393,6 +393,9 @@ const $bookingsProductSearch = plugins => async ({
     ...(configuredOmitServiceCodes.length ? {
       omitServiceCodes: configuredOmitServiceCodes,
     } : {}),
+    ...(token.productSearchPickupPointsRequired === true ? {
+      pickupPointsRequired: true,
+    } : {}),
   };
 
   // Extract controller-specific flags from originalRequestBody
