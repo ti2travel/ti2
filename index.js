@@ -40,9 +40,11 @@ const userController = require('./controllers/user');
 const bookingsController = require('./controllers/bookings');
 const allotmentController = require('./controllers/allotment');
 const productFilesArchiveController = require('./controllers/productFilesArchive');
+const creditorInvoiceController = require('./controllers/creditorInvoice');
 const { Integration } = require('./models');
 const cache = require('./cache');
 const getErrorMessage = require('./lib/get-error-message.js');
+const summarizeRequestBody = require('./lib/request-body-summary');
 
 // src : https://github.com/ramda/ramda/issues/3137#issuecomment-1016012904
 const rebuild = fn => obj =>
@@ -151,6 +153,7 @@ module.exports = async ({
     ...bookingsController(plugins),
     ...allotmentController(plugins),
     ...productFilesArchiveController(plugins),
+    ...creditorInvoiceController(plugins),
     cache: R.omit(['cache'], cache),
   }; // mehthods that should map to the yaml api spec
   app.plugins = plugins;
@@ -206,11 +209,7 @@ module.exports = async ({
         requestId,
         date: Math.floor(Date.now() / 1e3),
         url: req.url,
-        body: req.openapi && req.openapi.operation
-          && req.openapi.operation.operationId === 'getProductFilesArchive'
-          ? { selection: req.body && req.body.selection, usageHash: req.body && req.body.usageHash,
-            usageCount: req.body && req.body.usage ? Object.keys(req.body.usage).length : 0 }
-          : req.body,
+        body: summarizeRequestBody(req),
         params: req.pathParams,
         query: req.query,
         appRecord: req.appRecord,
@@ -322,8 +321,10 @@ module.exports = async ({
             },
           }
         */
+       // Invoice bodies carry supplier credentials, so skip the generic job and callback paths.
+       const creditorInvoice = summarizeRequestBody.isCreditorInvoice(req);
        // check if the operation is supposed to be ran in the background
-        const backgroundJob = R.pathOr(
+        const backgroundJob = !creditorInvoice && R.pathOr(
           false, ['backgroundJob'], req.body,
         );
        if (backgroundJob) {
@@ -340,7 +341,7 @@ module.exports = async ({
         return res.json({ jobId: job });
        }
        // intercept res.json
-        const callbackUrl = R.pathOr(
+        const callbackUrl = !creditorInvoice && R.pathOr(
           false, ['callbackUrl'], req.body);
         if (callbackUrl) {
           // send callback

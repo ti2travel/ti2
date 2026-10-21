@@ -1301,6 +1301,70 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JobStatus'
+  /invoices/tourplannx/{userId}/{hint}:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - invoices
+      summary: Post a reconciled supplier invoice to Tourplan NX
+      operationId: createCreditorInvoice
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Posted creditor invoice outcome
+          content:
+            application/json:
+              schema:
+                type: object
+  /invoices/tourplannx/{userId}/{hint}/status:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - invoices
+      summary: Check whether matched creditor invoices still exist in Tourplan NX
+      operationId: checkCreditorInvoice
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Current creditor invoice status
+          content:
+            application/json:
+              schema:
+                type: object
   /{app}/{userId}/{hint}/product-files-archive:
     get:
       security:
