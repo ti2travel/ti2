@@ -322,7 +322,8 @@ module.exports = async ({
           }
         */
        const synchronousOnly = summarizeRequestBody.isCreditorInvoice(req)
-         || summarizeRequestBody.isAllotmentPost(req);
+         || summarizeRequestBody.isAllotmentPost(req)
+         || summarizeRequestBody.isAgentPost(req);
        // check if the operation is supposed to be ran in the background
         const backgroundJob = !synchronousOnly && R.pathOr(
           false, ['backgroundJob'], req.body,
@@ -371,7 +372,8 @@ module.exports = async ({
           ...(currentPlugin ? R.keys(filteredPluginCacheSettings) : []),
         ];
         const body = req.requestBody;
-        if (cachingOperations.indexOf(body.operationId) > -1) {
+        if (!summarizeRequestBody.isAgentPost(req)
+            && cachingOperations.indexOf(body.operationId) > -1) {
           const cacheBody = R.omit(['requestId', 'date'], body);
           const cacheKey = hash(cacheBody);
           req.cacheKey = cacheKey;
