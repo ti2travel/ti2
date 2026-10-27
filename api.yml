@@ -213,6 +213,19 @@ components:
       description: Optional external-session credentials forwarded by the client
       type: object
       additionalProperties: true
+    allotmentRequest:
+      type: object
+      properties:
+        dateFormat:
+          type: string
+        startDate:
+          type: string
+        endDate:
+          type: string
+        keyPath:
+          type: string
+        credentials:
+          $ref: '#/components/schemas/integrationCredentials'
     UserApp:
       description: A user + App configuration
       type: object
@@ -3012,6 +3025,37 @@ paths:
                     type: array
   
   /allotment/{appKey}/{userId}:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - allotment
+      summary: Query allotment with optional external-session credentials
+      operationId: queryAllotment
+      parameters:
+        - name: appKey
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/allotmentRequest'
+      responses:
+        '200':
+          description: Allotment Details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyValue'
     get:
       security:
         - bearerAuth: ['admin', 'user']
@@ -3059,6 +3103,42 @@ paths:
               schema:
                 $ref: '#/components/schemas/AnyValue'
   /allotment/{appKey}/{hint}/{userId}:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - allotment
+      summary: Query allotment for a token hint with optional external-session credentials
+      operationId: queryAllotment
+      parameters:
+        - name: appKey
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/allotmentRequest'
+      responses:
+        '200':
+          description: Allotment Details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyValue'
     get:
       security:
         - bearerAuth: ['admin', 'user']
