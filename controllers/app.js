@@ -10,6 +10,8 @@ const yaml = require('js-yaml');
 const bb = require('bluebird');
 const R = require('ramda');
 const integrationLifecycle = require('../services/integrationLifecycle');
+const { createCredentialClient, redactCredentialError } = require('../lib/credential-request');
+const { isSessionValidationPost } = require('../lib/request-body-summary');
 
 // Load OpenAPI schema
 let openApiSchema = null;
@@ -373,7 +375,7 @@ const validateAppToken = plugins => async (req, res, next) => {
     const token = await userAppKeys.token;
     assert(app.validateToken, `could not find the validateToken method for ${appKey}`);
     const valid = await app.validateToken({
-      axios,
+      axios: isSessionValidationPost(req) ? createCredentialClient(app, req.requestId) : axios,
       token,
       payload: req.body,
       userId,
@@ -382,7 +384,8 @@ const validateAppToken = plugins => async (req, res, next) => {
     });
     return res.json({ valid });
   } catch (err) {
-    return next(err);
+    return next(isSessionValidationPost(req)
+      ? redactCredentialError(err, 'Session validation request failed') : err);
   }
 };
 
