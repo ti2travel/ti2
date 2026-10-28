@@ -9,9 +9,10 @@ beforeAll(async () => {
   const plugin = app.plugins.find(item => item.name === 'tourplannx');
   plugin.createCreditorInvoice = jest.fn();
   plugin.checkCreditorInvoice = jest.fn();
+  plugin.previewCreditorInvoice = jest.fn();
 });
 
-it.each(['', '/status'])('redacts invoice credentials in request events for %s', async suffix => {
+it.each(['', '/status', '/preview'])('redacts invoice credentials in request events for %s', async suffix => {
   const events = [];
   const onRequestEnd = event => events.push(event);
   const plugin = app.plugins.find(item => item.name === 'tourplannx');
@@ -30,14 +31,14 @@ it.each(['', '/status'])('redacts invoice credentials in request events for %s',
   }
 });
 
-it.each(['', '/status'])('rejects a missing token for %s', async suffix => {
+it.each(['', '/status', '/preview'])('rejects a missing token for %s', async suffix => {
   const response = await request(app)
     .post(`/invoices/tourplannx/company/unknown-hint${suffix}`)
     .send({ invoice: { lines: [{}] } });
   expect(response.status).toBe(401);
 });
 
-it.each(['', '/status'])('rejects a user token for another company for %s', async suffix => {
+it.each(['', '/status', '/preview'])('rejects a user token for another company for %s', async suffix => {
   const response = await request(app)
     .post(`/invoices/tourplannx/company/unknown-hint${suffix}`)
     .set('Authorization', `Bearer ${createUserToken('another-company')}`)

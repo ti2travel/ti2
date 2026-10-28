@@ -61,6 +61,11 @@ const invoiceOperation = (plugins, method, unavailableMessage) => async (req, re
 };
 
 module.exports = plugins => ({
+  previewCreditorInvoice: invoiceOperation(
+    plugins,
+    'previewCreditorInvoice',
+    'Tourplan NX invoice preview is unavailable',
+  ),
   createCreditorInvoice: invoiceOperation(
     plugins,
     'createCreditorInvoice',

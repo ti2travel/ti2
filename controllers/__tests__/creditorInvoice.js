@@ -218,3 +218,14 @@ test('reports a Tourplan timeout without the posted credentials', async () => {
   expect(error.status).toBe(504);
   expect(JSON.stringify(error)).not.toContain('secret');
 });
+
+
+test('preview dispatches only to the read-only plugin method', async () => {
+  UserAppKey.findOne.mockResolvedValueOnce(integration);
+  const plugin = { name: 'tourplannx', axios: jest.fn(), createCreditorInvoice: jest.fn(),
+    previewCreditorInvoice: jest.fn(async () => ({ status: 'preview', balances: [] })) };
+  const res = response();
+  await controller([plugin]).previewCreditorInvoice(request({ invoice: {}, preview: false }), res, jest.fn());
+  expect(res.json).toHaveBeenCalledWith({ status: 'preview', balances: [] });
+  expect(plugin.createCreditorInvoice).not.toHaveBeenCalled();
+});

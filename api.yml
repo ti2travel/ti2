@@ -1333,6 +1333,38 @@ paths:
             application/json:
               schema:
                 type: object
+  /invoices/tourplannx/{userId}/{hint}/preview:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - invoices
+      summary: Preview creditor invoice balances without writing to Tourplan NX
+      operationId: previewCreditorInvoice
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Current creditor invoice balances
+          content:
+            application/json:
+              schema:
+                type: object
   /invoices/tourplannx/{userId}/{hint}/status:
     post:
       security:
