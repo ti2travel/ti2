@@ -321,10 +321,12 @@ module.exports = async ({
             },
           }
         */
-       // Invoice bodies carry supplier credentials, so skip the generic job and callback paths.
-       const creditorInvoice = summarizeRequestBody.isCreditorInvoice(req);
+       const synchronousOnly = summarizeRequestBody.isCreditorInvoice(req)
+         || summarizeRequestBody.isAllotmentPost(req)
+         || summarizeRequestBody.isAgentPost(req)
+         || summarizeRequestBody.isSessionValidationPost(req);
        // check if the operation is supposed to be ran in the background
-        const backgroundJob = !creditorInvoice && R.pathOr(
+        const backgroundJob = !synchronousOnly && R.pathOr(
           false, ['backgroundJob'], req.body,
         );
        if (backgroundJob) {
@@ -341,7 +343,7 @@ module.exports = async ({
         return res.json({ jobId: job });
        }
        // intercept res.json
-        const callbackUrl = !creditorInvoice && R.pathOr(
+        const callbackUrl = !synchronousOnly && R.pathOr(
           false, ['callbackUrl'], req.body);
         if (callbackUrl) {
           // send callback
@@ -371,7 +373,9 @@ module.exports = async ({
           ...(currentPlugin ? R.keys(filteredPluginCacheSettings) : []),
         ];
         const body = req.requestBody;
-        if (cachingOperations.indexOf(body.operationId) > -1) {
+        if (!summarizeRequestBody.isAgentPost(req)
+            && !summarizeRequestBody.isSessionValidationPost(req)
+            && cachingOperations.indexOf(body.operationId) > -1) {
           const cacheBody = R.omit(['requestId', 'date'], body);
           const cacheKey = hash(cacheBody);
           req.cacheKey = cacheKey;

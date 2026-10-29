@@ -1,6 +1,7 @@
 const assert = require('assert');
 
 const { UserAppKey } = require('../models/index');
+const { createCredentialClient, redactCredentialError } = require('../lib/credential-request');
 
 const queryAllotment = plugins => async (req, res, next) => {
   const {
@@ -26,16 +27,18 @@ const queryAllotment = plugins => async (req, res, next) => {
     const token = await userAppKeys.token;
     assert(app.queryAllotment, 'could not find the allotment method');
     const results = await app.queryAllotment({
-      axios,
+      axios: req.method === 'POST'
+        ? createCredentialClient(app, req.requestId) : axios,
       token,
-      payload: query,
+      payload: req.method === 'POST' ? req.body : query,
       userId,
       hint,
       requestId: req.requestId,
     });
     return res.json(results);
   } catch (err) {
-    return next(err);
+    return next(req.method === 'POST'
+      ? redactCredentialError(err, 'Allotment request failed') : err);
   }
 };
 

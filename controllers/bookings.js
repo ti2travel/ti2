@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const hash = require('object-hash');
 const R = require('ramda');
 const hasProductSearchSelector = require('../lib/hasProductSearchSelector');
+const { createCredentialClient, redactCredentialError } = require('../lib/credential-request');
 const { UserAppKey } = require('../models/index');
 const { typeDefs: productTypeDefs, query: productQuery } = require('./graphql-schemas/product');
 const { typeDefs: availTypeDefs, query: availQuery } = require('./graphql-schemas/availability');
@@ -1049,7 +1050,7 @@ const getAffiliateAgents = plugins => async (req, res, next) => {
     const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
     assert(app.getAffiliateAgents, `getAffiliateAgents is not available for ${appKey}`);
     const results = await app.getAffiliateAgents({
-      axios,
+      axios: req.method === 'POST' ? createCredentialClient(app, req.requestId) : axios,
       token,
       payload,
       userId,
@@ -1058,7 +1059,8 @@ const getAffiliateAgents = plugins => async (req, res, next) => {
     });
     return res.json(results);
   } catch (err) {
-    return next(err);
+    return next(req.method === 'POST'
+      ? redactCredentialError(err, 'Agent request failed') : err);
   }
 };
 
