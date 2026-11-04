@@ -317,6 +317,9 @@ components:
                 type: string
               updatedAt:
                 type: string
+              scheduledProductSyncEnabled:
+                type: boolean
+                description: True only when this connection explicitly opts in to scheduled Ti2 catalog refreshes. Missing settings default to false.
               cleanupStatus:
                 type: string
                 description: Present when removal is incomplete and may be retried.
@@ -587,14 +590,25 @@ components:
           description: Outcome of an unscoped forceRefresh catalog operation
           enum:
             - cache_updated
+            - partial_cache_updated
+            - scheduled_sync_disabled
             - empty_cache_saved
             - empty_result_preserved_cache
             - partial_result_preserved_cache
             - partial_result_not_cached
+            - suspicious_shrink_preserved_cache
             - refresh_in_progress_cache_served
         cacheUpdated:
           type: boolean
           description: Whether this forceRefresh wrote the returned catalog to Ti2 cache
+        catalogPartial:
+          type: boolean
+          description: Whether the catalog is incomplete; partial caches merge retrieved entries without deleting existing entries and do not count as a full refresh success.
+        missingActivityIds:
+          type: array
+          description: Activity IDs the adapter could not retrieve during this refresh, when provided by the integration.
+          items:
+            type: string
         cachePreserved:
           type: boolean
           description: Whether this forceRefresh retained a prior catalog instead of replacing it
@@ -605,7 +619,7 @@ components:
         catalogOptionCount:
           type: integer
           nullable: true
-          description: Active TourPlan NX option count returned by a complete catalog refresh
+          description: Option count in the catalog returned after the forceRefresh decision
         catalogFingerprint:
           type: string
           nullable: true
@@ -2446,6 +2460,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/bookingsProductSearchReturn'
+  /products/{appKey}/{userId}/{hint}/sync-status:
+    get:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Read saved catalog counts and refresh status without calling the plugin
+      operationId: productSyncStatus
+      parameters:
+        - name: appKey
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Last catalog commit and latest refresh attempt, when known
+          content:
+            application/json:
+              schema:
+                type: object
   /products/{appKey}/{userId}/{hint}/search:
     post:
       security:

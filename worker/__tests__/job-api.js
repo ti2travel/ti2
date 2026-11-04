@@ -161,7 +161,7 @@ describe('worker: API job handling', () => {
       method: 'POST',
       url: '/products/testAppKey/testUserId/testTokenHint/search',
       headers: { 'content-type': 'application/json' },
-      payload: { backgroundJob: true },
+      payload: { backgroundJob: true, requestId: 'enqueue-request-id' },
     };
     
     // Adding job to queue...
@@ -202,7 +202,7 @@ describe('worker: API job handling', () => {
       expect.objectContaining({
         method: jobData.method.toLowerCase(), // Ensure method matches job data
         url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/products\/testAppKey\/testUserId\/testTokenHint\/search$/),
-        data: {}, // Payload after R.omit(['backgroundJob'], { backgroundJob: true }) is an empty object
+        data: { requestId: 'enqueue-request-id' },
         headers: expect.objectContaining({
           // Axios might add/remove/modify some headers, so be specific about what must be there
           // 'content-type': 'application/json' // This might be set by axios default or omitted if data is empty
@@ -218,15 +218,18 @@ describe('worker: API job handling', () => {
     });
   });
 
-  it('reports committed and returned counts for a full catalog refresh', async () => {
+  it.each([
+    ['empty_result_preserved_cache', [], 7],
+    ['scheduled_sync_disabled', [{ productId: 'retained-product', options: [] }], 1],
+  ])('reports committed and returned counts for %s', async (outcome, products, cachedProductCount) => {
     axios.mockResolvedValueOnce({
       status: 200,
       data: {
-        products: [],
-        catalogRefreshOutcome: 'empty_result_preserved_cache',
+        products,
+        catalogRefreshOutcome: outcome,
         cacheUpdated: false,
         cachePreserved: true,
-        cachedProductCount: 7,
+        cachedProductCount,
       },
     });
     const job = {
@@ -245,8 +248,8 @@ describe('worker: API job handling', () => {
     expect(saveResult).toHaveBeenCalledWith({
       id: job.id,
       resultValue: expect.objectContaining({
-        ti2CatalogProductCount: 7,
-        ti2ReturnedProductCount: 0,
+        ti2CatalogProductCount: cachedProductCount,
+        ti2ReturnedProductCount: products.length,
       }),
     });
   });
@@ -266,10 +269,22 @@ describe('worker: API job handling', () => {
     const job = { id: 'nx-refresh', data: {
       type: 'api', method: 'POST',
       url: '/products/tourplannx/company/Desk%20A/search', headers: {},
-      payload: { backgroundJob: true, forceRefresh: true, fullSyncTrigger: 'manual' },
+      payload: {
+        backgroundJob: true,
+        requestId: 'enqueue-request-id',
+        forceRefresh: true,
+        fullSyncTrigger: 'manual',
+      },
     } };
     try {
       await actualJobHandler(job);
+      expect(axios).toHaveBeenCalledWith(expect.objectContaining({
+        data: {
+          requestId: 'enqueue-request-id',
+          forceRefresh: true,
+          fullSyncTrigger: 'manual',
+        },
+      }));
       expect(saveResult).toHaveBeenCalledWith({ id: job.id, resultValue: expect.objectContaining({
         syncMetadataGenerationId: 'metadata-generation',
       }) });

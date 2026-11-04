@@ -56,7 +56,8 @@ const worker = ({ plugins: pluginsParam }) => { // pluginsParam are instantiated
         if (type === 'api') {
           // params is job.data, so data.method, data.url etc. are correct here
           jobLog(`running method ${data.method} ${data.url}`);
-          const { token: jwtTokenForHeader, ...requestBodyForWorker } = data.payload || {};
+          const { token: jwtTokenForHeader, ...jobPayload } = data.payload || {};
+          const requestBodyForWorker = R.omit(['backgroundJob'], jobPayload);
           let code, result, server;
           const sockets = new Set();
           const configuredTimeout = Number(process.env.API_JOB_TIMEOUT_MS);
@@ -94,7 +95,7 @@ const worker = ({ plugins: pluginsParam }) => { // pluginsParam are instantiated
             const response = await axios({
               method: data.method.toLowerCase(),
               url: `${baseURL}${data.url}`,
-              data: R.omit(['backgroundJob'], requestBodyForWorker),
+              data: requestBodyForWorker,
               headers: requestHeaders,
               validateStatus: () => true,
               signal: cancellation.signal,
