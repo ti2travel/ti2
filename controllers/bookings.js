@@ -227,7 +227,7 @@ const bookingsSearch = plugins => async (req, res, next) => {
     // Prefer the dedicated itinerary endpoint so date/filter payloads used by mining are preserved.
     const search = (app.searchItineraries || app.searchHotelBooking || app.searchBooking).bind(app);
     const results = await search({
-      axios: body && body.credentials ? createCredentialClient(app, req.requestId) : axios,
+      axios,
       token,
       payload: body,
       typeDefsAndQueries,
@@ -237,7 +237,7 @@ const bookingsSearch = plugins => async (req, res, next) => {
     });
     return res.json(results);
   } catch (err) {
-    return next(body && body.credentials ? redactCredentialError(err, 'Booking search failed') : err);
+    return next(err);
   }
 };
 
