@@ -24,10 +24,11 @@ beforeAll(async () => {
   // Initialize utils once for the entire test file
   // Ensure all plugins needed across different describe blocks are listed here.
   globalUtils = await testUtils({
-    plugins: ['lockTestPlugin', 'travelgate', 'tourplannx'],
+    plugins: ['lockTestPlugin', 'travelgate', 'tourplan', 'tourplannx'],
     pluginCapabilities: {
       lockTestPlugin: { weeklyProductCatalogSync: true },
       travelgate: { weeklyProductCatalogSync: true },
+      tourplan: { weeklyProductCatalogSync: true },
       tourplannx: { weeklyProductCatalogSync: true },
     },
   });
@@ -1409,6 +1410,43 @@ describe('Product option identifier lookup', () => {
       });
       expect(exact.products[0].options).toEqual([products[0].options[0]]);
       expect(products[0].options).toHaveLength(2);
+    },
+  );
+
+  it.each(['tourplan', 'tourplannx'])(
+    'keeps organic %s itinerary search working after a JSON-encoded token save',
+    async appName => {
+      const { env: { adminKey } } = process;
+      const setup = await globalUtils.appSetup({ appName });
+      const plugin = globalPlugins.find(item => item.name === appName);
+      await globalDoApiPost({
+        url: `/${appName}/${setup.userId}`,
+        token: adminKey,
+        payload: { tokenHint: setup.hint, token: JSON.stringify(setup.token) },
+      });
+      const token = globalUtils.createUserToken(setup.userId);
+      plugin.searchProducts.mockClear();
+      plugin.searchItineraries.mockClear();
+      const productsUrl = `/products/${appName}/${setup.userId}/${setup.hint}/search`;
+      const productResult = await globalDoApiPost({ url: productsUrl, token, payload: {} });
+      expect(plugin.searchProducts).toHaveBeenCalledTimes(1);
+      expect(productResult.products).toEqual(expect.any(Array));
+      expect(plugin.searchProducts.mock.calls[0][0].token).toEqual(expect.objectContaining(setup.token));
+      const bookingResult = await globalDoApiPost({
+        url: `/bookings/${appName}/${setup.userId}/${setup.hint}/search`,
+        token,
+        payload: { bookingId: '', supplierBookingId: '', name: '' },
+      });
+      expect(plugin.searchItineraries).toHaveBeenCalledTimes(1);
+      expect(plugin.searchItineraries.mock.calls[0][0].token).toEqual(expect.objectContaining(setup.token));
+      expect(Array.isArray(bookingResult.bookings)).toBeTruthy();
+      plugin.searchProducts.mockClear();
+      const scheduled = await globalDoApiPost({
+        url: productsUrl, token,
+        payload: { forceRefresh: true, fullSyncTrigger: 'scheduled' },
+      });
+      expect(scheduled).toMatchObject({ catalogRefreshOutcome: 'scheduled_sync_disabled', cacheUpdated: false });
+      expect(plugin.searchProducts).not.toHaveBeenCalled();
     },
   );
 });
