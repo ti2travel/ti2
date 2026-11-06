@@ -1,5 +1,6 @@
 const Redis = require('ioredis');
 const hash = require('object-hash');
+const productSearchCacheKey = require('./lib/productSearchCacheKey');
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
 const cache = new Redis(`${REDIS_URL}/2`);
@@ -22,7 +23,20 @@ const normalizeKey = ({
 
 const buildKey = ({ pluginName, ...args }) => `${pluginName}:${normalizeKey(args)}`;
 
-const saveVersioned = async ({ pluginName, key, value, ttl = defaultTTL }) => {
+const lostCacheLockError = () => {
+  const error = new Error('Product refresh lost cache lock ownership. Retry the refresh.');
+  error.status = 409;
+  return error;
+};
+
+const saveVersioned = async ({
+  pluginName,
+  key,
+  value,
+  ttl = defaultTTL,
+  lockKey,
+  lockOwnerToken,
+}) => {
   if (!Number.isInteger(ttl) || ttl < 1) {
     throw new Error('Versioned cache save requires a positive integer TTL');
   }
@@ -31,18 +45,27 @@ const saveVersioned = async ({ pluginName, key, value, ttl = defaultTTL }) => {
   // Keep the version counter after the cache expires so a later save cannot reuse an older version.
   // A runtime Redis error can leave a gap; version-first avoids publishing a new catalog with an old revision.
   const version = await cache.eval(
-    "local proposed = tonumber(ARGV[1]) "
-      + "local previous = tonumber(redis.call('get', KEYS[3]) or '0') "
-      + "if proposed <= previous then proposed = previous + 1 end "
-      + "local version = string.format('%.0f', proposed) "
-      + "redis.call('set', KEYS[3], version) "
-      + "redis.call('setex', KEYS[1], ARGV[4], ARGV[2]) "
-      + "redis.call('setex', KEYS[2], ARGV[4], ARGV[3]) "
-      + "return version",
-    3, buildKey({ pluginName, key }), buildKey({ pluginName, key: `${key}:lastUpdated` }),
+    `if ARGV[5] ~= '' and redis.call('get', KEYS[4]) ~= ARGV[5] then return false end
+      local proposed = tonumber(ARGV[1])
+      local previous = tonumber(redis.call('get', KEYS[3]) or '0')
+      if proposed <= previous then proposed = previous + 1 end
+      local version = string.format('%.0f', proposed)
+      redis.call('set', KEYS[3], version)
+      redis.call('setex', KEYS[1], ARGV[4], ARGV[2])
+      redis.call('setex', KEYS[2], ARGV[4], ARGV[3])
+      return version`,
+    4,
+    buildKey({ pluginName, key }),
+    buildKey({ pluginName, key: `${key}:lastUpdated` }),
     buildKey({ pluginName, key: `${key}:version` }),
-    proposed, JSON.stringify(value), JSON.stringify(savedAt), ttl,
+    buildKey({ pluginName, key: lockKey || `${key}:lock` }),
+    proposed,
+    JSON.stringify(value),
+    JSON.stringify(savedAt),
+    ttl,
+    lockKey ? JSON.stringify(lockOwnerToken) : '',
   );
+  if (version === null) throw lostCacheLockError();
   return { cacheVersion: Number(version), cacheSavedAt: savedAt };
 };
 
@@ -72,8 +95,26 @@ const save = async ({
   value,
   skipTTL,
   ttl = defaultTTL,
+  lockKey,
+  lockOwnerToken,
 }) => {
   const key = buildKey({ pluginName, key: keyParam });
+  if (lockKey) {
+    const saved = await cache.eval(
+      `if redis.call('get', KEYS[2]) ~= ARGV[1] then return 0 end
+        redis.call('set', KEYS[1], ARGV[2])
+        if ARGV[3] ~= '' then redis.call('expire', KEYS[1], ARGV[3]) end
+        return 1`,
+      2,
+      key,
+      buildKey({ pluginName, key: lockKey }),
+      JSON.stringify(lockOwnerToken),
+      JSON.stringify(value),
+      skipTTL ? '' : ttl,
+    );
+    if (!saved) throw lostCacheLockError();
+    return;
+  }
   // console.log('saving key', key);
   await cache.set(key, JSON.stringify(value));
   if (!skipTTL) {
@@ -176,6 +217,20 @@ const drop = async ({
   await cache.del(key);
 };
 
+const dropProductSearch = async ({ pluginName, userId, hint }) => {
+  const key = productSearchCacheKey({ userId, hint });
+  const keysToDelete = [key, `${key}:lastUpdated`, `${key}:version`,
+    `${key}:sync-status`, `${key}:lock:outcome`];
+  // Never remove another refresh's lock; retry deletion once its writer has finished.
+  return cache.eval(
+    `if redis.call('exists', KEYS[1]) == 1 then return -1 end
+      return redis.call('del', unpack(KEYS, 2))`,
+    keysToDelete.length + 1,
+    buildKey({ pluginName, key: `${key}:lock` }),
+    ...keysToDelete.map(cacheKey => buildKey({ pluginName, key: cacheKey })),
+  );
+};
+
 const keys = async () => cache.keys('*');
 
 const scan = ({
@@ -208,6 +263,7 @@ module.exports = {
   dropIfValue,
   getOrExec,
   drop,
+  dropProductSearch,
   get,
   keys,
   scan,

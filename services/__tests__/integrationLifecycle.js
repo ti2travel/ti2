@@ -1,5 +1,7 @@
 /* globals afterAll beforeEach describe expect it jest */
 
+jest.mock('../../cache', () => ({ dropProductSearch: jest.fn() }));
+
 jest.mock('axios', () => ({ post: jest.fn() }));
 jest.mock('../../worker/queue', () => ({ removeJob: jest.fn() }));
 jest.mock('../../models', () => ({
@@ -22,6 +24,7 @@ jest.mock('../../models', () => ({
 }));
 
 const axios = require('axios');
+const { dropProductSearch } = require('../../cache');
 const sqldb = require('../../models');
 const { removeJob } = require('../../worker/queue');
 const {
@@ -66,6 +69,7 @@ const lifecycleRecord = overrides => ({
 describe('integrationLifecycle', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    dropProductSearch.mockResolvedValue(5);
     process.env.ti2_events2url_eventsURL = 'http://filematch.test/ti2events';
     process.env.ti2_events2url_authorization = 'Bearer service-token';
     sqldb.User.findOne.mockResolvedValue({ userId: 'company-a' });
@@ -144,6 +148,9 @@ describe('integrationLifecycle', () => {
       transaction: expect.any(Object),
       lock: 'UPDATE',
     });
+    expect(dropProductSearch).toHaveBeenCalledWith({
+      pluginName: 'tourplan', userId: 'company-a', hint: 'Desk A',
+    });
     expect(removeJob).toHaveBeenCalledWith('repeat:exact:123');
     expect(schedule.destroy).toHaveBeenCalled();
     expect(sqldb.UserAppKey.destroy).toHaveBeenCalledWith(expect.objectContaining({
@@ -176,6 +183,33 @@ describe('integrationLifecycle', () => {
       requestId: expect.any(String),
       retryCount: 0,
     }));
+  });
+
+  it('retries cache cleanup without completing deletion while a refresh owns the lock', async () => {
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycleRecord());
+    dropProductSearch.mockResolvedValueOnce(-1);
+
+    await expect(deleteIntegration({
+      userId: 'company-a', integrationId: 'tourplan', hint: 'Desk A',
+    })).rejects.toMatchObject({ status: 503 });
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(sqldb.IntegrationLifecycle.update).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: 'failed',
+      artifacts: expect.objectContaining({ failureStage: 'TI2 product search cache cleanup' }),
+    }), expect.any(Object));
+
+    await expect(deleteIntegration({
+      userId: 'company-a', integrationId: 'tourplan', hint: 'Desk A',
+    })).resolves.toMatchObject({ status: 'complete' });
+  });
+
+  it('does not report completion when Redis cache cleanup fails', async () => {
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycleRecord());
+    dropProductSearch.mockRejectedValueOnce(new Error('Redis unavailable'));
+    await expect(deleteIntegration({
+      userId: 'company-a', integrationId: 'tourplan', hint: 'Desk A',
+    })).rejects.toMatchObject({ status: 503 });
+    expect(axios.post).not.toHaveBeenCalled();
   });
 
   it('blocks deletion while integration schedule provisioning is in progress', async () => {
@@ -384,6 +418,7 @@ describe('integrationLifecycle', () => {
       status: 'failed',
       artifacts: {
         credentials: 1,
+        cacheKeys: 5,
         cronJobs: 0,
         settings: 1,
         failureStage: 'product catalog cleanup',

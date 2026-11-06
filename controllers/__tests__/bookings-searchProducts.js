@@ -3,6 +3,7 @@
 const chance = require('chance').Chance();
 const hash = require('object-hash');
 const cache = require('../../cache');
+const { UserAppKey } = require('../../models');
 // Remove direct import of listJobs, jobStatus as we'll mock addJob
 // const { listJobs, jobStatus } = require('../../worker/queue');
 
@@ -126,6 +127,54 @@ describe('user: bookings controller - searchProducts', () => {
     const catalog = count => Array.from({ length: count }, (_, i) => ({
       productId: `p${i}`, productName: `Product ${i}`, options: [{ optionId: `p${i}-o1` }],
     }));
+
+    it.each(['complete', 'partial', 'empty'])(
+      'cannot restore a %s catalog after deletion wins during a refresh that loses its lock',
+      async kind => {
+        const { search, key, hint } = await prepareCatalog(catalog(2));
+        const identity = { pluginName: testAppName, userId: testUserId, hint };
+        travelgatePlugin.searchProducts.mockImplementationOnce(async () => {
+          await cache.drop({ ...identity, key: `${key}:lock` });
+          await UserAppKey.destroy({
+            where: { userId: testUserId, integrationId: testAppName, hint },
+          });
+          expect(await cache.dropProductSearch(identity)).toBeGreaterThan(0);
+          return kind === 'complete' ? { products: catalog(3) }
+            : (kind === 'partial' ? { products: catalog(1), catalogPartial: true } : { products: [] });
+        });
+        await expect(search({ forceRefresh: true, fullSyncTrigger: 'scheduled' }))
+          .rejects.toMatchObject({ response: { status: 409 } });
+        for (const suffix of ['', ':lastUpdated', ':version', ':sync-status', ':lock', ':lock:outcome']) {
+          expect(await cache.get({ ...identity, key: `${key}${suffix}` })).toBeNull();
+        }
+      },
+    );
+
+    it('cannot repopulate a deleted cache when credentials disappear before lock acquisition', async () => {
+      const { search, key, hint } = await prepareCatalog(catalog(2));
+      const acquire = travelgatePlugin.cache.saveIfNotExists.bind(travelgatePlugin.cache);
+      const spy = jest.spyOn(travelgatePlugin.cache, 'saveIfNotExists')
+        .mockImplementationOnce(async args => {
+          await UserAppKey.destroy({
+            where: { userId: testUserId, integrationId: testAppName, hint },
+          });
+          expect(await cache.dropProductSearch({
+            pluginName: testAppName, userId: testUserId, hint,
+          })).toBeGreaterThan(0);
+          return acquire(args);
+        });
+      travelgatePlugin.searchProducts.mockClear();
+      try {
+        await expect(search({ forceRefresh: true, fullSyncTrigger: 'scheduled' }))
+          .rejects.toMatchObject({ response: { status: 410 } });
+        expect(travelgatePlugin.searchProducts).not.toHaveBeenCalled();
+        for (const suffix of ['', ':lastUpdated', ':version', ':sync-status', ':lock', ':lock:outcome']) {
+          expect(await cache.get({ pluginName: testAppName, key: `${key}${suffix}` })).toBeNull();
+        }
+      } finally {
+        spy.mockRestore();
+      }
+    });
 
     it.each([
       ['organic', {}],

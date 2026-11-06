@@ -1,6 +1,7 @@
 /* globals describe it expect beforeAll afterAll afterEach */
 
 const cache = require('../cache');
+const productSearchCacheKey = require('../lib/productSearchCacheKey');
 
 describe('cache', () => {
   const testPluginName = 'testPlugin';
@@ -12,6 +13,71 @@ describe('cache', () => {
       await cache.drop({ pluginName: testPluginName, key });
     }
     testKeys.length = 0;
+  });
+
+  describe('dropProductSearch', () => {
+    const identity = { pluginName: testPluginName, userId: 'cleanup-company', hint: 'cleanup-desk' };
+    const suffixes = ['', ':lastUpdated', ':version', ':sync-status', ':lock:outcome'];
+
+    it('removes only this integration cache and preserves other companies, hints and plugins', async () => {
+      const otherIdentities = [
+        { ...identity, userId: 'other-company' },
+        { ...identity, hint: 'other-desk' },
+        { ...identity, pluginName: 'other-cleanup-plugin' },
+      ];
+      const entries = [identity, ...otherIdentities].flatMap(item => suffixes.map(suffix => ({
+        pluginName: item.pluginName,
+        key: `${productSearchCacheKey(item)}${suffix}`,
+      })));
+      entries.push({
+        pluginName: identity.pluginName,
+        key: `${productSearchCacheKey(identity)}:booking-details`,
+      });
+      try {
+        await Promise.all(entries.map(entry => cache.save({ ...entry, value: 'retained' })));
+        expect(await cache.dropProductSearch(identity)).toBe(suffixes.length);
+        for (const entry of entries) {
+          const target = entry.pluginName === identity.pluginName
+            && suffixes.some(suffix => entry.key === `${productSearchCacheKey(identity)}${suffix}`);
+          expect(await cache.get(entry)).toBe(target ? null : 'retained');
+        }
+        expect(await cache.dropProductSearch(identity)).toBe(0);
+      } finally {
+        await Promise.all(entries.map(entry => cache.drop(entry)));
+      }
+    });
+
+    it('preserves the cache and writer lock until a running refresh finishes', async () => {
+      const key = productSearchCacheKey(identity);
+      const lockKey = `${key}:lock`;
+      testKeys.push(key, lockKey);
+      await cache.save({ ...identity, key, value: { products: ['product'] } });
+      await cache.save({ ...identity, key: lockKey, value: 'refresh-owner' });
+      expect(await cache.dropProductSearch(identity)).toBe(-1);
+      expect(await cache.get({ ...identity, key })).toEqual({ products: ['product'] });
+      expect(await cache.get({ ...identity, key: lockKey })).toBe('refresh-owner');
+      await cache.dropIfValue({ ...identity, key: lockKey, value: 'refresh-owner' });
+      expect(await cache.dropProductSearch(identity)).toBe(1);
+    });
+  });
+
+  describe('cache write ownership', () => {
+    it.each(['save', 'saveVersioned'])('%s cannot write after its lock disappears or changes owner', async method => {
+      const key = `ownership-${method}`;
+      const lockKey = `${key}:lock`;
+      const args = { pluginName: testPluginName, key, lockKey, lockOwnerToken: 'old-owner',
+        value: { products: ['stale'] }, ttl: 60 };
+      testKeys.push(key, lockKey, `${key}:version`, `${key}:lastUpdated`);
+      await expect(cache[method](args)).rejects.toMatchObject({ status: 409 });
+      await cache.save({ pluginName: testPluginName, key: lockKey, value: 'new-owner' });
+      await expect(cache[method](args)).rejects.toMatchObject({ status: 409 });
+      for (const suffix of ['', ':version', ':lastUpdated']) {
+        expect(await cache.get({ pluginName: testPluginName, key: `${key}${suffix}` })).toBeNull();
+      }
+      expect(await cache.get({ pluginName: testPluginName, key: lockKey })).toBe('new-owner');
+      await cache[method]({ ...args, lockOwnerToken: 'new-owner' });
+      expect(await cache.get({ pluginName: testPluginName, key })).toEqual(args.value);
+    });
   });
 
   describe('saveVersioned', () => {

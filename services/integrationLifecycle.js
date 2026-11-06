@@ -4,6 +4,7 @@ const { Op } = require('sequelize');
 
 const sqldb = require('../models');
 const { removeJob } = require('../worker/queue');
+const { dropProductSearch } = require('../cache');
 
 const DEFAULT_PROVISIONING_TIMEOUT_MS = 5 * 60e3;
 
@@ -378,6 +379,15 @@ const deleteIntegration = async ({
         status: { [Op.in]: ['deleting', 'failed'] },
       },
     });
+    failureStage = 'TI2 product search cache cleanup';
+    const cacheKeys = await dropProductSearch({ pluginName: integrationId, userId, hint });
+    if (cacheKeys === -1) {
+      throw lifecycleError(503, 'A product refresh is still running. Retry removal shortly.');
+    }
+    observedArtifacts = {
+      ...observedArtifacts,
+      cacheKeys: Math.max(observedArtifacts.cacheKeys || 0, cacheKeys),
+    };
     failureStage = 'product catalog cleanup';
     const catalog = await callCatalogLifecycle({
       action: 'delete',
