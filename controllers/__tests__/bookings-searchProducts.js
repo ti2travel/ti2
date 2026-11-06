@@ -223,6 +223,30 @@ describe('user: bookings controller - searchProducts', () => {
         reason: 'suspicious_shrink_preserved_cache' });
     });
 
+    it.each([
+      ['externalSessionRequired', 428,
+        'Booking-system login is required. Sign in again and retry the refresh.'],
+      ['externalSessionInvalid', 401,
+        'Booking-system login is invalid or has expired. Sign in again and retry the refresh.'],
+      ['otherPrecondition', 428, 'The integration returned HTTP 428.'],
+    ])('reports a safe actionable reason for %s without replacing the saved catalog', async (code, status, reason) => {
+      const { search, readStatus, key } = await prepareCatalog(catalog(30));
+      const previousStatus = await readStatus();
+      const previousCatalog = await cache.get({ pluginName: testAppName, key });
+      travelgatePlugin.searchProducts.mockRejectedValueOnce(Object.assign(
+        new Error('private credential details'), { code, status },
+      ));
+      await expect(search({ forceRefresh: true, fullSyncTrigger: 'scheduled' }))
+        .rejects.toMatchObject({ response: { status } });
+      const calls = travelgatePlugin.searchProducts.mock.calls.length;
+      const failed = await readStatus();
+      expect(failed.lastAttempt).toMatchObject({ status: 'failed', reason });
+      expect(failed.lastSuccess).toEqual(previousStatus.lastSuccess);
+      expect(await cache.get({ pluginName: testAppName, key })).toEqual(previousCatalog);
+      expect(JSON.stringify(failed)).not.toContain('private credential details');
+      expect(travelgatePlugin.searchProducts).toHaveBeenCalledTimes(calls);
+    });
+
     it.each(['catalogPartial', 'partial'])('merges %s updates and clears partial state only on a complete refresh', async partialField => {
       const products = catalog(2);
       const { search, key, readStatus } = await prepareCatalog(products);

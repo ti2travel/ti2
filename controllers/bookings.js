@@ -821,10 +821,14 @@ const $bookingsProductSearch = plugins => async ({
         cacheUpdated && !partialSave ? { succeededAt: cacheSavedAt || Date.now(), productCount: cachedProductCount,
           optionCount: optionCount(pluginResults) } : undefined);
     } catch (err) {
-      const status = R.path(['response', 'status'], err);
-      const reason = err && err.name === 'AssertionError' ? 'The integration returned an invalid product catalog.'
+      const status = R.path(['response', 'status'], err) || err.status;
+      const sessionReason = {
+        externalSessionRequired: 'Booking-system login is required. Sign in again and retry the refresh.',
+        externalSessionInvalid: 'Booking-system login is invalid or has expired. Sign in again and retry the refresh.',
+      }[err.code];
+      const reason = sessionReason || (err && err.name === 'AssertionError' ? 'The integration returned an invalid product catalog.'
         : (Number.isInteger(status) ? `The integration returned HTTP ${status}.`
-          : 'The integration could not return a complete product catalog.');
+          : 'The integration could not return a complete product catalog.'));
       await recordAttempt('failed', reason);
       throw err;
     } finally {
