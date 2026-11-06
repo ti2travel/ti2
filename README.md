@@ -109,6 +109,19 @@ limit the returned products and options when an option ID is shared.
 A forced request is a full-catalog refresh by default. `fullSyncTrigger` may be
 `scheduled`, `manual`, or `organic`; an omitted trigger on a forced request is
 treated as manual. Manual refreshes require a non-blank `admissionOverrideReason`.
+Scheduled refreshes require this connection's
+`configuration.scheduledProductSyncEnabled` to be the boolean `true`. Existing
+connections without the flag, and new connections by default, are disabled;
+strings such as `"true"` do not enable them. Store the flag in `token.configuration`
+when saving credentials (or update the connection's configuration). Connection
+listings expose only the normalized `scheduledProductSyncEnabled` boolean, without
+credentials or other configuration. Discovery checks it before queueing, and Ti2
+checks the current value again when executing scheduled work. Disabled requests
+return `catalogRefreshOutcome: "scheduled_sync_disabled"` and `cacheUpdated: false`
+without calling the adapter or changing the saved catalog/status. Opting out does
+not cancel a refresh already executing. Manual refreshes and organic searches
+remain available; Ti2 saves do not automatically start Chroma indexing.
+
 Scheduled and manual refreshes reject `searchInput`, `optionId`, `productId`,
 `productName`, or `lastUpdatedFrom` selectors. An empty `searchInput` or
 `searchInput: "*"`, or an empty `optionId` array, represents the full catalog.
@@ -131,13 +144,21 @@ There is no catalog-wide `saveMany` transaction. Product files are generated on
 demand during downstream aggregation, not by Force Refresh itself.
 
 Unscoped forced responses include `catalogRefreshOutcome`, `cacheUpdated`,
-`cachePreserved`, `cachedProductCount`, `cacheSavedAt`, and `cacheVersion`.
-TourPlan NX also returns `catalogOptionCount` and `catalogFingerprint` for a
+`cachePreserved`, `cachedProductCount`, `catalogOptionCount`, `cacheSavedAt`, and `cacheVersion`.
+TourPlan NX also returns `catalogFingerprint` for a
 complete catalog refresh; the worker needs both to record the Filematch marker.
 Consumers that update a downstream catalog should use these fields instead of
 assuming that HTTP 200 or the returned `products.length` means Ti2 replaced its
-cache. Empty or partial plugin results
-can preserve an existing catalog. If a concurrent refresh remains in progress
+cache. Nonempty partial results are saved by merging products and options by ID
+without deleting existing entries. These caches retain `catalogPartial: true`
+and any `missingActivityIds`, return `partial_cache_updated`, and do not count
+as a full-refresh success or generate a complete NX marker. A subsequent complete
+refresh replaces the merged catalog and clears partial metadata. Empty partial
+results preserve existing data. Catalog status distinguishes `lastSaved` counts
+from `lastSuccess`, which records complete refreshes only. A catalog reduction below half the existing
+product or option count is also preserved when the existing count is at least 25,
+with outcome `suspicious_shrink_preserved_cache`. Invalid or duplicate canonical
+identifiers fail before a cache write. If a concurrent refresh remains in progress
 past the lock wait, Ti2 serves the retained catalog with
 `catalogRefreshOutcome: "refresh_in_progress_cache_served"`. This outcome is
 non-terminal: background-job `success` means the HTTP call completed, not that

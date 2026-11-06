@@ -15,6 +15,51 @@ describe('cache', () => {
   });
 
   describe('saveVersioned', () => {
+    it('records a partial save separately from the last complete success and retains it on failure', async () => {
+      const key = 'partial:status';
+      const lockKey = 'partial:lock';
+      testKeys.push(key, lockKey);
+      await cache.save({ pluginName: testPluginName, key: lockKey, value: 'owner' });
+      const success = { succeededAt: 100, productCount: 2, optionCount: 3 };
+      await cache.saveProductSyncStatus({ pluginName: testPluginName, key, lockKey,
+        lockOwnerToken: 'owner', attempt: { status: 'succeeded' }, success });
+      const saved = { savedAt: 200, partial: true, productCount: 3, optionCount: 4,
+        missingActivityIds: ['missing'] };
+      await cache.saveProductSyncStatus({ pluginName: testPluginName, key, lockKey,
+        lockOwnerToken: 'owner', attempt: { status: 'partial' }, saved });
+      await cache.saveProductSyncStatus({ pluginName: testPluginName, key, lockKey,
+        lockOwnerToken: 'owner', attempt: { status: 'failed' } });
+      expect(await cache.get({ pluginName: testPluginName, key })).toEqual({
+        lastAttempt: { status: 'failed' }, lastSuccess: success, lastSaved: saved,
+      });
+    });
+    it('only lets the current refresh owner update status and retains the last successful counts', async () => {
+      const key = 'sync:status';
+      const lockKey = 'sync:lock';
+      testKeys.push(key, lockKey);
+      await cache.save({ pluginName: testPluginName, key: lockKey, value: 'first-owner' });
+      const success = { succeededAt: 123, productCount: 30, optionCount: 60 };
+      await cache.saveProductSyncStatus({ pluginName: testPluginName, key, lockKey,
+        lockOwnerToken: 'first-owner', attempt: { status: 'succeeded' }, success });
+      await cache.save({ pluginName: testPluginName, key: lockKey, value: 'new-owner' });
+      expect(await cache.saveProductSyncStatus({ pluginName: testPluginName, key, lockKey,
+        lockOwnerToken: 'first-owner', attempt: { status: 'failed' } })).toBe(0);
+      expect(await cache.get({ pluginName: testPluginName, key }))
+        .toEqual({ lastAttempt: { status: 'succeeded' }, lastSuccess: success });
+      await cache.saveProductSyncStatus({ pluginName: testPluginName, key, lockKey,
+        lockOwnerToken: 'new-owner', attempt: { status: 'failed', reason: 'upstream timeout' } });
+      expect(await cache.get({ pluginName: testPluginName, key })).toEqual({
+        lastAttempt: { status: 'failed', reason: 'upstream timeout' }, lastSuccess: success,
+      });
+      expect(await cache.saveProductSyncStatus({ pluginName: testPluginName, key, lockKey,
+        attempt: { status: 'failed', startedAt: 200 } })).toBe(0);
+      await cache.drop({ pluginName: testPluginName, key: lockKey });
+      expect(await cache.saveProductSyncStatus({ pluginName: testPluginName, key, lockKey,
+        attempt: { status: 'failed', startedAt: 200 } })).toBe(1);
+      expect(await cache.saveProductSyncStatus({ pluginName: testPluginName, key, lockKey,
+        attempt: { status: 'failed', startedAt: 100 } })).toBe(0);
+      expect((await cache.get({ pluginName: testPluginName, key })).lastSuccess).toEqual(success);
+    });
     it('rejects invalid TTLs before changing the catalog or version', async () => {
       const key = 'versioned:invalid-ttl';
       testKeys.push(key, `${key}:lastUpdated`, `${key}:version`);

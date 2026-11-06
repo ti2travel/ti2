@@ -145,6 +145,14 @@ const createAppToken = async (req, res, next) => {
       where: { userId, integrationId, hint },
       transaction,
     });
+    payload.configuration = {
+      ...(userAppKeyDup && userAppKeyDup.configuration),
+      ...R.pathOr({}, ['configuration'], appKey),
+    };
+    if (R.has('scheduledProductSyncEnabled', payload.configuration)) {
+      payload.configuration.scheduledProductSyncEnabled = payload.configuration.scheduledProductSyncEnabled === true;
+    }
+    if (!Object.keys(payload.configuration).length) payload.configuration = null;
     if (userAppKeyDup) await userAppKeyDup.destroy({ transaction });
     const newAppKey = await sqldb.UserAppKey.create(payload, { transaction });
     try {

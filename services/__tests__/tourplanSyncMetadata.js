@@ -93,3 +93,10 @@ it('does not generate for failed, unchanged, or unrelated searches', async () =>
   await sync({ payload: { forceRefresh: true, fullSyncTrigger: 'organic' } });
   expect(recordProductCacheSave).not.toHaveBeenCalled();
 });
+
+it.each(['catalogPartial', 'partial'])('does not generate a complete marker for a saved %s catalog', async flag => {
+  await expect(sync({ result: { success: true, result: { cacheUpdated: true,
+    cachedProductCount: 3, [flag]: true, catalogRefreshOutcome: 'partial_cache_updated' } } }))
+    .resolves.toBeUndefined();
+  expect(recordProductCacheSave).not.toHaveBeenCalled();
+});

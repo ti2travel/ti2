@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const hash = require('object-hash');
 const R = require('ramda');
 const hasProductSearchSelector = require('../lib/hasProductSearchSelector');
+const assertCanonicalProductSearchResult = require('../lib/assertProductCatalog');
 const { createCredentialClient, redactCredentialError } = require('../lib/credential-request');
 const { UserAppKey } = require('../models/index');
 const { typeDefs: productTypeDefs, query: productQuery } = require('./graphql-schemas/product');
@@ -211,7 +212,7 @@ const getAppAndToken = async ({ plugins, appKey, userId, hint }) => {
   });
   assert(userAppKeys, 'could not find the app key');
   const token = await userAppKeys.token;
-  return { app, token };
+  return { app, token, configuration: userAppKeys.configuration };
 };
 
 const bookingsSearch = plugins => async (req, res, next) => {
@@ -348,8 +349,7 @@ const $searchProductList = (products, searchInput = '', optionId = '', appKey = 
   return filteredProducts;
 };
 
-// Plugins may flag incomplete catalog responses with `catalogPartial` or `partial`;
-// both must suppress cache writes so a partial result does not replace a complete cache.
+// Complete results may replace the catalog; partial results require a non-destructive merge.
 const hasCacheableProductResults = pluginResults => Boolean(
   pluginResults
   && pluginResults.products
@@ -358,18 +358,25 @@ const hasCacheableProductResults = pluginResults => Boolean(
   && !pluginResults.partial
 );
 
-const assertCanonicalProductSearchResult = (pluginResults, appKey) => {
-  assert(
-    pluginResults && Array.isArray(pluginResults.products),
-    `${appKey} product search must return an object with a products array`,
-  );
-};
-
 const hasNonEmptyProductCache = cacheContent => Boolean(
   cacheContent
   && cacheContent.products
   && cacheContent.products.length > 0
 );
+
+const mergePartialProductCatalog = (existing, incoming) => {
+  const products = new Map(R.pathOr([], ['products'], existing)
+    .map(product => [String(product.productId), product]));
+  for (const product of incoming.products) {
+    const id = String(product.productId);
+    const previous = products.get(id);
+    const options = new Map([
+      ...R.pathOr([], ['options'], previous), ...product.options,
+    ].map(option => [String(option.optionId), option]));
+    products.set(id, { ...previous, ...product, options: [...options.values()] });
+  }
+  return { ...incoming, catalogPartial: true, products: [...products.values()] };
+};
 
 const $bookingsProductSearch = plugins => async ({
   axios,
@@ -380,7 +387,11 @@ const $bookingsProductSearch = plugins => async ({
   requestId,
   headers,
 }) => {
-  const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
+  const { app, token, configuration } = await getAppAndToken({ plugins, appKey, userId, hint });
+  const productSearchConfiguration = R.omit([
+    'catalogPartial', 'partial', 'missingActivityIds', 'catalogRefreshOutcome',
+    'scheduledProductSyncEnabled',
+  ], token.configuration || {});
   assert(userId, 'userId is required');
   assert(appKey, 'appKey is required');
   assert(app.searchProducts || app.searchProductsForItinerary, `searchProducts or searchProductsForItinerary is not available for ${appKey}`);
@@ -417,6 +428,20 @@ const $bookingsProductSearch = plugins => async ({
   ) >= 0
     ? requestedFullSyncTrigger
     : (forceRefresh ? 'manual' : 'organic');
+  const cacheKey = productSearchCacheKey({ userId, hint });
+  if (!cacheOnly && fullSyncTrigger === 'scheduled'
+    && R.prop('scheduledProductSyncEnabled', configuration) !== true) {
+    const cacheContent = await app.cache.get({ key: cacheKey });
+    const cachePreserved = hasProductCache(cacheContent);
+    return {
+      ...cacheContent,
+      products: cachePreserved ? cacheContent.products : [],
+      catalogRefreshOutcome: 'scheduled_sync_disabled',
+      cacheUpdated: false,
+      cachePreserved,
+      cachedProductCount: cachePreserved ? productCount(cacheContent) : null,
+    };
+  }
   const admissionOverrideReason = typeof requestedOverrideReason === 'string'
     ? requestedOverrideReason.trim() || undefined
     : undefined;
@@ -439,19 +464,30 @@ const $bookingsProductSearch = plugins => async ({
       'admissionOverrideReason',
       'fullSyncStartedAt',
       'fullSyncAdmissionToken',
+      'requestId',
+      'scheduledProductSyncEnabled',
     ], normalizedRequestBody),
     forceRefresh,
   };
-  const isScopedSearch = hasProductSearchSelector(normalizedRequestBody);
+  const isScopedSearch = hasProductSearchSelector(normalizedRequestBody, appKey);
   const isDeclaredFullCatalogRefresh = forceRefresh
     && ['scheduled', 'manual'].indexOf(fullSyncTrigger) >= 0;
+  const rejectRefresh = async err => {
+    // Rejected requests must not overwrite a catalog refresh that already owns the lock.
+    await app.cache.saveProductSyncStatus({
+      key: `${cacheKey}:sync-status`, lockKey: `${cacheKey}:lock`,
+      attempt: { status: 'failed', startedAt: Date.now(), finishedAt: Date.now(),
+        trigger: fullSyncTrigger, reason: err.message },
+    });
+    throw err;
+  };
   if (
     forceRefresh
     && !cacheOnly
     && fullSyncTrigger === 'manual'
     && !admissionOverrideReason
   ) {
-    throw createManualCatalogRefreshReasonError();
+    return rejectRefresh(createManualCatalogRefreshReasonError());
   }
   if (isDeclaredFullCatalogRefresh && isScopedSearch) {
     throw createScopedCatalogRefreshError();
@@ -461,10 +497,9 @@ const $bookingsProductSearch = plugins => async ({
     && !cacheOnly
     && R.path(['capabilities', 'weeklyProductCatalogSync'], app) !== true
   ) {
-    throw createUnsupportedCatalogRefreshError(appKey);
+    return rejectRefresh(createUnsupportedCatalogRefreshError(appKey));
   }
 
-  const cacheKey = productSearchCacheKey({ userId, hint });
   const telemetryContext = {
     app,
     cacheKey,
@@ -636,7 +671,22 @@ const $bookingsProductSearch = plugins => async ({
     let cachePreserved = false;
     let cachedProductCount;
     let effectiveCatalogResults;
+    const attemptStartedAt = Date.now();
+    const recordAttempt = (status, reason, success) => app.cache.saveProductSyncStatus({
+      key: `${cacheKey}:sync-status`, lockKey: pluginExecutionLockKey, lockOwnerToken,
+      attempt: { status, startedAt: attemptStartedAt,
+        ...(status !== 'running' ? { finishedAt: Date.now() } : {}),
+        trigger: fullSyncTrigger, reason },
+      success,
+      ...(cacheUpdated ? { saved: {
+        savedAt: cacheSavedAt || Date.now(), productCount: cachedProductCount,
+        optionCount: optionCount(effectiveCatalogResults || pluginResults),
+        partial: Boolean(pluginResults.catalogPartial || pluginResults.partial),
+        missingActivityIds: pluginResults.missingActivityIds,
+      } } : {}),
+    });
     try {
+      await recordAttempt('running');
       const pluginStartedAt = Date.now();
       pluginResults = await func({
         axios,
@@ -650,8 +700,27 @@ const $bookingsProductSearch = plugins => async ({
       assertCanonicalProductSearchResult(pluginResults, appKey);
       const pluginElapsedMs = Date.now() - pluginStartedAt;
 
-      // Cache usable results from a direct plugin fetch (forceRefresh or cache miss).
-      if (hasCacheableProductResults(pluginResults)) {
+      const existingCacheContent = await app.cache.get({ key: cacheKey });
+      const suspiciousShrink = [productCount, optionCount].some(count => (
+        count(existingCacheContent) >= 25
+        && count(pluginResults) < count(existingCacheContent) * 0.5
+      ));
+      // Match the existing Chroma shrink policy, at the Ti2 commit boundary.
+      if (hasCacheableProductResults(pluginResults) && suspiciousShrink) {
+        catalogRefreshOutcome = 'suspicious_shrink_preserved_cache';
+        cachePreserved = true;
+        cachedProductCount = productCount(existingCacheContent);
+        effectiveCatalogResults = existingCacheContent;
+        emitDecision('suspicious_refresh_skipped', {
+          reason: 'suspiciousShrinkPreservedExistingCache',
+          pluginElapsedMs,
+          existingProductCount: productCount(existingCacheContent),
+          returnedProductCount: productCount(pluginResults),
+          existingOptionCount: optionCount(existingCacheContent),
+          returnedOptionCount: optionCount(pluginResults),
+          cachePreserved: true,
+        });
+      } else if (hasCacheableProductResults(pluginResults)) {
         ({ cacheVersion, cacheSavedAt } = await app.cache.saveVersioned({
           key: cacheKey, value: pluginResults, ttl: productSearchCacheTtlSeconds,
         }));
@@ -665,26 +734,29 @@ const $bookingsProductSearch = plugins => async ({
         cacheUpdated = true;
         cachedProductCount = productCount(pluginResults);
       } else if (pluginResults && (pluginResults.catalogPartial || pluginResults.partial)) {
-        const existingCacheContent = await app.cache.get({ key: cacheKey });
-        cachePreserved = hasNonEmptyProductCache(existingCacheContent);
-        effectiveCatalogResults = cachePreserved ? existingCacheContent : undefined;
-        catalogRefreshOutcome = cachePreserved
-          ? 'partial_result_preserved_cache'
-          : 'partial_result_not_cached';
-        cachedProductCount = cachePreserved
-          ? existingCacheContent.products.length
-          : null;
-        emitDecision('partial_refresh_skipped', {
-          reason: cachePreserved
-            ? 'partialResultPreservedExistingCache'
-            : 'partialResultNotCached',
-          pluginElapsedMs,
-          cachePreserved,
-          existingProductCount: cachePreserved
-            ? existingCacheContent.products.length
-            : undefined,
-          returnedProductCount: productCount(pluginResults),
-        });
+        if (pluginResults.products.length) {
+          effectiveCatalogResults = mergePartialProductCatalog(existingCacheContent, pluginResults);
+          assertCanonicalProductSearchResult(effectiveCatalogResults, appKey);
+          ({ cacheVersion, cacheSavedAt } = await app.cache.saveVersioned({
+            key: cacheKey, value: effectiveCatalogResults, ttl: productSearchCacheTtlSeconds,
+          }));
+          catalogRefreshOutcome = 'partial_cache_updated';
+          cacheUpdated = true;
+          cachedProductCount = productCount(effectiveCatalogResults);
+          emitDecision('partial_cache_saved', { reason, pluginElapsedMs,
+            cacheProductCount: cachedProductCount, cacheOptionCount: optionCount(effectiveCatalogResults),
+            returnedProductCount: productCount(pluginResults) });
+        } else {
+          cachePreserved = hasNonEmptyProductCache(existingCacheContent);
+          effectiveCatalogResults = cachePreserved ? existingCacheContent : undefined;
+          catalogRefreshOutcome = cachePreserved
+            ? 'partial_result_preserved_cache' : 'partial_result_not_cached';
+          cachedProductCount = cachePreserved ? productCount(existingCacheContent) : null;
+          emitDecision('partial_refresh_skipped', {
+            reason: cachePreserved ? 'partialResultPreservedExistingCache' : 'partialResultNotCached',
+            pluginElapsedMs, cachePreserved, returnedProductCount: 0,
+          });
+        }
       } else if (pluginResults && pluginResults.products && pluginResults.products.length === 0) {
         const existingCacheContent = await app.cache.get({ key: cacheKey });
         if (hasNonEmptyProductCache(existingCacheContent)) {
@@ -739,9 +811,22 @@ const $bookingsProductSearch = plugins => async ({
           cachedProductCount,
           cacheSavedAt,
           cacheVersion,
+          catalogPartial: Boolean(pluginResults.catalogPartial || pluginResults.partial),
+          missingActivityIds: pluginResults.missingActivityIds,
         },
         ttl: productSearchRefreshOutcomeTtlSeconds,
       });
+      const partialSave = catalogRefreshOutcome === 'partial_cache_updated';
+      await recordAttempt(partialSave ? 'partial' : (cacheUpdated ? 'succeeded' : 'preserved'), catalogRefreshOutcome,
+        cacheUpdated && !partialSave ? { succeededAt: cacheSavedAt || Date.now(), productCount: cachedProductCount,
+          optionCount: optionCount(pluginResults) } : undefined);
+    } catch (err) {
+      const status = R.path(['response', 'status'], err);
+      const reason = err && err.name === 'AssertionError' ? 'The integration returned an invalid product catalog.'
+        : (Number.isInteger(status) ? `The integration returned HTTP ${status}.`
+          : 'The integration could not return a complete product catalog.');
+      await recordAttempt('failed', reason);
+      throw err;
     } finally {
       await lockRenewal.stop();
       if (app.cache.dropIfValue) {
@@ -760,6 +845,8 @@ const $bookingsProductSearch = plugins => async ({
       cachedProductCount,
       cacheSavedAt,
       cacheVersion,
+      ...(pluginResults.catalogPartial || pluginResults.partial
+        ? { catalogPartial: true, missingActivityIds: pluginResults.missingActivityIds } : {}),
     };
   };
 
@@ -777,12 +864,12 @@ const $bookingsProductSearch = plugins => async ({
       return {
         ...initialActualCacheContent,
         products: searchResults,
-        ...(token.configuration || {}),
+        ...productSearchConfiguration,
         cacheFound: true,
       };
     }
     emitDecision('cache_miss', { reason: 'cacheOnly' });
-    return { products: [], ...(token.configuration || {}), cacheFound: false };
+    return { products: [], ...productSearchConfiguration, cacheFound: false };
   }
 
   // 1. `doNotCallPluginForProducts` is true, and not `forceRefresh`: Serve from cache or empty.
@@ -796,10 +883,10 @@ const $bookingsProductSearch = plugins => async ({
         returnedProductCount: searchResults.length,
         returnedOptionCount: optionCount({ products: searchResults }),
       });
-      return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
+      return { ...initialActualCacheContent, products: searchResults, ...productSearchConfiguration };
     }
     emitDecision('cache_miss', { reason: 'doNotCallPluginForProducts' });
-    return { products: [], ...(token.configuration || {}) };
+    return { products: [], ...productSearchConfiguration };
   }
 
   // 2. `forceRefresh` is true (and not case 1): Fetch from plugin.
@@ -811,11 +898,12 @@ const $bookingsProductSearch = plugins => async ({
     return {
       ...funcResults,
       products: searchResults,
-      ...(token.configuration || {}),
+      ...productSearchConfiguration,
       catalogRefreshOutcome: funcResults.catalogRefreshOutcome,
       cacheUpdated: funcResults.cacheUpdated,
       cachePreserved: funcResults.cachePreserved,
       cachedProductCount: funcResults.cachedProductCount,
+      catalogOptionCount: optionCount(funcResults),
       cacheSavedAt: funcResults.cacheSavedAt,
       cacheVersion: funcResults.cacheVersion,
     };
@@ -845,7 +933,7 @@ const $bookingsProductSearch = plugins => async ({
           ttrMs: ttr * 1000,
           ...extra,
         });
-        return { ...initialActualCacheContent, products: searchResults, ...(token.configuration || {}) };
+        return { ...initialActualCacheContent, products: searchResults, ...productSearchConfiguration };
       };
 
       const isEffectivelyStale = isStaleByTTR && !doNotCallPluginForProducts;
@@ -867,8 +955,43 @@ const $bookingsProductSearch = plugins => async ({
   return {
     ...funcResults,
     products: searchResults,
-    ...(token.configuration || {}),
+    ...productSearchConfiguration,
   };
+};
+
+const productSyncStatus = plugins => async (req, res, next) => {
+  try {
+    const { appKey, userId, hint } = req.params;
+    const { app } = await getAppAndToken({ plugins, appKey, userId, hint });
+    const key = productSearchCacheKey({ userId, hint });
+    const statusKey = `${key}:sync-status`;
+    const status = await app.cache.get({ key: statusKey }) || {};
+    if (!status.lastSaved || (!status.lastSuccess && !status.lastSaved.partial)) {
+      const [catalog, savedAt] = await Promise.all([
+        app.cache.get({ key }), app.cache.get({ key: `${key}:lastUpdated` }),
+      ]);
+      if (hasProductCache(catalog)) {
+        const partial = Boolean(catalog.catalogPartial || catalog.partial);
+        if (!status.lastSaved) status.lastSaved = {
+          savedAt: Number.isFinite(savedAt) ? savedAt : null,
+          productCount: productCount(catalog), optionCount: optionCount(catalog), partial,
+          missingActivityIds: catalog.missingActivityIds,
+        };
+        if (!status.lastSuccess && !partial) status.lastSuccess = {
+          succeededAt: Number.isFinite(savedAt) ? savedAt : null,
+          productCount: productCount(catalog), optionCount: optionCount(catalog),
+        };
+      }
+    }
+    if (status.lastAttempt && status.lastAttempt.status === 'running'
+      && !await app.cache.get({ key: `${key}:lock` })) {
+      status.lastAttempt = { ...status.lastAttempt, status: 'failed',
+        reason: 'The refresh was interrupted before completion.' };
+    }
+    return res.json(status);
+  } catch (err) {
+    return next(err);
+  }
 };
 
 const bookingsProductSearch = plugins => async (req, res, next) => {
@@ -1145,6 +1268,7 @@ const controllerFactory = plugins => {
     confirmBooking: confirmBooking(plugins),
     $bookingsProductSearch: $bookingsProductSearch(plugins),
     bookingsProductSearch: bookingsProductSearch(plugins),
+    productSyncStatus: productSyncStatus(plugins),
     getProductPackages: getProductPackages(plugins),
     bookingsAvailabilitySearch: bookingsAvailabilitySearch(plugins),
     $bookingsAvailabilityCalendar: $bookingsAvailabilityCalendar(plugins),

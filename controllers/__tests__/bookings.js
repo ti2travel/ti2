@@ -347,7 +347,7 @@ describe('user: bookings controller', () => {
 
       // Second call: cache is empty, no filter - should call plugin again
       plugins[0].searchProducts.mockImplementationOnce(() => ({
-        products: [{ productId: '999', productName: 'Fresh Product' }],
+        products: [{ productId: '999', productName: 'Fresh Product', options: [] }],
       }));
       const { products } = await doApiPost({
         url: `/products/${appKey}/${userId}/testingToken/search`,
@@ -382,7 +382,7 @@ describe('user: bookings controller', () => {
     it('should return cached products when cache has data', async () => {
       // Set up cache with products
       plugins[0].searchProducts.mockImplementationOnce(() => ({
-        products: [{ productId: '123', productName: 'Cached Product' }],
+        products: [{ productId: '123', productName: 'Cached Product', options: [] }],
       }));
       await doApiPost({
         url: `/products/${appKey}/${userId}/testingToken/search`,

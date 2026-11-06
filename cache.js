@@ -46,6 +46,26 @@ const saveVersioned = async ({ pluginName, key, value, ttl = defaultTTL }) => {
   return { cacheVersion: Number(version), cacheSavedAt: savedAt };
 };
 
+const saveProductSyncStatus = async ({ pluginName, key, lockKey, lockOwnerToken, attempt, success, saved }) => {
+  return cache.eval(
+    "local raw = redis.call('get', KEYS[1]) "
+      + "local value = raw and cjson.decode(raw) or {} "
+      + "local attempt = cjson.decode(ARGV[2]) "
+      + "if ARGV[1] == '' then "
+      + "if redis.call('exists', KEYS[2]) == 1 then return 0 end "
+      + "if value.lastAttempt and tonumber(value.lastAttempt.startedAt or 0) >= tonumber(attempt.startedAt) then return 0 end "
+      + "elseif redis.call('get', KEYS[2]) ~= ARGV[1] then return 0 end "
+      + "value.lastAttempt = attempt "
+      + "if ARGV[3] ~= '' then value.lastSuccess = cjson.decode(ARGV[3]) end "
+      + "if ARGV[5] ~= '' then value.lastSaved = cjson.decode(ARGV[5]) end "
+      + "redis.call('setex', KEYS[1], ARGV[4], cjson.encode(value)) return 1",
+    2, buildKey({ pluginName, key }), buildKey({ pluginName, key: lockKey }),
+    lockOwnerToken === undefined ? '' : JSON.stringify(lockOwnerToken),
+    JSON.stringify(attempt), success ? JSON.stringify(success) : '',
+    30 * 24 * 60 * 60, saved ? JSON.stringify(saved) : '',
+  );
+};
+
 const save = async ({
   pluginName,
   key: keyParam,
@@ -182,6 +202,7 @@ module.exports = {
   cache,
   save,
   saveVersioned,
+  saveProductSyncStatus,
   saveIfNotExists,
   expireIfValue,
   dropIfValue,
