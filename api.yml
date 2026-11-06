@@ -235,8 +235,13 @@ components:
           description: An identifier for this token, it should NOT be the token itself but a short description of it
           example: 'expediaTestLocation-23'
         token:
-          type: object
-          description: this is the secret payload that is passed doen to the plugin
+          oneOf:
+            - type: object
+            - type: string
+              description: A JSON-encoded object; malformed JSON and non-object values are rejected.
+          description: >-
+            The secret payload passed to the plugin. JSON-encoded object strings
+            are also accepted for compatibility with the TourConnect client.
           example: { endpoint: 'http://expedia.penguin.local', apiKey: 'this is a secret key' }
     UserAppDelete:
       description: A user + App configuration to delete

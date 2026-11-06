@@ -39,7 +39,7 @@ describe('user', () => {
       doApiPost,
       plugins,
     } = await testUtils({
-      plugins: [appName, 'tourplan'],
+      plugins: [appName, 'tourplan', 'tourplannx'],
       pluginCapabilities: {
         [appName]: { weeklyProductCatalogSync: true },
       },
@@ -136,6 +136,119 @@ describe('user', () => {
     expect(record.configuration).toEqual({ scheduledProductSyncEnabled: false, keepSetting: 'saved' });
     expect((await record.token).configuration).toEqual(record.configuration);
   });
+
+  it.each([true, false, 'true', 1, null])(
+    'persists scheduled opt-in from a JSON-string token with value %p', async enabled => {
+      const hint = chance.guid();
+      const flagUserId = chance.guid();
+      const url = `/${appName}/${flagUserId}`;
+      await doApiPost({ url, token: adminKey, payload: { tokenHint: hint,
+        token: { ...token, configuration: { keepSetting: 'saved' } },
+      } });
+      await doApiPost({ url, token: adminKey, payload: { tokenHint: hint,
+        token: JSON.stringify({ ...token, configuration: { scheduledProductSyncEnabled: enabled } }),
+      } });
+      const record = await db.models.UserAppKey.findOne({
+        where: { userId: flagUserId, integrationId: appName, hint },
+      });
+      expect(record.configuration).toEqual({ keepSetting: 'saved', scheduledProductSyncEnabled: enabled === true });
+      expect(await record.token).toEqual({ ...token, configuration: record.configuration });
+      const { userAppKeys } = await doApiGet({ url: `/user/${flagUserId}/apps`, token: adminKey });
+      expect(userAppKeys.find(row => row.hint === hint).scheduledProductSyncEnabled).toBe(enabled === true);
+    },
+  );
+
+  it.each([
+    ['tourplan', {
+      hostConnectEndpoint: 'https://hostconnect.example.test',
+      hostConnectAgentID: 'AGENT1',
+      hostConnectAgentPassword: 'secret',
+      hostConnectBookingLinkBaseUrl: 'https://book.example.test',
+      ttlForProducts: 604800,
+      doNotCallPluginForProducts: false,
+      productSearchOmitServiceCodes: 'AC,SM',
+      productSearchPickupPointsRequired: true,
+      customRatesMarkupPercentage: 10,
+    }],
+    ['tourplannx', {
+      url: 'https://nx.example.test',
+      agentCode: 'TEST',
+      currency: 'NZD',
+      bookingStatus: 'RQ',
+      serviceStatus: 'OK',
+      branch: 'AU',
+      department: 'OP',
+      productQueryConcurrency: 5,
+      analysisCode1: 'FIT',
+      productSearchOmitServiceCodes: 'AC',
+    }],
+  ])(
+    'keeps existing %s itinerary credentials when TourConnect saves a JSON-encoded token',
+    async (integrationId, connectionToken) => {
+      const hint = chance.guid();
+      const flagUserId = chance.guid();
+      const url = `/${integrationId}/${flagUserId}`;
+      await doApiPost({ url, token: adminKey, payload: { tokenHint: hint, token: connectionToken } });
+      await doApiPost({ url, token: adminKey, payload: {
+        tokenHint: hint, token: JSON.stringify(connectionToken),
+      } });
+      const encodedHint = `${hint}-encoded`;
+      await doApiPost({ url, token: adminKey, payload: {
+        tokenHint: encodedHint, token: JSON.stringify(connectionToken),
+      } });
+      const records = await db.models.UserAppKey.findAll({
+        where: { userId: flagUserId, integrationId, hint: [hint, encodedHint] },
+      });
+      expect(records).toHaveLength(2);
+      await Promise.all(records.map(async record => {
+        expect(await record.token).toEqual(connectionToken);
+        expect(record.configuration).toBeNull();
+      }));
+      const { userAppKeys } = await doApiGet({ url: `/user/${flagUserId}/apps`, token: adminKey });
+      expect(userAppKeys.filter(row => row.hint === hint || row.hint === encodedHint)
+        .every(row => row.scheduledProductSyncEnabled === false)).toBe(true);
+    },
+  );
+
+  it.each(['tourplan', 'tourplannx'])(
+    'persists weekly sync opt-in from a JSON-encoded %s itinerary token',
+    async integrationId => {
+      const hint = chance.guid();
+      const flagUserId = chance.guid();
+      const connectionToken = {
+        hostConnectEndpoint: 'https://hostconnect.example.test',
+        url: 'https://nx.example.test',
+        productSearchOmitServiceCodes: 'AC',
+        configuration: { scheduledProductSyncEnabled: true },
+      };
+      await doApiPost({ url: `/${integrationId}/${flagUserId}`, token: adminKey, payload: {
+        tokenHint: hint, token: JSON.stringify(connectionToken),
+      } });
+      const record = await db.models.UserAppKey.findOne({
+        where: { userId: flagUserId, integrationId, hint },
+      });
+      expect(record.configuration).toEqual({ scheduledProductSyncEnabled: true });
+      expect(await record.token).toEqual({ ...connectionToken, configuration: record.configuration });
+      const { userAppKeys } = await doApiGet({ url: `/user/${flagUserId}/apps`, token: adminKey });
+      expect(userAppKeys.find(row => row.hint === hint).scheduledProductSyncEnabled).toBe(true);
+    },
+  );
+
+  it.each(['{invalid', 'null', '[]', '"plain text"', 'true', ''])(
+    'rejects an invalid JSON token %p without replacing the saved credential', async invalidToken => {
+      const hint = chance.guid();
+      const flagUserId = chance.guid();
+      const url = `/${appName}/${flagUserId}`;
+      await doApiPost({ url, token: adminKey, payload: { tokenHint: hint, token } });
+      const original = await db.models.UserAppKey.findOne({
+        where: { userId: flagUserId, integrationId: appName, hint },
+      });
+      await doApiPost({ url, token: adminKey, expectStatusCode: 400,
+        payload: { tokenHint: hint, token: invalidToken } });
+      await original.reload();
+      expect(await original.token).toEqual(token);
+    },
+  );
 
   it('returns 404 when deleting a hint with no credential or lifecycle', async () => {
     const unknownHint = chance.word({ length: 12 });

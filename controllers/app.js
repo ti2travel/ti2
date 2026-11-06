@@ -115,11 +115,22 @@ const createAppToken = async (req, res, next) => {
   let transaction;
   let lifecycle;
   try {
+    let parsedAppKey = appKey;
+    if (typeof appKey === 'string') {
+      try {
+        parsedAppKey = JSON.parse(appKey);
+      } catch (err) {
+        return next({ status: 400, message: 'Token must be a valid JSON object' });
+      }
+    }
+    if (!parsedAppKey || typeof parsedAppKey !== 'object' || Array.isArray(parsedAppKey)) {
+      return next({ status: 400, message: 'Token must be a valid JSON object' });
+    }
     const payload = {
       integrationId,
       userId,
       hint,
-      appKey,
+      appKey: parsedAppKey,
     };
     await sqldb.User.findOrCreate({ where: { userId }, defaults: { userId } });
 
@@ -147,7 +158,7 @@ const createAppToken = async (req, res, next) => {
     });
     payload.configuration = {
       ...(userAppKeyDup && userAppKeyDup.configuration),
-      ...R.pathOr({}, ['configuration'], appKey),
+      ...R.pathOr({}, ['configuration'], parsedAppKey),
     };
     if (R.has('scheduledProductSyncEnabled', payload.configuration)) {
       payload.configuration.scheduledProductSyncEnabled = payload.configuration.scheduledProductSyncEnabled === true;
