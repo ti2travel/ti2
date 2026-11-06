@@ -106,6 +106,37 @@ describe('user', () => {
       default: false,
     }));
   });
+  it.each([undefined, false, null, 'true', 'false', 1, true])(
+    'lists only a strict boolean true as scheduled sync enabled (%s)', async enabled => {
+      const hint = chance.guid();
+      const flagUserId = chance.guid();
+      await doApiPost({ url: `/${appName}/${flagUserId}`, token: adminKey,
+        payload: { tokenHint: 'legacy', token } });
+      await doApiPost({ url: `/${appName}/${flagUserId}`, token: adminKey,
+        payload: { tokenHint: hint,
+          token: { ...token, configuration: { scheduledProductSyncEnabled: enabled } } } });
+      const { userAppKeys } = await doApiGet({ token: adminKey, url: `/user/${flagUserId}/apps` });
+      const connection = userAppKeys.find(row => row.hint === hint);
+      expect(connection.scheduledProductSyncEnabled).toBe(enabled === true);
+      expect(connection).not.toHaveProperty('configuration');
+      expect(connection).not.toHaveProperty('appKey');
+      expect(connection).not.toHaveProperty('token');
+      expect(userAppKeys.find(row => row.hint === 'legacy').scheduledProductSyncEnabled).toBe(false);
+    },
+  );
+
+  it('preserves unrelated connection configuration while enabling and disabling scheduled sync', async () => {
+    const hint = chance.guid();
+    const flagUserId = chance.guid();
+    const save = configuration => doApiPost({ url: `/${appName}/${flagUserId}`, token: adminKey,
+      payload: { tokenHint: hint, token: { ...token, configuration } } });
+    await save({ scheduledProductSyncEnabled: true, keepSetting: 'saved' });
+    await save({ scheduledProductSyncEnabled: false });
+    const record = await db.models.UserAppKey.findOne({ where: { userId: flagUserId, integrationId: appName, hint } });
+    expect(record.configuration).toEqual({ scheduledProductSyncEnabled: false, keepSetting: 'saved' });
+    expect((await record.token).configuration).toEqual(record.configuration);
+  });
+
   it('returns 404 when deleting a hint with no credential or lifecycle', async () => {
     const unknownHint = chance.word({ length: 12 });
     await doApiDelete({

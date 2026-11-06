@@ -10,6 +10,7 @@ The `$bookingsProductSearch` function in `controllers/bookings.js` implements a 
     *   Injects the integration's configured `productSearchOmitServiceCodes` into the plugin payload so every caller for that token omits the same service codes. When the setting is empty, the request body is unchanged.
     *   Enables `pickupPointsRequired` for every product search when the integration's `productSearchPickupPointsRequired` setting is true. Otherwise, a caller may still request pickup points explicitly.
     *   Calculates a `cacheKey` based on `userId`, `hint`, and a static `operationId` (`bookingsProductSearch`). Changing the omit setting does not change the key; clear that integration's product-search cache and resync.
+    *   Scheduled refreshes require the saved connection's `configuration.scheduledProductSyncEnabled` to be boolean `true`. Otherwise, returns the saved catalog with `scheduled_sync_disabled` and preserve/count metadata without calling the plugin or writing cache/status. A request-body flag cannot override the saved setting.
     *   Defines a lock key derived from this `cacheKey`:
         *   `pluginExecutionLockKey` (resolves to `${cacheKey}:lock`): Used to serialize direct calls to the plugin.
         *   `${pluginExecutionLockKey}:outcome`: Short-lived refresh metadata used by concurrent waiters.
@@ -31,12 +32,13 @@ The `$bookingsProductSearch` function in `controllers/bookings.js` implements a 
         *   This is the catalog refresh owner. The system fetches fresh data from the plugin.
         *   Ti2 rejects the request unless the host declared `weeklyProductCatalogSync: true` for the plugin. Manual audit reasons may override timing admission, but not catalog-completeness eligibility.
         *   An omitted `fullSyncTrigger` is treated as `manual`, and manual refreshes require a non-blank `admissionOverrideReason`. Weekly scheduler requests must explicitly send `fullSyncTrigger: scheduled`.
-        *   Unless `fullSyncTrigger: organic` is explicit, a force refresh is a scheduled or manual full-catalog request and rejects `searchInput`, `optionId`, `productId`, `productName`, and `lastUpdatedFrom` selectors. `searchInput: "*"` is unscoped.
+        *   Unless `fullSyncTrigger: organic` is explicit, a force refresh is a scheduled or manual full-catalog request and rejects `searchInput`, `optionId`, `productId`, `productName`, and `lastUpdatedFrom` selectors. `searchInput: "*"` is unscoped. Session `credentials` and `scheduledProductSyncEnabled` are control fields, not selectors; credentials are forwarded to the plugin.
         *   The `fetchFromPluginAndCache` helper function is invoked. This function:
             *   Sets the `pluginExecutionLockKey` before calling the plugin to prevent other concurrent direct calls.
             *   Calls the plugin's product search method.
             *   If the plugin returns valid products, these are saved to the cache (both `cacheKey` for data and `${cacheKey}:lastUpdated` for timestamp).
-            *   If the plugin returns empty or partial products and a non-empty cache already exists, the existing cache is kept and returned.
+            *   Nonempty partial results are merged into the cache by product and option ID, preserving existing products and options absent from the response. The saved catalog remains marked partial and does not advance the last complete success.
+            *   Empty results retain an existing non-empty cache; empty partial results are never saved.
             *   Concurrent waiters return the same effective catalog and refresh outcome. If the wait expires while the leader is still active, the waiter returns the retained cache with `refresh_in_progress_cache_served`.
             *   Drops the `pluginExecutionLockKey` after completion.
         *   The response includes `catalogRefreshOutcome`, `cacheUpdated`, `cachePreserved`, and `cachedProductCount`. `catalogRefreshOutcome` is authoritative; background-job `success` only means the HTTP request completed and does not prove a terminal catalog write.

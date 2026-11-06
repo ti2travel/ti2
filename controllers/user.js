@@ -13,7 +13,7 @@ const userAppList = async (req, res, next) => {
       UserAppKey.findAll({
         where: { userId },
         raw: true,
-        attributes: ['integrationId', 'userId', 'hint', 'createdAt', 'updatedAt'],
+        attributes: ['integrationId', 'userId', 'hint', 'createdAt', 'updatedAt', 'configuration'],
       }),
       IntegrationLifecycle.findAll({
         where: {
@@ -28,15 +28,20 @@ const userAppList = async (req, res, next) => {
       pendingCleanups.map(cleanup => [integrationKey(cleanup), cleanup]),
     );
     const userAppKeys = credentials.map(credential => {
+      const { configuration, ...connection } = credential;
+      connection.scheduledProductSyncEnabled = Boolean(
+        configuration && configuration.scheduledProductSyncEnabled === true,
+      );
       const cleanup = cleanupByIntegration.get(integrationKey(credential));
-      if (!cleanup) return credential;
+      if (!cleanup) return connection;
       cleanupByIntegration.delete(integrationKey(credential));
-      return { ...credential, cleanupStatus: cleanup.status };
+      return { ...connection, cleanupStatus: cleanup.status };
     });
     cleanupByIntegration.forEach(cleanup => userAppKeys.push({
       integrationId: cleanup.integrationId,
       userId: cleanup.userId,
       hint: cleanup.hint,
+      scheduledProductSyncEnabled: false,
       cleanupStatus: cleanup.status,
     }));
     return res.json({ userAppKeys });

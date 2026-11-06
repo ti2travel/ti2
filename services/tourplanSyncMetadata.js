@@ -15,6 +15,7 @@ const startAfterProductSync = async ({ url, payload, result, plugins = [] }) => 
     || !['manual', 'scheduled'].includes(fullSyncTrigger)
     || hasProductSearchSelector(payload)
     || !result.success || !result.result || result.result.cacheUpdated !== true
+    || result.result.catalogPartial || result.result.partial
     || result.result.cachedProductCount === 0) return undefined;
 
   if (!Number.isInteger(result.result.catalogOptionCount)

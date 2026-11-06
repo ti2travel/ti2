@@ -95,6 +95,7 @@ module.exports = async ({
         getOrExec: args => cache.getOrExec({ ...args, pluginName }),
         save: args => cache.save({ ...args, pluginName }),
         saveVersioned: args => cache.saveVersioned({ ...args, pluginName }),
+        saveProductSyncStatus: args => cache.saveProductSyncStatus({ ...args, pluginName }),
         saveIfNotExists: args => cache.saveIfNotExists({ ...args, pluginName }),
         expireIfValue: args => cache.expireIfValue({ ...args, pluginName }),
         dropIfValue: args => cache.dropIfValue({ ...args, pluginName }),
