@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const hash = require('object-hash');
 const R = require('ramda');
 const hasProductSearchSelector = require('../lib/hasProductSearchSelector');
+const productSearchCacheKey = require('../lib/productSearchCacheKey');
 const assertCanonicalProductSearchResult = require('../lib/assertProductCatalog');
 const { createCredentialClient, redactCredentialError } = require('../lib/credential-request');
 const { UserAppKey } = require('../models/index');
@@ -68,12 +69,6 @@ const normalizeOmitServiceCodes = (...values) => [...new Set(
     .map(value => value.trim().toUpperCase())
     .filter(Boolean),
 )].sort();
-
-const productSearchCacheKey = ({ userId, hint }) => hash({
-  userId,
-  hint,
-  operationId: productSearchOperationId,
-});
 
 const productCount = value => R.pathOr([], ['products'], value).length;
 
@@ -685,7 +680,18 @@ const $bookingsProductSearch = plugins => async ({
         missingActivityIds: pluginResults.missingActivityIds,
       } } : {}),
     });
+    let refreshStarted = false;
     try {
+      // Credentials may have been removed while this request waited for the cache lock.
+      const credential = await UserAppKey.findOne({
+        where: { userId, integrationId: appKey, ...(hint && { hint }) },
+      });
+      if (!credential) {
+        const error = new Error('Integration was removed before the product refresh started');
+        error.status = 410;
+        throw error;
+      }
+      refreshStarted = true;
       await recordAttempt('running');
       const pluginStartedAt = Date.now();
       pluginResults = await func({
@@ -723,6 +729,7 @@ const $bookingsProductSearch = plugins => async ({
       } else if (hasCacheableProductResults(pluginResults)) {
         ({ cacheVersion, cacheSavedAt } = await app.cache.saveVersioned({
           key: cacheKey, value: pluginResults, ttl: productSearchCacheTtlSeconds,
+          lockKey: pluginExecutionLockKey, lockOwnerToken,
         }));
         emitDecision('cache_saved', {
           reason,
@@ -739,6 +746,7 @@ const $bookingsProductSearch = plugins => async ({
           assertCanonicalProductSearchResult(effectiveCatalogResults, appKey);
           ({ cacheVersion, cacheSavedAt } = await app.cache.saveVersioned({
             key: cacheKey, value: effectiveCatalogResults, ttl: productSearchCacheTtlSeconds,
+            lockKey: pluginExecutionLockKey, lockOwnerToken,
           }));
           catalogRefreshOutcome = 'partial_cache_updated';
           cacheUpdated = true;
@@ -789,6 +797,7 @@ const $bookingsProductSearch = plugins => async ({
               key: cacheKey,
               value: pluginResults,
               ttl: emptyProductSearchCacheTtlSeconds,
+              lockKey: pluginExecutionLockKey, lockOwnerToken,
             });
             catalogRefreshOutcome = 'empty_cache_saved';
             cacheUpdated = true;
@@ -815,6 +824,7 @@ const $bookingsProductSearch = plugins => async ({
           missingActivityIds: pluginResults.missingActivityIds,
         },
         ttl: productSearchRefreshOutcomeTtlSeconds,
+        lockKey: pluginExecutionLockKey, lockOwnerToken,
       });
       const partialSave = catalogRefreshOutcome === 'partial_cache_updated';
       await recordAttempt(partialSave ? 'partial' : (cacheUpdated ? 'succeeded' : 'preserved'), catalogRefreshOutcome,
@@ -829,7 +839,7 @@ const $bookingsProductSearch = plugins => async ({
       const reason = sessionReason || (err && err.name === 'AssertionError' ? 'The integration returned an invalid product catalog.'
         : (Number.isInteger(status) ? `The integration returned HTTP ${status}.`
           : 'The integration could not return a complete product catalog.'));
-      await recordAttempt('failed', reason);
+      if (refreshStarted) await recordAttempt('failed', reason);
       throw err;
     } finally {
       await lockRenewal.stop();
