@@ -4,9 +4,31 @@ const { Op } = require('sequelize');
 
 const sqldb = require('../models');
 const { removeJob } = require('../worker/queue');
-const { dropProductSearch } = require('../cache');
+const {
+  beginSupplierCacheDeletion,
+  dropIfValue,
+  dropMatching,
+  dropProductSearch,
+  endSupplierCacheDeletion,
+  expireIfValue,
+  saveIfNotExists,
+  supplierCacheWritesActive,
+} = require('../cache');
+const productSearchCacheKey = require('../lib/productSearchCacheKey');
+const {
+  supplierCachePatterns,
+  supplierCachePrefixes,
+  validSupplierCachePrefixes,
+} = require('../lib/tourplanNxSupplierCache');
 
 const DEFAULT_PROVISIONING_TIMEOUT_MS = 5 * 60e3;
+const deletionLockTtlSeconds = () => {
+  const configured = Number(process.env.DELETION_LOCK_TTL_SECONDS);
+  if (Number.isFinite(configured) && configured > 0) return configured;
+  return 120;
+};
+const REFRESH_STILL_RUNNING = 'A product refresh is still running. Retry removal shortly.';
+const SEARCH_STILL_WRITING = 'A search is still writing cached data. Retry removal shortly.';
 
 const identityWhere = ({ userId, integrationId, hint }) => ({
   userId,
@@ -301,6 +323,97 @@ const cleanupSchedules = async ({
   });
 };
 
+const lifecycleUpdateWhere = ({ where, generation }) => ({
+  where: {
+    ...where,
+    generation,
+    status: { [Op.in]: ['deleting', 'failed'] },
+  },
+});
+
+const rememberSupplierCachePrefixes = async ({
+  userId,
+  integrationId,
+  hint,
+  observedArtifacts,
+}) => {
+  if (integrationId !== 'tourplannx') return observedArtifacts;
+  const retainedPrefixes = validSupplierCachePrefixes(observedArtifacts.supplierCachePrefixes);
+  if (retainedPrefixes.length > 0) {
+    const current = Array.isArray(observedArtifacts.supplierCachePrefixes)
+      ? observedArtifacts.supplierCachePrefixes
+      : [];
+    const unchanged = current.length === retainedPrefixes.length
+      && current.every((prefix, index) => prefix === retainedPrefixes[index]);
+    if (unchanged) return observedArtifacts;
+    return {
+      ...observedArtifacts,
+      supplierCachePrefixes: retainedPrefixes,
+    };
+  }
+  const credential = await sqldb.UserAppKey.findOne({
+    where: identityWhere({ userId, integrationId, hint }),
+  });
+  if (!credential) return observedArtifacts;
+  let token;
+  try {
+    token = await credential.token;
+  } catch (error) {
+    // A corrupt credential has no readable URL, so its supplier prefix cannot be derived.
+    // Removal must still finish; otherwise the user cannot delete and reconnect it.
+    if (error.name !== 'CorruptedTokenError' && error.code !== 'CORRUPTED_TOKEN') throw error;
+    return observedArtifacts;
+  }
+  const prefixes = supplierCachePrefixes({
+    url: token && token.url,
+    userId,
+    hint,
+  });
+  if (prefixes.length === 0) return observedArtifacts;
+  return {
+    ...observedArtifacts,
+    supplierCachePrefixes: prefixes,
+  };
+};
+
+const deletionRenewIntervalMs = ttlSeconds => Math.max(250, Math.floor(ttlSeconds * 500));
+
+// Keeps the catalog lock and deletion fence alive for the whole credential transaction.
+const startDeletionProtectionRenewal = ({
+  pluginName,
+  keys,
+  ownerToken,
+  ttl,
+}) => {
+  let stopped = false;
+  let lost = false;
+  let inFlight = Promise.resolve();
+  const renew = async () => {
+    if (stopped || lost) return;
+    const renewed = await Promise.all(keys.map(key => expireIfValue({
+      pluginName,
+      key,
+      value: ownerToken,
+      ttl,
+    })));
+    if (renewed.some(ok => !ok)) lost = true;
+  };
+  const interval = setInterval(() => {
+    inFlight = renew().catch(() => {
+      lost = true;
+    });
+  }, deletionRenewIntervalMs(ttl));
+  if (interval.unref) interval.unref();
+  return {
+    lost: () => lost,
+    stop: async () => {
+      stopped = true;
+      clearInterval(interval);
+      await inFlight;
+    },
+  };
+};
+
 const cleanupCredentialAndSettings = ({ userId, integrationId, hint }) => (
   sqldb.sequelize.transaction(async transaction => {
     await sqldb.User.findOne({
@@ -354,40 +467,165 @@ const deleteIntegration = async ({
       ...previousArtifacts,
       cronJobs: Math.max(previousArtifacts.cronJobs || 0, cronJobs),
     };
-    await sqldb.IntegrationLifecycle.update({ artifacts: observedArtifacts }, {
-      where: {
-        ...where,
-        generation: lifecycle.generation,
-        status: { [Op.in]: ['deleting', 'failed'] },
-      },
-    });
-    failureStage = 'credential and settings cleanup';
-    const { credentials, settings } = await cleanupCredentialAndSettings({
+    await sqldb.IntegrationLifecycle.update(
+      { artifacts: observedArtifacts },
+      lifecycleUpdateWhere({ where, generation: lifecycle.generation }),
+    );
+    failureStage = 'TI2 supplier cache cleanup';
+    const artifactsWithPrefixes = await rememberSupplierCachePrefixes({
       userId,
       integrationId,
       hint,
+      observedArtifacts,
     });
-    observedArtifacts = {
-      ...observedArtifacts,
-      credentials: Math.max(observedArtifacts.credentials || 0, credentials),
-      settings: Math.max(observedArtifacts.settings || 0, settings),
-    };
-    await sqldb.IntegrationLifecycle.update({ artifacts: observedArtifacts }, {
-      where: {
-        ...where,
-        generation: lifecycle.generation,
-        status: { [Op.in]: ['deleting', 'failed'] },
-      },
-    });
-    failureStage = 'TI2 product search cache cleanup';
-    const cacheKeys = await dropProductSearch({ pluginName: integrationId, userId, hint });
-    if (cacheKeys === -1) {
-      throw lifecycleError(503, 'A product refresh is still running. Retry removal shortly.');
+    if (artifactsWithPrefixes !== observedArtifacts) {
+      observedArtifacts = artifactsWithPrefixes;
+      await sqldb.IntegrationLifecycle.update(
+        { artifacts: observedArtifacts },
+        lifecycleUpdateWhere({ where, generation: lifecycle.generation }),
+      );
     }
-    observedArtifacts = {
-      ...observedArtifacts,
-      cacheKeys: Math.max(observedArtifacts.cacheKeys || 0, cacheKeys),
+    failureStage = 'TI2 product search cache cleanup';
+    const deletionLockToken = crypto.randomBytes(16).toString('hex');
+    const refreshLockKey = `${productSearchCacheKey({ userId, hint })}:lock`;
+    const refreshLockHeld = await saveIfNotExists({
+      pluginName: integrationId,
+      key: refreshLockKey,
+      value: deletionLockToken,
+      ttl: deletionLockTtlSeconds(),
+    });
+    if (!refreshLockHeld) {
+      throw lifecycleError(503, REFRESH_STILL_RUNNING);
+    }
+    const supplierCacheIdentity = {
+      pluginName: integrationId,
+      userId,
+      hint,
+      ownerToken: deletionLockToken,
+      ttl: deletionLockTtlSeconds(),
     };
+    let supplierCacheFenceHeld = false;
+    let deletionProtection;
+    let deletionProtectionStopped = false;
+    try {
+      supplierCacheFenceHeld = await beginSupplierCacheDeletion(supplierCacheIdentity);
+      if (!supplierCacheFenceHeld) {
+        throw lifecycleError(503, REFRESH_STILL_RUNNING);
+      }
+      deletionProtection = startDeletionProtectionRenewal({
+        pluginName: integrationId,
+        keys: [refreshLockKey, `${productSearchCacheKey({ userId, hint })}:deletion`],
+        ownerToken: deletionLockToken,
+        ttl: deletionLockTtlSeconds(),
+      });
+      // A scoped product search or itinerary search may still be saving supplier
+      // caches. Retry once those writers finish, so the scan cannot miss them.
+      if (await supplierCacheWritesActive(supplierCacheIdentity)) {
+        throw lifecycleError(503, SEARCH_STILL_WRITING);
+      }
+      const cacheKeys = await dropProductSearch({
+        pluginName: integrationId,
+        userId,
+        hint,
+        lockOwnerToken: deletionLockToken,
+      });
+      if (cacheKeys === -1) {
+        throw lifecycleError(503, REFRESH_STILL_RUNNING);
+      }
+      observedArtifacts = {
+        ...observedArtifacts,
+        cacheKeys: Math.max(observedArtifacts.cacheKeys || 0, cacheKeys),
+      };
+      const supplierPatterns = supplierCachePatterns(observedArtifacts.supplierCachePrefixes);
+      if (supplierPatterns.length > 0) {
+        failureStage = 'TI2 supplier cache cleanup';
+        const supplierCacheKeys = await dropMatching({
+          pluginName: integrationId,
+          patterns: supplierPatterns,
+        });
+        observedArtifacts = {
+          ...observedArtifacts,
+          supplierCacheKeys: Math.max(
+            observedArtifacts.supplierCacheKeys || 0,
+            supplierCacheKeys,
+          ),
+        };
+      }
+      const lockExtended = await expireIfValue({
+        pluginName: integrationId,
+        key: refreshLockKey,
+        value: deletionLockToken,
+        ttl: deletionLockTtlSeconds(),
+      });
+      if (!lockExtended) {
+        failureStage = 'TI2 product search cache cleanup';
+        throw lifecycleError(503, REFRESH_STILL_RUNNING);
+      }
+      const fenceExtended = await expireIfValue({
+        pluginName: integrationId,
+        key: `${productSearchCacheKey({ userId, hint })}:deletion`,
+        value: deletionLockToken,
+        ttl: deletionLockTtlSeconds(),
+      });
+      if (!fenceExtended) {
+        failureStage = 'TI2 product search cache cleanup';
+        throw lifecycleError(503, REFRESH_STILL_RUNNING);
+      }
+      failureStage = 'credential and settings cleanup';
+      const { credentials, settings } = await cleanupCredentialAndSettings({
+        userId,
+        integrationId,
+        hint,
+      });
+      await deletionProtection.stop();
+      deletionProtectionStopped = true;
+      if (deletionProtection.lost()) {
+        failureStage = 'credential and settings cleanup';
+        throw lifecycleError(503, REFRESH_STILL_RUNNING);
+      }
+      observedArtifacts = {
+        ...observedArtifacts,
+        credentials: Math.max(observedArtifacts.credentials || 0, credentials),
+        settings: Math.max(observedArtifacts.settings || 0, settings),
+      };
+    } finally {
+      if (deletionProtection && !deletionProtectionStopped) {
+        try {
+          await deletionProtection.stop();
+        } catch (releaseError) {
+          console.warn(
+            '[integration-lifecycle] deletion protection renewal failed',
+            releaseError.message,
+          );
+        }
+      }
+      if (supplierCacheFenceHeld) {
+        try {
+          await endSupplierCacheDeletion(supplierCacheIdentity);
+        } catch (releaseError) {
+          console.warn(
+            '[integration-lifecycle] supplier-cache fence release failed',
+            releaseError.message,
+          );
+        }
+      }
+      try {
+        await dropIfValue({
+          pluginName: integrationId,
+          key: refreshLockKey,
+          value: deletionLockToken,
+        });
+      } catch (releaseError) {
+        console.warn(
+          '[integration-lifecycle] refresh lock release failed',
+          releaseError.message,
+        );
+      }
+    }
+    await sqldb.IntegrationLifecycle.update(
+      { artifacts: observedArtifacts },
+      lifecycleUpdateWhere({ where, generation: lifecycle.generation }),
+    );
     failureStage = 'product catalog cleanup';
     const catalog = await callCatalogLifecycle({
       action: 'delete',
@@ -500,6 +738,7 @@ module.exports = {
   completeActivation,
   completeDeletion,
   deleteIntegration,
+  startDeletionProtectionRenewal,
   failActivation,
   prepareActivation,
   touchActivation,

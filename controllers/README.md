@@ -56,9 +56,9 @@ The `$bookingsProductSearch` function in `controllers/bookings.js` implements a 
 ## Locking Mechanisms Explained
 
 1.  **`pluginExecutionLockKey` (derived from `${cacheKey}:lock`)**:
-    *   **Purpose**: To prevent multiple simultaneous *direct calls* to the external plugin for the same product search parameters. This is used during `forceRefresh` and first-time cache population.
+    *   **Purpose**: To prevent multiple simultaneous full-catalog calls to the external plugin. This is used during `forceRefresh` and first-time cache population. Scoped searches do not take this lock and do not save the canonical catalog. While a scoped search or itinerary search is calling the plugin it registers a deletion writer, and deletion waits for that writer before scanning supplier caches.
     *   **Behavior**:
-        *   This lock is set by the `fetchFromPluginAndCache` helper function immediately before it makes an actual call to the plugin's `searchProducts` (or equivalent) method.
+        *   This lock is set by the `fetchFromPluginAndCache` helper function immediately before an unscoped call to the plugin's `searchProducts` (or equivalent) method. The caller rechecks that the integration credential still exists after acquiring the lock.
         *   It is configured with a TTL (e.g., 120 seconds) to ensure it automatically expires if the process holding the lock crashes or fails to release it.
         *   The lock is explicitly dropped by `fetchFromPluginAndCache` after the plugin call completes (whether successfully or with an error).
         *   Other parts of the main logic (e.g., in Condition 3) check for the presence of this lock (`hasPluginExecutionLock`). If active, it signals that a direct plugin data fetch is already in progress, prompting the current request to serve cache rather than initiating another direct plugin call.

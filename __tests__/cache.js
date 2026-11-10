@@ -59,6 +59,87 @@ describe('cache', () => {
       await cache.dropIfValue({ ...identity, key: lockKey, value: 'refresh-owner' });
       expect(await cache.dropProductSearch(identity)).toBe(1);
     });
+
+    it('lets the deletion owner clear keys without releasing its lock', async () => {
+      const key = productSearchCacheKey(identity);
+      const lockKey = `${key}:lock`;
+      testKeys.push(key, lockKey);
+      await cache.save({ ...identity, key, value: { products: ['product'] } });
+      await cache.save({ ...identity, key: lockKey, value: 'deletion-owner' });
+      expect(await cache.dropProductSearch({
+        ...identity,
+        lockOwnerToken: 'other-owner',
+      })).toBe(-1);
+      expect(await cache.get({ ...identity, key })).toEqual({ products: ['product'] });
+      expect(await cache.dropProductSearch({
+        ...identity,
+        lockOwnerToken: 'deletion-owner',
+      })).toBe(1);
+      expect(await cache.get({ ...identity, key })).toBeNull();
+      expect(await cache.get({ ...identity, key: lockKey })).toBe('deletion-owner');
+    });
+  });
+
+  describe('dropMatching', () => {
+    it('removes only keys under the requested credential prefixes', async () => {
+      const pluginName = testPluginName;
+      const owned = [
+        'products_v3_e439f5ef1ae1e55a_SUP1',
+        'products_v3_e439f5ef1ae1e55a_all',
+        'products_v3_e439f5ef1ae1e55a_locations',
+        'suppliers_e439f5ef1ae1e55a',
+        'booking_statuses_e439f5ef1ae1e55a',
+      ];
+      const hashedSupplierKey = 'suppliers_cccccccccccccccc';
+      const retained = [
+        'products_v3_aaaaaaaaaaaaaaaa_SUP1',
+        'suppliers_bbbbbbbbbbbbbbbb',
+        productSearchCacheKey({ userId: 'cleanup-company', hint: 'cleanup-desk' }),
+      ];
+      const explicitEntries = [...owned, ...retained].map(key => ({ pluginName, key }));
+      let hashedReads = 0;
+      const hashedFn = async () => {
+        hashedReads += 1;
+        return 'hashed-supplier';
+      };
+      const readHashedSupplier = () => cache.getOrExec({
+        pluginName,
+        fnParams: [hashedSupplierKey],
+        fn: hashedFn,
+        ttl: 60,
+      });
+      try {
+        await Promise.all(explicitEntries.map(entry => cache.save({ ...entry, value: 'cached' })));
+        await cache.getOrExec({
+          pluginName,
+          key: 'suppliers_e439f5ef1ae1e55a',
+          fnParams: ['suppliers_e439f5ef1ae1e55a'],
+          fn: async () => 'supplier-list',
+          ttl: 60,
+        });
+        expect(await readHashedSupplier()).toBe('hashed-supplier');
+        expect(await cache.dropMatching({
+          pluginName,
+          patterns: [
+            'products_v3_e439f5ef1ae1e55a*',
+            'suppliers_e439f5ef1ae1e55a*',
+            'booking_statuses_e439f5ef1ae1e55a*',
+            `${hashedSupplierKey}*`,
+          ],
+        })).toBe(owned.length);
+        await Promise.all(owned.map(async key => {
+          expect(await cache.get({ pluginName, key })).toBeNull();
+        }));
+        await Promise.all(retained.map(async key => {
+          expect(await cache.get({ pluginName, key })).toBe('cached');
+        }));
+        expect(await readHashedSupplier()).toBe('hashed-supplier');
+        expect(hashedReads).toBe(1);
+      } finally {
+        await Promise.all(explicitEntries.map(entry => cache.drop(entry)));
+        await cache.drop({ pluginName, fn: hashedFn, fnParams: [hashedSupplierKey] });
+      }
+    });
   });
 
   describe('cache write ownership', () => {
@@ -296,6 +377,264 @@ describe('cache', () => {
       expect(result).toHaveLength(2);
       expect(result).toContain('cache:v1:product:1');
       expect(result).toContain('cache:v1:product:2');
+    });
+  });
+
+  describe('supplier cache writers', () => {
+    const identity = {
+      pluginName: testPluginName,
+      userId: 'itinerary-company',
+      hint: 'itinerary-desk',
+    };
+
+    const cleanup = async ownerToken => {
+      await cache.endSupplierCacheWrite({ ...identity, ownerToken });
+      await cache.endSupplierCacheDeletion({ ...identity, ownerToken });
+    };
+
+    it('keeps deletion waiting while either of two searches is still registered', async () => {
+      const first = 'scoped-writer-a';
+      const second = 'scoped-writer-b';
+      try {
+        expect(await cache.beginSupplierCacheWrite({ ...identity, ownerToken: first, ttl: 30 })).toBe(true);
+        expect(await cache.beginSupplierCacheWrite({ ...identity, ownerToken: second, ttl: 30 })).toBe(true);
+        expect(await cache.supplierCacheWritesActive(identity)).toBe(true);
+        await cache.endSupplierCacheWrite({ ...identity, ownerToken: first });
+        expect(await cache.supplierCacheWritesActive(identity)).toBe(true);
+        await cache.endSupplierCacheWrite({ ...identity, ownerToken: second });
+        expect(await cache.supplierCacheWritesActive(identity)).toBe(false);
+      } finally {
+        await cleanup(first);
+        await cleanup(second);
+      }
+    });
+
+    it('blocks a new booking-status writer after deletion raises the fence', async () => {
+      const ownerToken = 'itinerary-writer';
+      const deletionToken = 'deletion-owner';
+      try {
+        expect(await cache.beginSupplierCacheWrite({
+          ...identity, ownerToken, ttl: 30,
+        })).toBe(true);
+        expect(await cache.supplierCacheWritesActive(identity)).toBe(true);
+        expect(await cache.beginSupplierCacheDeletion({
+          ...identity, ownerToken: deletionToken, ttl: 30,
+        })).toBe(true);
+        expect(await cache.beginSupplierCacheWrite({
+          ...identity, ownerToken: 'late-writer', ttl: 30,
+        })).toBe(false);
+        await cache.endSupplierCacheWrite({ ...identity, ownerToken });
+        expect(await cache.supplierCacheWritesActive(identity)).toBe(false);
+        expect(await cache.beginSupplierCacheWrite({
+          ...identity, ownerToken: 'during-deletion', ttl: 30,
+        })).toBe(false);
+      } finally {
+        await cleanup(ownerToken);
+        await cleanup('late-writer');
+        await cleanup('during-deletion');
+        await cache.endSupplierCacheDeletion({ ...identity, ownerToken: deletionToken });
+      }
+    });
+
+    it('rejects a cache write after the writer registration is gone', async () => {
+      const ownerToken = 'expired-writer';
+      const key = 'suppliers_expired';
+      const writer = {
+        pluginName: testPluginName,
+        writerKey: `${productSearchCacheKey(identity)}:supplier-writer:${ownerToken}`,
+        ownerToken,
+        ttl: 30,
+      };
+      try {
+        expect(await cache.beginSupplierCacheWrite({
+          ...identity, ownerToken, ttl: 30,
+        })).toBe(true);
+        await cache.runWithSupplierCacheWriter(writer, () => cache.save({
+          pluginName: testPluginName,
+          key,
+          value: 'fresh',
+        }));
+        expect(await cache.get({ pluginName: testPluginName, key })).toBe('fresh');
+        await cache.endSupplierCacheWrite({ ...identity, ownerToken });
+        await expect(cache.runWithSupplierCacheWriter(writer, () => cache.getOrExec({
+          pluginName: testPluginName,
+          key,
+          fn: async () => 'recreated',
+          ttl: 30,
+        }))).rejects.toMatchObject({
+          status: 503,
+          message: 'Search lost its cache registration. Retry the search.',
+        });
+        expect(await cache.get({ pluginName: testPluginName, key })).toBe('fresh');
+      } finally {
+        await cleanup(ownerToken);
+        await cache.drop({ pluginName: testPluginName, key });
+      }
+    });
+
+    const holdWriteUntilGuardIsGone = async ({ dropGuard, write }) => {
+      const redis = cache.cache;
+      const originalEval = redis.eval.bind(redis);
+      const originalSet = redis.set.bind(redis);
+      let dropped = false;
+      const dropBeforeCommand = async () => {
+        if (dropped) return;
+        dropped = true;
+        redis.eval.mockImplementation(originalEval);
+        redis.set.mockImplementation(originalSet);
+        await dropGuard();
+      };
+      jest.spyOn(redis, 'eval').mockImplementation(async (...args) => {
+        if (String(args[0]).includes("redis.call('set'")) await dropBeforeCommand();
+        return originalEval(...args);
+      });
+      jest.spyOn(redis, 'set').mockImplementation(async (...args) => {
+        await dropBeforeCommand();
+        return originalSet(...args);
+      });
+      try {
+        await write();
+      } finally {
+        redis.eval.mockRestore();
+        redis.set.mockRestore();
+      }
+    };
+
+    it('does not land a write that reaches Redis after the writer registration is gone', async () => {
+      const ownerToken = 'delayed-writer';
+      const key = 'suppliers_delayed';
+      const writer = {
+        pluginName: testPluginName,
+        writerKey: `${productSearchCacheKey(identity)}:supplier-writer:${ownerToken}`,
+        ownerToken,
+        ttl: 30,
+      };
+      try {
+        expect(await cache.beginSupplierCacheWrite({
+          ...identity, ownerToken, ttl: 30,
+        })).toBe(true);
+        await holdWriteUntilGuardIsGone({
+          dropGuard: () => cache.endSupplierCacheWrite({ ...identity, ownerToken }),
+          write: () => expect(cache.runWithSupplierCacheWriter(writer, () => cache.save({
+            pluginName: testPluginName,
+            key,
+            value: 'stale',
+            ttl: 60,
+          }))).rejects.toMatchObject({ status: 503 }),
+        });
+        expect(await cache.get({ pluginName: testPluginName, key })).toBeNull();
+      } finally {
+        await cleanup(ownerToken);
+        await cache.drop({ pluginName: testPluginName, key });
+      }
+    });
+
+    it('checks the refresh lock in the same command as a raw supplier write', async () => {
+      const ownerToken = 'refresh-owner';
+      const key = 'suppliers_refresh_guard';
+      const lockKey = `${productSearchCacheKey(identity)}:lock`;
+      const lock = {
+        pluginName: testPluginName, lockKey, ownerToken, ttl: 30,
+      };
+      try {
+        expect(await cache.saveIfNotExists({
+          pluginName: testPluginName, key: lockKey, value: ownerToken, ttl: 30,
+        })).toBe(true);
+        await cache.runWithRefreshLock(lock, () => cache.save({
+          pluginName: testPluginName, key, value: 'while-held', ttl: 60,
+        }));
+        expect(await cache.get({ pluginName: testPluginName, key })).toBe('while-held');
+        await holdWriteUntilGuardIsGone({
+          dropGuard: () => cache.dropIfValue({
+            pluginName: testPluginName, key: lockKey, value: ownerToken,
+          }),
+          write: () => expect(cache.runWithRefreshLock(lock, () => cache.save({
+            pluginName: testPluginName,
+            key,
+            value: 'after-lock-lost',
+            ttl: 60,
+          }))).rejects.toMatchObject({ status: 409 }),
+        });
+        expect(await cache.get({ pluginName: testPluginName, key })).toBe('while-held');
+      } finally {
+        await cache.dropIfValue({
+          pluginName: testPluginName, key: lockKey, value: ownerToken,
+        });
+        await cache.drop({ pluginName: testPluginName, key });
+      }
+    });
+
+    it('keeps concurrent Bluebird searches on their own cache guards', async () => {
+      const Bluebird = require('bluebird');
+      Bluebird.config({ asyncHooks: true });
+      const first = 'concurrent-writer-a';
+      const second = 'concurrent-writer-b';
+      const keyA = 'suppliers_concurrent_a';
+      const keyB = 'suppliers_concurrent_b';
+      const writerFor = ownerToken => ({
+        pluginName: testPluginName,
+        writerKey: `${productSearchCacheKey(identity)}:supplier-writer:${ownerToken}`,
+        ownerToken,
+        ttl: 30,
+      });
+      let unlock;
+      const hold = new Promise(resolve => { unlock = resolve; });
+      let arrived = 0;
+      let releaseArrived;
+      const allArrived = new Promise(resolve => { releaseArrived = resolve; });
+      const markArrived = () => {
+        arrived += 1;
+        if (arrived === 2) releaseArrived();
+      };
+      const search = (ownerToken, key) => cache.runWithSupplierCacheWriter(
+        writerFor(ownerToken),
+        () => Bluebird.map([key], async () => {
+          markArrived();
+          await hold;
+          await cache.save({
+            pluginName: testPluginName,
+            key,
+            value: ownerToken,
+            ttl: 60,
+          });
+        }, { concurrency: 2 }),
+      );
+      try {
+        expect(await cache.beginSupplierCacheWrite({
+          ...identity, ownerToken: first, ttl: 30,
+        })).toBe(true);
+        expect(await cache.beginSupplierCacheWrite({
+          ...identity, ownerToken: second, ttl: 30,
+        })).toBe(true);
+        const searchA = search(first, keyA);
+        const searchB = search(second, keyB);
+        await allArrived;
+        await cache.endSupplierCacheWrite({ ...identity, ownerToken: first });
+        unlock();
+        await expect(searchA).rejects.toMatchObject({ status: 503 });
+        await searchB;
+        expect(await cache.get({ pluginName: testPluginName, key: keyA })).toBeNull();
+        expect(await cache.get({ pluginName: testPluginName, key: keyB })).toBe(second);
+        await cache.endSupplierCacheWrite({ ...identity, ownerToken: second });
+        await expect(cache.runWithSupplierCacheWriter(writerFor(second), () => Bluebird.map(
+          [keyB],
+          async () => cache.save({
+            pluginName: testPluginName,
+            key: keyB,
+            value: 'after-registration-removed',
+            ttl: 60,
+          }),
+          { concurrency: 1 },
+        ))).rejects.toMatchObject({ status: 503 });
+        expect(await cache.get({ pluginName: testPluginName, key: keyB })).toBe(second);
+      } finally {
+        if (unlock) unlock();
+        Bluebird.config({ asyncHooks: false });
+        await cleanup(first);
+        await cleanup(second);
+        await cache.drop({ pluginName: testPluginName, key: keyA });
+        await cache.drop({ pluginName: testPluginName, key: keyB });
+      }
     });
   });
 });
