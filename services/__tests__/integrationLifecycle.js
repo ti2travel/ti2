@@ -1,6 +1,15 @@
 /* globals afterAll beforeEach describe expect it jest */
 
-jest.mock('../../cache', () => ({ dropProductSearch: jest.fn() }));
+jest.mock('../../cache', () => ({
+  beginSupplierCacheDeletion: jest.fn(),
+  dropIfValue: jest.fn(),
+  dropMatching: jest.fn(),
+  dropProductSearch: jest.fn(),
+  endSupplierCacheDeletion: jest.fn(),
+  expireIfValue: jest.fn(),
+  saveIfNotExists: jest.fn(),
+  supplierCacheWritesActive: jest.fn(),
+}));
 
 jest.mock('axios', () => ({ post: jest.fn() }));
 jest.mock('../../worker/queue', () => ({ removeJob: jest.fn() }));
@@ -24,7 +33,17 @@ jest.mock('../../models', () => ({
 }));
 
 const axios = require('axios');
-const { dropProductSearch } = require('../../cache');
+const {
+  beginSupplierCacheDeletion,
+  dropIfValue,
+  dropMatching,
+  dropProductSearch,
+  endSupplierCacheDeletion,
+  expireIfValue,
+  saveIfNotExists,
+  supplierCacheWritesActive,
+} = require('../../cache');
+const { supplierCachePrefixes } = require('../../lib/tourplanNxSupplierCache');
 const sqldb = require('../../models');
 const { removeJob } = require('../../worker/queue');
 const {
@@ -69,7 +88,14 @@ const lifecycleRecord = overrides => ({
 describe('integrationLifecycle', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    beginSupplierCacheDeletion.mockResolvedValue(true);
+    dropIfValue.mockResolvedValue(1);
+    dropMatching.mockResolvedValue(0);
     dropProductSearch.mockResolvedValue(5);
+    endSupplierCacheDeletion.mockResolvedValue(1);
+    expireIfValue.mockResolvedValue(true);
+    saveIfNotExists.mockResolvedValue(true);
+    supplierCacheWritesActive.mockResolvedValue(false);
     process.env.ti2_events2url_eventsURL = 'http://filematch.test/ti2events';
     process.env.ti2_events2url_authorization = 'Bearer service-token';
     sqldb.User.findOne.mockResolvedValue({ userId: 'company-a' });
@@ -148,9 +174,13 @@ describe('integrationLifecycle', () => {
       transaction: expect.any(Object),
       lock: 'UPDATE',
     });
-    expect(dropProductSearch).toHaveBeenCalledWith({
-      pluginName: 'tourplan', userId: 'company-a', hint: 'Desk A',
-    });
+    expect(dropProductSearch).toHaveBeenCalledWith(expect.objectContaining({
+      pluginName: 'tourplan',
+      userId: 'company-a',
+      hint: 'Desk A',
+      lockOwnerToken: expect.any(String),
+    }));
+    expect(dropMatching).not.toHaveBeenCalled();
     expect(removeJob).toHaveBeenCalledWith('repeat:exact:123');
     expect(schedule.destroy).toHaveBeenCalled();
     expect(sqldb.UserAppKey.destroy).toHaveBeenCalledWith(expect.objectContaining({
@@ -187,12 +217,14 @@ describe('integrationLifecycle', () => {
 
   it('retries cache cleanup without completing deletion while a refresh owns the lock', async () => {
     sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycleRecord());
-    dropProductSearch.mockResolvedValueOnce(-1);
+    saveIfNotExists.mockResolvedValueOnce(false);
 
     await expect(deleteIntegration({
       userId: 'company-a', integrationId: 'tourplan', hint: 'Desk A',
     })).rejects.toMatchObject({ status: 503 });
     expect(axios.post).not.toHaveBeenCalled();
+    expect(dropProductSearch).not.toHaveBeenCalled();
+    expect(sqldb.UserAppKey.destroy).not.toHaveBeenCalled();
     expect(sqldb.IntegrationLifecycle.update).toHaveBeenLastCalledWith(expect.objectContaining({
       status: 'failed',
       artifacts: expect.objectContaining({ failureStage: 'TI2 product search cache cleanup' }),
@@ -210,6 +242,7 @@ describe('integrationLifecycle', () => {
       userId: 'company-a', integrationId: 'tourplan', hint: 'Desk A',
     })).rejects.toMatchObject({ status: 503 });
     expect(axios.post).not.toHaveBeenCalled();
+    expect(sqldb.UserAppKey.destroy).not.toHaveBeenCalled();
   });
 
   it('blocks deletion while integration schedule provisioning is in progress', async () => {
@@ -450,6 +483,7 @@ describe('integrationLifecycle', () => {
       status: 'failed',
       artifacts: {
         cronJobs: 1,
+        cacheKeys: 5,
         failureStage: 'credential and settings cleanup',
       },
       lastError: 'database unavailable',
@@ -557,6 +591,247 @@ describe('integrationLifecycle', () => {
     });
 
     expect(sqldb.UserIntegrationSettings.destroy).not.toHaveBeenCalled();
+  });
+
+  it('removes Tourplan NX supplier caches before destroying the credential', async () => {
+    const lifecycle = lifecycleRecord({ integrationId: 'tourplannx', hint: 'Live' });
+    const credential = { token: Promise.resolve({ url: 'https://nx.example/tenant', apiKey: 'secret' }) };
+    const order = [];
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycle);
+    sqldb.UserAppKey.findOne.mockResolvedValue(credential);
+    saveIfNotExists.mockImplementation(async () => {
+      order.push('lock');
+      return true;
+    });
+    dropProductSearch.mockImplementation(async () => {
+      order.push('canonical');
+      return 2;
+    });
+    dropMatching.mockImplementation(async () => {
+      order.push('supplier');
+      return 4250;
+    });
+    sqldb.UserAppKey.destroy.mockImplementation(async () => {
+      order.push('credential');
+      return 1;
+    });
+    dropIfValue.mockImplementation(async () => {
+      order.push('unlock');
+      return 1;
+    });
+
+    const result = await deleteIntegration({
+      userId: 'company-a',
+      integrationId: 'tourplannx',
+      hint: 'Live',
+      requestedBy: 'user-a',
+    });
+
+    const prefixes = supplierCachePrefixes({
+      url: 'https://nx.example/tenant',
+      userId: 'company-a',
+      hint: 'Live',
+    });
+    expect(order).toEqual(['lock', 'canonical', 'supplier', 'credential', 'unlock']);
+    expect(dropMatching).toHaveBeenCalledWith({
+      pluginName: 'tourplannx',
+      patterns: prefixes.map(prefix => `${prefix}*`),
+    });
+    expect(JSON.stringify(result.artifacts)).not.toContain('https://nx.example');
+    expect(JSON.stringify(result.artifacts)).not.toContain('secret');
+    expect(result.artifacts.supplierCachePrefixes).toEqual(prefixes);
+    expect(result.artifacts.supplierCacheKeys).toBe(4250);
+  });
+
+  it('renews the deletion locks while credential cleanup is still running', async () => {
+    process.env.DELETION_LOCK_TTL_SECONDS = '1';
+    const lifecycle = lifecycleRecord({ integrationId: 'tourplannx', hint: 'Live' });
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycle);
+    sqldb.UserAppKey.findOne.mockResolvedValue({
+      token: Promise.resolve({ url: 'https://nx.example/tenant' }),
+    });
+    let callsBeforeCleanup = 0;
+    sqldb.UserAppKey.destroy.mockImplementation(() => new Promise(resolve => {
+      callsBeforeCleanup = expireIfValue.mock.calls.length;
+      setTimeout(() => resolve(1), 1200);
+    }));
+
+    try {
+      await deleteIntegration({
+        userId: 'company-a',
+        integrationId: 'tourplannx',
+        hint: 'Live',
+      });
+      expect(expireIfValue.mock.calls.length).toBeGreaterThan(callsBeforeCleanup);
+      const renewedKeys = expireIfValue.mock.calls
+        .slice(callsBeforeCleanup)
+        .map(([call]) => call.key);
+      expect(renewedKeys).toEqual(expect.arrayContaining([
+        expect.stringContaining(':lock'),
+        expect.stringContaining(':deletion'),
+      ]));
+    } finally {
+      delete process.env.DELETION_LOCK_TTL_SECONDS;
+    }
+  });
+
+  it('retries removal when deletion protection is lost during credential cleanup', async () => {
+    process.env.DELETION_LOCK_TTL_SECONDS = '1';
+    const lifecycle = lifecycleRecord({ integrationId: 'tourplannx', hint: 'Live' });
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycle);
+    sqldb.UserAppKey.findOne.mockResolvedValue({
+      token: Promise.resolve({ url: 'https://nx.example/tenant' }),
+    });
+    let calls = 0;
+    expireIfValue.mockImplementation(async () => {
+      calls += 1;
+      return calls <= 2;
+    });
+    sqldb.UserAppKey.destroy.mockImplementation(
+      () => new Promise(resolve => setTimeout(() => resolve(1), 1200)),
+    );
+
+    try {
+      await expect(deleteIntegration({
+        userId: 'company-a',
+        integrationId: 'tourplannx',
+        hint: 'Live',
+      })).rejects.toMatchObject({
+        status: 503,
+        message: 'A product refresh is still running. Retry removal shortly.',
+      });
+      expect(sqldb.UserAppKey.destroy).toHaveBeenCalled();
+      expect(sqldb.IntegrationLifecycle.update).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'failed' }),
+        expect.any(Object),
+      );
+    } finally {
+      delete process.env.DELETION_LOCK_TTL_SECONDS;
+    }
+  });
+
+  it('keeps the credential while a search can still write supplier caches', async () => {
+    const lifecycle = lifecycleRecord({ integrationId: 'tourplannx', hint: 'Live' });
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycle);
+    sqldb.UserAppKey.findOne.mockResolvedValue({
+      token: Promise.resolve({ url: 'https://nx.example/tenant' }),
+    });
+    supplierCacheWritesActive.mockResolvedValueOnce(true);
+
+    await expect(deleteIntegration({
+      userId: 'company-a',
+      integrationId: 'tourplannx',
+      hint: 'Live',
+    })).rejects.toMatchObject({
+      status: 503,
+      message: 'A search is still writing cached data. Retry removal shortly.',
+    });
+
+    expect(dropProductSearch).not.toHaveBeenCalled();
+    expect(dropMatching).not.toHaveBeenCalled();
+    expect(sqldb.UserAppKey.destroy).not.toHaveBeenCalled();
+    expect(endSupplierCacheDeletion).toHaveBeenCalledWith(expect.objectContaining({
+      pluginName: 'tourplannx',
+      userId: 'company-a',
+      hint: 'Live',
+      ownerToken: expect.any(String),
+    }));
+  });
+
+  it('keeps the credential while a refresh lock blocks supplier-cache deletion', async () => {
+    const lifecycle = lifecycleRecord({ integrationId: 'tourplannx', hint: 'Live' });
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycle);
+    sqldb.UserAppKey.findOne.mockResolvedValue({
+      token: Promise.resolve({ url: 'https://nx.example/tenant' }),
+    });
+    dropProductSearch.mockResolvedValueOnce(-1);
+
+    await expect(deleteIntegration({
+      userId: 'company-a',
+      integrationId: 'tourplannx',
+      hint: 'Live',
+    })).rejects.toMatchObject({ status: 503 });
+
+    expect(dropMatching).not.toHaveBeenCalled();
+    expect(sqldb.UserAppKey.destroy).not.toHaveBeenCalled();
+    expect(sqldb.IntegrationLifecycle.update).toHaveBeenCalledWith(expect.objectContaining({
+      artifacts: expect.objectContaining({
+        supplierCachePrefixes: supplierCachePrefixes({
+          url: 'https://nx.example/tenant',
+          userId: 'company-a',
+          hint: 'Live',
+        }),
+      }),
+    }), expect.any(Object));
+  });
+
+  it('deletes stored Tourplan NX supplier caches after the credential row is gone', async () => {
+    const prefixes = supplierCachePrefixes({
+      url: 'https://nx.example/tenant',
+      userId: 'company-a',
+      hint: 'Live',
+    });
+    const lifecycle = lifecycleRecord({
+      integrationId: 'tourplannx',
+      hint: 'Live',
+      status: 'failed',
+      artifacts: { supplierCachePrefixes: prefixes, credentials: 1 },
+    });
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycle);
+    sqldb.UserAppKey.findOne.mockResolvedValue(null);
+    dropMatching.mockResolvedValue(3);
+
+    await deleteIntegration({
+      userId: 'company-a',
+      integrationId: 'tourplannx',
+      hint: 'Live',
+      requestedBy: 'user-a',
+    });
+
+    expect(dropMatching).toHaveBeenCalledWith({
+      pluginName: 'tourplannx',
+      patterns: prefixes.map(prefix => `${prefix}*`),
+    });
+    expect(sqldb.UserAppKey.findOne).not.toHaveBeenCalled();
+  });
+
+  it('stops before deleting the credential when the refresh lock disappears', async () => {
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycleRecord());
+    expireIfValue.mockResolvedValueOnce(false);
+
+    await expect(deleteIntegration({
+      userId: 'company-a',
+      integrationId: 'tourplan',
+      hint: 'Desk A',
+    })).rejects.toMatchObject({ status: 503 });
+
+    expect(sqldb.UserAppKey.destroy).not.toHaveBeenCalled();
+    expect(dropIfValue).toHaveBeenCalled();
+  });
+
+  it('removes an integration when its stored credential cannot be decoded', async () => {
+    const lifecycle = lifecycleRecord({ integrationId: 'tourplannx', hint: 'Live' });
+    const corrupted = new Error('Stored integration token is invalid. Please re-save credentials.');
+    corrupted.name = 'CorruptedTokenError';
+    corrupted.code = 'CORRUPTED_TOKEN';
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycle);
+    sqldb.UserAppKey.findOne.mockResolvedValue({
+      get token() {
+        return Promise.reject(corrupted);
+      },
+    });
+
+    const result = await deleteIntegration({
+      userId: 'company-a',
+      integrationId: 'tourplannx',
+      hint: 'Live',
+      requestedBy: 'user-a',
+    });
+
+    expect(result.status).toBe('complete');
+    expect(dropMatching).not.toHaveBeenCalled();
+    expect(sqldb.UserAppKey.destroy).toHaveBeenCalled();
+    expect(result.artifacts.supplierCachePrefixes).toBeUndefined();
   });
 
   it('keeps a legacy shared Bull schedule while another database reference remains', async () => {

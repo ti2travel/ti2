@@ -4,6 +4,12 @@ const hash = require('object-hash');
 const R = require('ramda');
 const hasProductSearchSelector = require('../lib/hasProductSearchSelector');
 const productSearchCacheKey = require('../lib/productSearchCacheKey');
+const {
+  beginSupplierCacheWrite,
+  endSupplierCacheWrite,
+  runWithSupplierCacheWriter,
+  runWithRefreshLock,
+} = require('../cache');
 const assertCanonicalProductSearchResult = require('../lib/assertProductCatalog');
 const { createCredentialClient, redactCredentialError } = require('../lib/credential-request');
 const { UserAppKey } = require('../models/index');
@@ -171,6 +177,12 @@ const createProductSearchUnavailableError = () => {
   return err;
 };
 
+const createIntegrationRemovalError = () => {
+  const err = new Error('This integration is being removed. Retry shortly.');
+  err.status = 503;
+  return err;
+};
+
 const createScopedCatalogRefreshError = () => {
   const err = new Error(
     'Scheduled and manual catalog refreshes must not include product selectors',
@@ -207,7 +219,61 @@ const getAppAndToken = async ({ plugins, appKey, userId, hint }) => {
   });
   assert(userAppKeys, 'could not find the app key');
   const token = await userAppKeys.token;
-  return { app, token, configuration: userAppKeys.configuration };
+  // A hintless route still selects one credential. Cache keys and deletion fences
+  // must use that row's hint, not the missing request parameter.
+  return {
+    app,
+    token,
+    configuration: userAppKeys.configuration,
+    hint: userAppKeys.hint,
+  };
+};
+
+// Registers a writer deletion can see. Concurrent searches each get their own key.
+// The catalog lock stays with full refreshes.
+const withSupplierCacheWriter = async ({ app, appKey, userId, hint }, run) => {
+  const ownerToken = crypto.randomBytes(16).toString('hex');
+  const ttl = getProductSearchLockTtlSeconds();
+  const writer = {
+    pluginName: appKey, userId, hint, ownerToken, ttl,
+  };
+  const fenceKey = `${productSearchCacheKey({ userId, hint })}:deletion`;
+  let writerHeld = await beginSupplierCacheWrite(writer);
+  if (!writerHeld) {
+    const timeoutAt = Date.now() + getProductSearchLockWaitMs();
+    while (!writerHeld && Date.now() < timeoutAt) {
+      const fence = await app.cache.get({ key: fenceKey });
+      if (!fence) writerHeld = await beginSupplierCacheWrite(writer);
+      if (!writerHeld) await sleep(productSearchLockPollMs);
+    }
+  }
+  if (!writerHeld) throw createIntegrationRemovalError();
+  const renewal = createLockRenewal({
+    app,
+    key: `${productSearchCacheKey({ userId, hint })}:supplier-writer:${ownerToken}`,
+    value: ownerToken,
+    ttl,
+    onDecision: () => {},
+  });
+  try {
+    const credential = await UserAppKey.findOne({
+      where: { userId, integrationId: appKey, hint },
+    });
+    if (!credential) {
+      const error = new Error('Integration was removed before the request started');
+      error.status = 410;
+      throw error;
+    }
+    return await runWithSupplierCacheWriter({
+      pluginName: appKey,
+      writerKey: `${productSearchCacheKey({ userId, hint })}:supplier-writer:${ownerToken}`,
+      ownerToken,
+      ttl,
+    }, run);
+  } finally {
+    await renewal.stop();
+    await endSupplierCacheWrite(writer);
+  }
 };
 
 const bookingsSearch = plugins => async (req, res, next) => {
@@ -217,19 +283,23 @@ const bookingsSearch = plugins => async (req, res, next) => {
     body,
   } = req;
   try {
-    const { app, token } = await getAppAndToken({ plugins, appKey, userId, hint });
+    const {
+      app, token, hint: credentialHint,
+    } = await getAppAndToken({ plugins, appKey, userId, hint });
     assert(app.searchItineraries || app.searchHotelBooking || app.searchBooking, `searchItineraries or searchHotelBooking or searchBooking is not available for ${appKey}`);
     // Prefer the dedicated itinerary endpoint so date/filter payloads used by mining are preserved.
     const search = (app.searchItineraries || app.searchHotelBooking || app.searchBooking).bind(app);
-    const results = await search({
+    const results = await withSupplierCacheWriter({
+      app, appKey, userId, hint: credentialHint,
+    }, () => search({
       axios,
       token,
       payload: body,
       typeDefsAndQueries,
       userId,
-      hint,
+      hint: credentialHint,
       requestId: req.requestId,
-    });
+    }));
     return res.json(results);
   } catch (err) {
     return next(err);
@@ -377,12 +447,14 @@ const $bookingsProductSearch = plugins => async ({
   axios,
   appKey,
   userId,
-  hint,
+  hint: requestedHint,
   payload: originalRequestBody, // Renamed for clarity, this is req.body
   requestId,
   headers,
 }) => {
-  const { app, token, configuration } = await getAppAndToken({ plugins, appKey, userId, hint });
+  const {
+    app, token, configuration, hint,
+  } = await getAppAndToken({ plugins, appKey, userId, hint: requestedHint });
   const productSearchConfiguration = R.omit([
     'catalogPartial', 'partial', 'missingActivityIds', 'catalogRefreshOutcome',
     'scheduledProductSyncEnabled',
@@ -574,27 +646,39 @@ const $bookingsProductSearch = plugins => async ({
     ttl: getProductSearchLockTtlSeconds(),
   });
 
-  // Helper function to call the plugin, save cache, and return results
+  const releasePluginExecutionLock = async lockOwnerToken => {
+    if (app.cache.dropIfValue) {
+      await app.cache.dropIfValue({ key: pluginExecutionLockKey, value: lockOwnerToken });
+    } else {
+      await app.cache.drop({ key: pluginExecutionLockKey });
+    }
+  };
+
+  // Helper function to call the plugin, save cache, and return results.
+  // A scoped search can write supplier caches, so it registers a deletion writer.
+  // It does not take the catalog lock, and concurrent scoped searches keep running.
   const fetchFromPluginAndCache = async (reason = 'cache_miss') => {
     if (isScopedSearch) {
-      const pluginStartedAt = Date.now();
-      const pluginResults = await func({
-        axios,
-        token,
-        payload: payloadForPlugin,
-        typeDefsAndQueries,
-        requestId,
-        userId,
-        hint,
+      return withSupplierCacheWriter({ app, appKey, userId, hint }, async () => {
+        const pluginStartedAt = Date.now();
+        const pluginResults = await func({
+          axios,
+          token,
+          payload: payloadForPlugin,
+          typeDefsAndQueries,
+          requestId,
+          userId,
+          hint,
+        });
+        assertCanonicalProductSearchResult(pluginResults, appKey);
+        emitDecision('scoped_result_not_cached', {
+          reason,
+          pluginElapsedMs: Date.now() - pluginStartedAt,
+          returnedProductCount: productCount(pluginResults),
+          returnedOptionCount: optionCount(pluginResults),
+        });
+        return pluginResults || { products: [] };
       });
-      assertCanonicalProductSearchResult(pluginResults, appKey);
-      emitDecision('scoped_result_not_cached', {
-        reason,
-        pluginElapsedMs: Date.now() - pluginStartedAt,
-        returnedProductCount: productCount(pluginResults),
-        returnedOptionCount: optionCount(pluginResults),
-      });
-      return pluginResults || { products: [] };
     }
 
     const lockOwnerToken = crypto.randomBytes(16).toString('hex');
@@ -684,7 +768,7 @@ const $bookingsProductSearch = plugins => async ({
     try {
       // Credentials may have been removed while this request waited for the cache lock.
       const credential = await UserAppKey.findOne({
-        where: { userId, integrationId: appKey, ...(hint && { hint }) },
+        where: { userId, integrationId: appKey, hint },
       });
       if (!credential) {
         const error = new Error('Integration was removed before the product refresh started');
@@ -694,7 +778,14 @@ const $bookingsProductSearch = plugins => async ({
       refreshStarted = true;
       await recordAttempt('running');
       const pluginStartedAt = Date.now();
-      pluginResults = await func({
+      // Supplier and aggregate writes inside the plugin must fail with the refresh
+      // lock. Scoped searches stay on their own writer keys and run concurrently.
+      pluginResults = await runWithRefreshLock({
+        pluginName: appKey,
+        lockKey: pluginExecutionLockKey,
+        ownerToken: lockOwnerToken,
+        ttl: lockTtlSeconds,
+      }, () => func({
         axios,
         token,
         payload: payloadForPlugin,
@@ -702,7 +793,7 @@ const $bookingsProductSearch = plugins => async ({
         requestId,
         userId,
         hint,
-      });
+      }));
       assertCanonicalProductSearchResult(pluginResults, appKey);
       const pluginElapsedMs = Date.now() - pluginStartedAt;
 
@@ -843,11 +934,7 @@ const $bookingsProductSearch = plugins => async ({
       throw err;
     } finally {
       await lockRenewal.stop();
-      if (app.cache.dropIfValue) {
-        await app.cache.dropIfValue({ key: pluginExecutionLockKey, value: lockOwnerToken });
-      } else {
-        await app.cache.drop({ key: pluginExecutionLockKey });
-      }
+      await releasePluginExecutionLock(lockOwnerToken);
     }
     const result = effectiveCatalogResults || pluginResults || { products: [] };
     if (!forceRefresh) return result;
@@ -975,8 +1062,10 @@ const $bookingsProductSearch = plugins => async ({
 
 const productSyncStatus = plugins => async (req, res, next) => {
   try {
-    const { appKey, userId, hint } = req.params;
-    const { app } = await getAppAndToken({ plugins, appKey, userId, hint });
+    const { appKey, userId, hint: requestedHint } = req.params;
+    const { app, hint } = await getAppAndToken({
+      plugins, appKey, userId, hint: requestedHint,
+    });
     const key = productSearchCacheKey({ userId, hint });
     const statusKey = `${key}:sync-status`;
     const status = await app.cache.get({ key: statusKey }) || {};

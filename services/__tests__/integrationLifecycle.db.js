@@ -213,9 +213,13 @@ describe('integrationLifecycle database transitions', () => {
   it('reports the persisted winner when concurrent deletes disagree on finalization', async () => {
     await createActiveLifecycle();
     const deferredCatalog = deferred();
+    const deferredCatalogCalled = deferred();
     const immediateCatalogCalled = deferred();
     axios.post
-      .mockImplementationOnce(() => deferredCatalog.promise)
+      .mockImplementationOnce(() => {
+        deferredCatalogCalled.resolve();
+        return deferredCatalog.promise;
+      })
       .mockImplementationOnce(() => {
         immediateCatalogCalled.resolve();
         return Promise.resolve({ data: { status: 'deleted' } });
@@ -228,6 +232,7 @@ describe('integrationLifecycle database transitions', () => {
       requestedBy: 'user:first',
       deferCompletion: true,
     });
+    await deferredCatalogCalled.promise;
     const immediateDeletion = deleteIntegration({
       userId,
       integrationId: 'tourplan',

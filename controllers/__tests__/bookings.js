@@ -3,6 +3,8 @@
 const chance = require('chance').Chance();
 const hash = require('object-hash');
 const cache = require('../../cache');
+const productSearchCacheKey = require('../../lib/productSearchCacheKey');
+const { UserAppKey } = require('../../models');
 
 const { env: { adminKey } } = process;
 
@@ -110,6 +112,195 @@ describe('user: bookings controller', () => {
       expect(Array.isArray(bookings)).toBeTruthy();
       expect(plugins[0].searchItineraries.mock.calls[0][0].payload).toEqual(payload);
       expect(plugins[0].searchItineraries.mock.calls[0][0].token).toEqual(token);
+    });
+
+    it('holds a supplier-cache writer while an itinerary search can save booking statuses', async () => {
+      const hint = 'testingToken';
+      let writerActiveDuringSearch = false;
+      let releaseSearch;
+      const searchStarted = new Promise(resolve => {
+        plugins[0].searchItineraries.mockImplementationOnce(() => (
+          cache.supplierCacheWritesActive({ pluginName: appKey, userId, hint })
+            .then(active => {
+              writerActiveDuringSearch = active;
+              resolve();
+              return new Promise(done => {
+                releaseSearch = () => done({ bookings: [{ bookingId: 'booking-1' }] });
+              });
+            })
+        ));
+      });
+      const request = doApiPost({
+        url: `/bookings/${appKey}/${userId}/${hint}/search`,
+        token: userToken,
+        payload: { bookingId: 'booking-1' },
+      });
+      try {
+        await searchStarted;
+        expect(writerActiveDuringSearch).toBe(true);
+        releaseSearch();
+        await expect(request).resolves.toMatchObject({
+          bookings: [{ bookingId: 'booking-1' }],
+        });
+        expect(await cache.supplierCacheWritesActive({
+          pluginName: appKey, userId, hint,
+        })).toBe(false);
+      } finally {
+        if (releaseSearch) releaseSearch();
+        await request.catch(() => {});
+      }
+    });
+
+    it('does not search itineraries while deletion is clearing booking-status caches', async () => {
+      const hint = 'testingToken';
+      const fenceKey = `${productSearchCacheKey({ userId, hint })}:deletion`;
+      await cache.save({
+        pluginName: appKey,
+        key: fenceKey,
+        value: 'deletion-owner',
+        ttl: 60,
+      });
+      const originalLockWaitMs = process.env.PRODUCT_SEARCH_LOCK_WAIT_MS;
+      process.env.PRODUCT_SEARCH_LOCK_WAIT_MS = '10';
+      try {
+        await expect(doApiPost({
+          url: `/bookings/${appKey}/${userId}/${hint}/search`,
+          token: userToken,
+          payload: { bookingId: 'booking-1' },
+        })).rejects.toMatchObject({ response: { status: 503 } });
+        expect(plugins[0].searchItineraries).not.toHaveBeenCalled();
+      } finally {
+        await cache.drop({ pluginName: appKey, key: fenceKey });
+        if (originalLockWaitMs === undefined) delete process.env.PRODUCT_SEARCH_LOCK_WAIT_MS;
+        else process.env.PRODUCT_SEARCH_LOCK_WAIT_MS = originalLockWaitMs;
+      }
+    });
+
+    it('does not search itineraries when the credential disappears before the plugin call', async () => {
+      const hint = 'testingToken';
+      const findOne = UserAppKey.findOne.bind(UserAppKey);
+      let lookups = 0;
+      const spy = jest.spyOn(UserAppKey, 'findOne').mockImplementation(async (...args) => {
+        lookups += 1;
+        if (lookups > 1) return null;
+        return findOne(...args);
+      });
+      try {
+        await expect(doApiPost({
+          url: `/bookings/${appKey}/${userId}/${hint}/search`,
+          token: userToken,
+          payload: { bookingId: 'booking-1' },
+        })).rejects.toMatchObject({ response: { status: 410 } });
+        expect(plugins[0].searchItineraries).not.toHaveBeenCalled();
+        expect(await cache.supplierCacheWritesActive({
+          pluginName: appKey, userId, hint,
+        })).toBe(false);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('registers a hintless itinerary search on the selected credential hint', async () => {
+      const hint = 'testingToken';
+      let releaseSearch;
+      let pluginHint;
+      const searchStarted = new Promise(resolve => {
+        plugins[0].searchItineraries.mockImplementationOnce(args => {
+          pluginHint = args.hint;
+          resolve();
+          return new Promise(done => {
+            releaseSearch = () => done({ bookings: [{ bookingId: 'booking-1' }] });
+          });
+        });
+      });
+      const request = doApiPost({
+        url: `/bookings/${appKey}/${userId}/search`,
+        token: userToken,
+        payload: { bookingId: 'booking-1' },
+      });
+      try {
+        await searchStarted;
+        expect(pluginHint).toBe(hint);
+        expect(await cache.supplierCacheWritesActive({
+          pluginName: appKey, userId, hint,
+        })).toBe(true);
+        expect(await cache.supplierCacheWritesActive({
+          pluginName: appKey, userId, hint: undefined,
+        })).toBe(false);
+        releaseSearch();
+        await request;
+      } finally {
+        if (releaseSearch) releaseSearch();
+        await request.catch(() => {});
+      }
+    });
+
+    it('blocks a hintless itinerary search with the selected credential deletion fence', async () => {
+      const hint = 'testingToken';
+      const fenceKey = `${productSearchCacheKey({ userId, hint })}:deletion`;
+      await cache.save({
+        pluginName: appKey,
+        key: fenceKey,
+        value: 'deletion-owner',
+        ttl: 60,
+      });
+      const originalLockWaitMs = process.env.PRODUCT_SEARCH_LOCK_WAIT_MS;
+      process.env.PRODUCT_SEARCH_LOCK_WAIT_MS = '10';
+      try {
+        await expect(doApiPost({
+          url: `/bookings/${appKey}/${userId}/search`,
+          token: userToken,
+          payload: { bookingId: 'booking-1' },
+        })).rejects.toMatchObject({ response: { status: 503 } });
+        expect(plugins[0].searchItineraries).not.toHaveBeenCalled();
+      } finally {
+        await cache.drop({ pluginName: appKey, key: fenceKey });
+        if (originalLockWaitMs === undefined) delete process.env.PRODUCT_SEARCH_LOCK_WAIT_MS;
+        else process.env.PRODUCT_SEARCH_LOCK_WAIT_MS = originalLockWaitMs;
+      }
+    });
+
+    it('holds the selected credential product-search lock for a hintless catalog search', async () => {
+      const hint = 'testingToken';
+      const cacheKey = productSearchCacheKey({ userId, hint });
+      const missingHintKey = productSearchCacheKey({ userId, hint: undefined });
+      await cache.drop({ pluginName: appKey, key: cacheKey });
+      await cache.drop({ pluginName: appKey, key: `${cacheKey}:lock` });
+      await cache.drop({ pluginName: appKey, key: `${missingHintKey}:lock` });
+      let releaseSearch;
+      let pluginHint;
+      const searchStarted = new Promise(resolve => {
+        plugins[0].searchProducts.mockImplementationOnce(args => {
+          pluginHint = args.hint;
+          resolve();
+          return new Promise(done => {
+            releaseSearch = () => done({
+              products: [{ productId: 'hintless-product', productName: 'Hintless', options: [] }],
+            });
+          });
+        });
+      });
+      const request = doApiPost({
+        url: `/products/${appKey}/${userId}/search`,
+        token: userToken,
+        payload: {},
+      });
+      try {
+        await searchStarted;
+        expect(pluginHint).toBe(hint);
+        expect(await cache.get({ pluginName: appKey, key: `${cacheKey}:lock` })).toEqual(expect.any(String));
+        expect(await cache.get({
+          pluginName: appKey, key: `${missingHintKey}:lock`,
+        })).toBeNull();
+        releaseSearch();
+        await request;
+      } finally {
+        if (releaseSearch) releaseSearch();
+        await request.catch(() => {});
+        await cache.drop({ pluginName: appKey, key: cacheKey });
+        await cache.drop({ pluginName: appKey, key: `${cacheKey}:lock` });
+        await cache.drop({ pluginName: appKey, key: `${cacheKey}:lastUpdated` });
+      }
     });
 
   });

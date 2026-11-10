@@ -150,6 +150,35 @@ describe('user: bookings controller - searchProducts', () => {
       },
     );
 
+    it('does not save supplier caches after a full refresh loses its lock', async () => {
+      const { search, key, hint } = await prepareCatalog(catalog(2));
+      const identity = { pluginName: testAppName, userId: testUserId, hint };
+      const supplierKey = 'suppliers_locklost';
+      travelgatePlugin.searchProducts.mockImplementationOnce(async () => {
+        await cache.save({
+          ...identity,
+          key: supplierKey,
+          value: 'while-locked',
+          ttl: 60,
+        });
+        await cache.drop({ ...identity, key: `${key}:lock` });
+        await expect(cache.save({
+          ...identity,
+          key: supplierKey,
+          value: 'after-lock-lost',
+          ttl: 60,
+        })).rejects.toMatchObject({ status: 409 });
+        return { products: catalog(3) };
+      });
+      try {
+        await expect(search({ forceRefresh: true, fullSyncTrigger: 'scheduled' }))
+          .rejects.toMatchObject({ response: { status: 409 } });
+        expect(await cache.get({ ...identity, key: supplierKey })).toBe('while-locked');
+      } finally {
+        await cache.drop({ ...identity, key: supplierKey });
+      }
+    });
+
     it('cannot repopulate a deleted cache when credentials disappear before lock acquisition', async () => {
       const { search, key, hint } = await prepareCatalog(catalog(2));
       const acquire = travelgatePlugin.cache.saveIfNotExists.bind(travelgatePlugin.cache);
@@ -1729,6 +1758,227 @@ describe('Bookings Product Search Lock Mechanism (Job Queuing on Stale Cache)', 
       }),
     );
     emitSpy.mockRestore();
+  });
+
+  it('leaves the catalog lock free while a scoped search registers a deletion writer', async () => {
+    await clearProductSearchCache();
+    const cacheKey = hash({
+      userId: testUserId,
+      hint: ttrTestHint,
+      operationId: 'bookingsProductSearch',
+    });
+    const lockKey = `${cacheKey}:lock`;
+    const supplierKey = 'suppliers_scopedlocktest';
+    let catalogLockStillAvailable;
+    let releasePlugin;
+    const pluginStarted = new Promise(resolve => {
+      lockTestPlugin.searchProducts.mockImplementation(async () => {
+        catalogLockStillAvailable = await cache.saveIfNotExists({
+          pluginName: testAppName,
+          key: lockKey,
+          value: 'refresh-owner',
+          ttl: 30,
+        });
+        await cache.save({
+          pluginName: testAppName,
+          key: supplierKey,
+          value: { suppliers: ['written-during-search'] },
+          ttl: 60,
+        });
+        return new Promise(resolvePlugin => {
+          releasePlugin = () => resolvePlugin({
+            products: [{
+              productId: 'scoped-product',
+              productName: 'Harbour transfer',
+              options: [{ optionId: 'scoped-option', optionName: 'Harbour' }],
+            }],
+          });
+          resolve();
+        });
+      });
+    });
+
+    const request = doApiPost({
+      url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
+      token: userToken,
+      payload: { searchInput: 'harbour' },
+    });
+    try {
+      await pluginStarted;
+      expect(catalogLockStillAvailable).toBe(true);
+      expect(await cache.supplierCacheWritesActive({
+        pluginName: testAppName,
+        userId: testUserId,
+        hint: ttrTestHint,
+      })).toBe(true);
+      expect(await cache.get({ pluginName: testAppName, key: supplierKey }))
+        .toEqual({ suppliers: ['written-during-search'] });
+      releasePlugin();
+      await expect(request).resolves.toMatchObject({
+        products: [expect.objectContaining({ productId: 'scoped-product' })],
+      });
+      expect(await cache.supplierCacheWritesActive({
+        pluginName: testAppName,
+        userId: testUserId,
+        hint: ttrTestHint,
+      })).toBe(false);
+      expect(await cache.get({ pluginName: testAppName, key: cacheKey })).toBeNull();
+    } finally {
+      if (releasePlugin) releasePlugin();
+      await request.catch(() => {});
+      lockTestPlugin.searchProducts.mockReset();
+      await cache.drop({ pluginName: testAppName, key: supplierKey });
+      await cache.drop({ pluginName: testAppName, key: lockKey });
+    }
+  });
+
+  it('runs concurrent scoped searches together', async () => {
+    await clearProductSearchCache();
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const releases = [];
+    const bothStarted = new Promise(resolve => {
+      lockTestPlugin.searchProducts.mockImplementation(() => new Promise(resolvePlugin => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        releases.push(() => {
+          inFlight -= 1;
+          resolvePlugin({
+            products: [{
+              productId: 'scoped-product',
+              productName: 'Harbour transfer',
+              options: [{ optionId: 'scoped-option', optionName: 'Harbour' }],
+            }],
+          });
+        });
+        if (releases.length === 2) resolve();
+      }));
+    });
+    const search = () => doApiPost({
+      url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
+      token: userToken,
+      payload: { searchInput: 'harbour' },
+    });
+    const requests = [search(), search()];
+    try {
+      await bothStarted;
+      expect(maxInFlight).toBe(2);
+      releases.forEach(release => release());
+      const results = await Promise.all(requests);
+      results.forEach(result => {
+        expect(result.products).toEqual([
+          expect.objectContaining({ productId: 'scoped-product' }),
+        ]);
+      });
+      expect(lockTestPlugin.searchProducts).toHaveBeenCalledTimes(2);
+    } finally {
+      releases.forEach(release => release());
+      await Promise.all(requests.map(request => request.catch(() => {})));
+      lockTestPlugin.searchProducts.mockReset();
+    }
+  });
+
+  it('does not call the plugin for a scoped search while deletion is clearing supplier caches', async () => {
+    await clearProductSearchCache();
+    const cacheKey = hash({
+      userId: testUserId,
+      hint: ttrTestHint,
+      operationId: 'bookingsProductSearch',
+    });
+    const fenceKey = `${cacheKey}:deletion`;
+    await cache.save({
+      pluginName: testAppName,
+      key: fenceKey,
+      value: 'deletion-owner',
+      ttl: 60,
+    });
+    const originalLockWaitMs = process.env.PRODUCT_SEARCH_LOCK_WAIT_MS;
+    process.env.PRODUCT_SEARCH_LOCK_WAIT_MS = '10';
+    try {
+      await expect(doApiPost({
+        url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
+        token: userToken,
+        payload: { searchInput: 'harbour' },
+      })).rejects.toMatchObject({ response: { status: 503 } });
+      expect(lockTestPlugin.searchProducts).not.toHaveBeenCalled();
+      expect(await cache.get({ pluginName: testAppName, key: fenceKey })).toBe('deletion-owner');
+    } finally {
+      await cache.drop({ pluginName: testAppName, key: fenceKey });
+      if (originalLockWaitMs === undefined) {
+        delete process.env.PRODUCT_SEARCH_LOCK_WAIT_MS;
+      } else {
+        process.env.PRODUCT_SEARCH_LOCK_WAIT_MS = originalLockWaitMs;
+      }
+    }
+  });
+
+  it('calls the plugin for a scoped search while a catalog refresh holds the product-search lock', async () => {
+    await clearProductSearchCache();
+    const cacheKey = hash({
+      userId: testUserId,
+      hint: ttrTestHint,
+      operationId: 'bookingsProductSearch',
+    });
+    const lockKey = `${cacheKey}:lock`;
+    await cache.save({
+      pluginName: testAppName,
+      key: lockKey,
+      value: 'refresh-owner',
+      ttl: 60,
+    });
+    lockTestPlugin.searchProducts.mockResolvedValueOnce({
+      products: [{
+        productId: 'scoped-product',
+        productName: 'Harbour transfer',
+        options: [{ optionId: 'scoped-option', optionName: 'Harbour' }],
+      }],
+    });
+    try {
+      const result = await doApiPost({
+        url: `/products/${testAppName}/${testUserId}/${ttrTestHint}/search`,
+        token: userToken,
+        payload: { searchInput: 'harbour' },
+      });
+      expect(result.products).toEqual([
+        expect.objectContaining({ productId: 'scoped-product' }),
+      ]);
+      expect(lockTestPlugin.searchProducts).toHaveBeenCalledTimes(1);
+      expect(await cache.get({ pluginName: testAppName, key: lockKey })).toBe('refresh-owner');
+    } finally {
+      await cache.drop({ pluginName: testAppName, key: lockKey });
+    }
+  });
+
+  it('does not call the plugin for a scoped search when the credential disappears before the plugin call', async () => {
+    const hint = chance.guid();
+    await globalUtils.appSetup({
+      appName: testAppName,
+      userId: testUserId,
+      tokenHint: hint,
+      token: shortTTRTokenConfig,
+    });
+    const findOne = UserAppKey.findOne.bind(UserAppKey);
+    let lookups = 0;
+    const spy = jest.spyOn(UserAppKey, 'findOne').mockImplementation(async (...args) => {
+      lookups += 1;
+      if (lookups > 1) return null;
+      return findOne(...args);
+    });
+    try {
+      await expect(doApiPost({
+        url: `/products/${testAppName}/${testUserId}/${hint}/search`,
+        token: userToken,
+        payload: { searchInput: 'harbour' },
+      })).rejects.toMatchObject({ response: { status: 410 } });
+      expect(lockTestPlugin.searchProducts).not.toHaveBeenCalled();
+      expect(await cache.supplierCacheWritesActive({
+        pluginName: testAppName,
+        userId: testUserId,
+        hint,
+      })).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('serves a stale catalog for an optionId search without queueing a refresh', async () => {
