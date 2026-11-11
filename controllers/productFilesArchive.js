@@ -23,7 +23,20 @@ const tourplanIntegration = async (plugins, req) => {
 
 const getProductFilesArchive = plugins => async (req, res, next) => {
   let result;
+  const controller = new AbortController();
+  const disconnected = () => {
+    if (!res.writableEnded) {
+      controller.abort();
+      // Record a closed client request without forwarding it as a server error.
+      res.statusCode = 499;
+      if (!res.destroyed) res.destroy();
+    }
+  };
+  req.on('aborted', disconnected);
+  res.on('close', disconnected);
   try {
+    if (req.aborted || res.destroyed) disconnected();
+    if (controller.signal.aborted) return undefined;
     const { selection, usage, usageHash } = req.body || {};
     const usageIds = usage && typeof usage === 'object' && !Array.isArray(usage)
       ? Object.keys(usage) : [];
@@ -44,17 +57,24 @@ const getProductFilesArchive = plugins => async (req, res, next) => {
       token: await scope.credential.token,
       userId: scope.userId,
       hint: scope.hint,
-      selection, usage, usageHash,
+      selection,
+      usage,
+      usageHash,
+      signal: controller.signal,
     });
+    if (controller.signal.aborted) return undefined;
     if (result.status === 'no_matching_options') return res.json(result);
     res.setHeader('Content-Type', 'application/gzip');
     res.setHeader('Content-Disposition', 'attachment; filename="product-files.tar.gz"');
     await pipeline(fs.createReadStream(result.archivePath), res);
     return undefined;
   } catch (error) {
+    if (controller.signal.aborted) return undefined;
     if (res.headersSent) return res.destroy(error);
     return next(error);
   } finally {
+    req.removeListener('aborted', disconnected);
+    res.removeListener('close', disconnected);
     if (result && result.cleanup) {
       try {
         await result.cleanup();

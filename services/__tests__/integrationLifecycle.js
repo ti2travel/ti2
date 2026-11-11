@@ -12,6 +12,7 @@ jest.mock('../../cache', () => ({
 }));
 
 jest.mock('axios', () => ({ post: jest.fn() }));
+jest.mock('../../lib/tourplanNxSupplierOptionsAndRatesStore', () => ({ getSupplierOptionsAndRatesStore: jest.fn() }));
 jest.mock('../../worker/queue', () => ({ removeJob: jest.fn() }));
 jest.mock('../../models', () => ({
   sequelize: {
@@ -33,6 +34,7 @@ jest.mock('../../models', () => ({
 }));
 
 const axios = require('axios');
+const { getSupplierOptionsAndRatesStore } = require('../../lib/tourplanNxSupplierOptionsAndRatesStore');
 const {
   beginSupplierCacheDeletion,
   dropIfValue,
@@ -88,6 +90,7 @@ const lifecycleRecord = overrides => ({
 describe('integrationLifecycle', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    getSupplierOptionsAndRatesStore.mockReturnValue(null);
     beginSupplierCacheDeletion.mockResolvedValue(true);
     dropIfValue.mockResolvedValue(1);
     dropMatching.mockResolvedValue(0);
@@ -106,6 +109,79 @@ describe('integrationLifecycle', () => {
     sqldb.CronJobs.findAll.mockResolvedValue([]);
     sqldb.IntegrationLifecycle.update.mockResolvedValue([1]);
     axios.post.mockResolvedValue({ data: { status: 'deleted' } });
+  });
+
+  it('cleans supplier objects after Redis and before credentials under renewed protection', async () => {
+    const prefixes = supplierCachePrefixes({ url: 'https://nx.example/tenant',
+      userId: 'company-a', hint: 'Live' });
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycleRecord({
+      integrationId: 'tourplannx', hint: 'Live', artifacts: { supplierCachePrefixes: prefixes },
+    }));
+    const order = [];
+    dropMatching.mockImplementation(async () => { order.push('redis'); return 5; });
+    const deletePrefixes = jest.fn(async (savedPrefixes, assertProtection) => {
+      expect(savedPrefixes).toEqual(prefixes);
+      expect(sqldb.UserAppKey.destroy).not.toHaveBeenCalled();
+      await assertProtection();
+      order.push('s3');
+    });
+    getSupplierOptionsAndRatesStore.mockReturnValue({ checkAvailability: jest.fn(async () => {
+      order.push('availability');
+    }), deletePrefixes });
+    sqldb.UserAppKey.destroy.mockImplementation(async () => { order.push('credentials'); return 1; });
+    await deleteIntegration({ userId: 'company-a', integrationId: 'tourplannx', hint: 'Live' });
+    expect(order).toEqual(['availability', 'redis', 's3', 'credentials']);
+    expect(deletePrefixes).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Redis and credentials intact when the Filematch route is not deployed', async () => {
+    const prefixes = supplierCachePrefixes({ url: 'https://nx.example/tenant',
+      userId: 'company-a', hint: 'Live' });
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycleRecord({
+      integrationId: 'tourplannx', hint: 'Live', artifacts: { supplierCachePrefixes: prefixes },
+    }));
+    const error = Object.assign(new Error('Deploy Filematch routes before cleanup'), {
+      code: 'SupplierOptionsAndRatesRouteUnavailable', status: 502,
+    });
+    const deletePrefixes = jest.fn();
+    getSupplierOptionsAndRatesStore.mockReturnValue({
+      checkAvailability: jest.fn().mockRejectedValue(error), deletePrefixes,
+    });
+    await expect(deleteIntegration({ userId: 'company-a', integrationId: 'tourplannx', hint: 'Live' }))
+      .rejects.toBe(error);
+    expect(dropProductSearch).not.toHaveBeenCalled();
+    expect(dropMatching).not.toHaveBeenCalled();
+    expect(deletePrefixes).not.toHaveBeenCalled();
+    expect(sqldb.UserAppKey.destroy).not.toHaveBeenCalled();
+    expect(sqldb.IntegrationLifecycle.update).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed', artifacts: expect.objectContaining({ supplierCachePrefixes: prefixes,
+        failureStage: 'TI2 supplier options and rates availability' }),
+    }), expect.anything());
+  });
+
+  it('preserves credentials and retry prefixes when S3 cleanup or renewal fails', async () => {
+    const prefixes = supplierCachePrefixes({ url: 'https://nx.example/tenant',
+      userId: 'company-a', hint: 'Live' });
+    sqldb.IntegrationLifecycle.findOne.mockResolvedValue(lifecycleRecord({
+      integrationId: 'tourplannx', hint: 'Live', artifacts: { supplierCachePrefixes: prefixes },
+    }));
+    getSupplierOptionsAndRatesStore.mockReturnValue({ checkAvailability: jest.fn().mockResolvedValue(),
+      deletePrefixes: async (_, assertProtection) => {
+      expireIfValue.mockResolvedValue(false);
+      await assertProtection();
+    } });
+    await expect(deleteIntegration({ userId: 'company-a', integrationId: 'tourplannx', hint: 'Live' }))
+      .rejects.toMatchObject({ status: 503 });
+    expect(sqldb.UserAppKey.destroy).not.toHaveBeenCalled();
+    expect(sqldb.IntegrationLifecycle.update).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed', artifacts: expect.objectContaining({ supplierCachePrefixes: prefixes,
+        failureStage: 'TI2 supplier options and rates cleanup' }),
+    }), expect.anything());
+    expireIfValue.mockResolvedValue(true);
+    getSupplierOptionsAndRatesStore.mockReturnValue({ checkAvailability: jest.fn().mockResolvedValue(),
+      deletePrefixes: jest.fn().mockResolvedValue() });
+    await expect(deleteIntegration({ userId: 'company-a', integrationId: 'tourplannx', hint: 'Live' }))
+      .resolves.toMatchObject({ status: 'complete' });
   });
 
   afterAll(() => {

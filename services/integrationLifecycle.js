@@ -15,6 +15,7 @@ const {
   supplierCacheWritesActive,
 } = require('../cache');
 const productSearchCacheKey = require('../lib/productSearchCacheKey');
+const { getSupplierOptionsAndRatesStore } = require('../lib/tourplanNxSupplierOptionsAndRatesStore');
 const {
   supplierCachePatterns,
   supplierCachePrefixes,
@@ -523,6 +524,13 @@ const deleteIntegration = async ({
       if (await supplierCacheWritesActive(supplierCacheIdentity)) {
         throw lifecycleError(503, SEARCH_STILL_WRITING);
       }
+      const supplierPatterns = supplierCachePatterns(observedArtifacts.supplierCachePrefixes);
+      const store = integrationId === 'tourplannx' && supplierPatterns.length
+        ? getSupplierOptionsAndRatesStore() : null;
+      if (store) {
+        failureStage = 'TI2 supplier options and rates availability';
+        await store.checkAvailability();
+      }
       const cacheKeys = await dropProductSearch({
         pluginName: integrationId,
         userId,
@@ -536,7 +544,6 @@ const deleteIntegration = async ({
         ...observedArtifacts,
         cacheKeys: Math.max(observedArtifacts.cacheKeys || 0, cacheKeys),
       };
-      const supplierPatterns = supplierCachePatterns(observedArtifacts.supplierCachePrefixes);
       if (supplierPatterns.length > 0) {
         failureStage = 'TI2 supplier cache cleanup';
         const supplierCacheKeys = await dropMatching({
@@ -550,6 +557,25 @@ const deleteIntegration = async ({
             supplierCacheKeys,
           ),
         };
+        if (store) {
+          failureStage = 'TI2 supplier options and rates cleanup';
+          await store.deletePrefixes(observedArtifacts.supplierCachePrefixes, async () => {
+            if (deletionProtection.lost()) throw lifecycleError(503, REFRESH_STILL_RUNNING);
+            const renewed = await expireIfValue({
+              pluginName: integrationId,
+              key: refreshLockKey,
+              value: deletionLockToken,
+              ttl: deletionLockTtlSeconds(),
+            });
+            const fenceRenewed = await expireIfValue({
+              pluginName: integrationId,
+              key: `${productSearchCacheKey({ userId, hint })}:deletion`,
+              value: deletionLockToken,
+              ttl: deletionLockTtlSeconds(),
+            });
+            if (!renewed || !fenceRenewed) throw lifecycleError(503, REFRESH_STILL_RUNNING);
+          });
+        }
       }
       const lockExtended = await expireIfValue({
         pluginName: integrationId,
