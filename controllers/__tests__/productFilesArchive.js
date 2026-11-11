@@ -4,10 +4,13 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { PassThrough } = require('stream');
+const { EventEmitter } = require('events');
 const { UserAppKey } = require('../../models');
 const productFilesArchive = require('../productFilesArchive');
 
-const request = body => ({ params: { app: 'tourplannx', userId: 'company', hint: 'Live' }, body });
+const request = body => Object.assign(new EventEmitter(), {
+  params: { app: 'tourplannx', userId: 'company', hint: 'Live' }, body,
+});
 const response = () => {
   const res = new PassThrough();
   res.statusCode = 200;
@@ -17,7 +20,60 @@ const response = () => {
   return res;
 };
 
-beforeEach(() => UserAppKey.findOne.mockResolvedValue({ token: { url: 'https://nx.test' } }));
+beforeEach(() => UserAppKey.findOne.mockReset().mockResolvedValue({ token: { url: 'https://nx.test' } }));
+
+it.each(['aborted', 'close'])('handles client %s during generation without an internal error', async event => {
+  const req = request({ selection: 'all' });
+  const res = response();
+  const plugin = { name: 'tourplannx', createProductFilesArchive: jest.fn(async ({ signal }) => {
+    (event === 'aborted' ? req : res).emit(event);
+    expect(signal.aborted).toBe(true);
+    throw Object.assign(new Error('cancelled'), { name: 'AbortError', code: 'ABORT_ERR' });
+  }) };
+  const next = jest.fn();
+  await productFilesArchive([plugin]).getProductFilesArchive(req, res, next);
+  expect(next).not.toHaveBeenCalled();
+  expect(res.statusCode).toBe(499);
+  expect(res.destroyed).toBe(true);
+  expect(req.listenerCount('aborted')).toBe(0);
+  expect(res.listenerCount('close')).toBe(0);
+});
+
+it('does not start generation when the client disconnected before the handler', async () => {
+  const req = request({ selection: 'all' });
+  req.aborted = true;
+  const res = response();
+  const plugin = { name: 'tourplannx', createProductFilesArchive: jest.fn() };
+  const next = jest.fn();
+  await productFilesArchive([plugin]).getProductFilesArchive(req, res, next);
+  expect(plugin.createProductFilesArchive).not.toHaveBeenCalled();
+  expect(UserAppKey.findOne).not.toHaveBeenCalled();
+  expect(next).not.toHaveBeenCalled();
+  expect(res.statusCode).toBe(499);
+});
+
+it('cleans a late archive result without streaming it to a disconnected client', async () => {
+  const req = request({ selection: 'all' });
+  const res = response();
+  const cleanup = jest.fn();
+  const plugin = { name: 'tourplannx', createProductFilesArchive: jest.fn(async () => {
+    req.emit('aborted');
+    return { status: 'ready', archivePath: 'must-not-be-opened', cleanup };
+  }) };
+  const next = jest.fn();
+  await productFilesArchive([plugin]).getProductFilesArchive(req, res, next);
+  expect(cleanup).toHaveBeenCalledTimes(1);
+  expect(res.setHeader).not.toHaveBeenCalled();
+  expect(next).not.toHaveBeenCalled();
+});
+
+it('still forwards an unexpected cancellation error while the client is connected', async () => {
+  const error = Object.assign(new Error('unexpected cancellation'), { name: 'AbortError', code: 'ABORT_ERR' });
+  const plugin = { name: 'tourplannx', createProductFilesArchive: jest.fn().mockRejectedValue(error) };
+  const next = jest.fn();
+  await productFilesArchive([plugin]).getProductFilesArchive(request({ selection: 'all' }), response(), next);
+  expect(next).toHaveBeenCalledWith(error);
+});
 
 it('reports the exporter projection version for this integration', async () => {
   const credential = {};

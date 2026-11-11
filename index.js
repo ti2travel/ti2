@@ -89,6 +89,9 @@ module.exports = async ({
     configureAxiosSSL(pluginAxios, process.env.SSL_INSECURE_ALLOWED_DOMAINS);
 
     const pluginInstance = await new Plugin({
+      ...(pluginName === 'tourplannx' && {
+        supplierOptionsAndRatesStore: require('./lib/tourplanNxSupplierOptionsAndRatesStore').getSupplierOptionsAndRatesStore(),
+      }),
       cache: {
         drop: args => cache.drop({ ...args, pluginName }),
         get: args => cache.get({ ...args, pluginName }),
@@ -100,6 +103,7 @@ module.exports = async ({
         expireIfValue: args => cache.expireIfValue({ ...args, pluginName }),
         dropIfValue: args => cache.dropIfValue({ ...args, pluginName }),
         scan: args => cache.scan({ ...args, pluginName }),
+        size: args => cache.cache.strlen(`${pluginName}:${args.key}`),
       },
       axios: pluginAxios,
       events: ti2Events,
