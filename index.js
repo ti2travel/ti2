@@ -41,6 +41,7 @@ const bookingsController = require('./controllers/bookings');
 const allotmentController = require('./controllers/allotment');
 const productFilesArchiveController = require('./controllers/productFilesArchive');
 const creditorInvoiceController = require('./controllers/creditorInvoice');
+const bookingToolsController = require('./controllers/bookingTools');
 const { Integration } = require('./models');
 const cache = require('./cache');
 const getErrorMessage = require('./lib/get-error-message.js');
@@ -159,6 +160,7 @@ module.exports = async ({
     ...allotmentController(plugins),
     ...productFilesArchiveController(plugins),
     ...creditorInvoiceController(plugins),
+    ...bookingToolsController(plugins),
     cache: R.omit(['cache'], cache),
   }; // mehthods that should map to the yaml api spec
   app.plugins = plugins;
@@ -327,6 +329,7 @@ module.exports = async ({
           }
         */
        const synchronousOnly = summarizeRequestBody.isCreditorInvoice(req)
+         || summarizeRequestBody.isBookingTool(req)
          || summarizeRequestBody.isAllotmentPost(req)
          || summarizeRequestBody.isAgentPost(req)
          || summarizeRequestBody.isSessionValidationPost(req);
