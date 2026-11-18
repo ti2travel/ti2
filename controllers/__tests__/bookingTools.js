@@ -50,6 +50,45 @@ describe('booking tools route', () => {
     }));
   });
 
+  it('dispatches a write with the booking, the expected version and the batch', async () => {
+    plugin.updateBookingServices = jest.fn(async () => ({
+      outcome: 'completed', bookingId: '100', outcomes: [{ index: 0, targetId: '7', outcome: 'completed' }],
+    }));
+
+    const result = await doApiPost({
+      url: url('update_booking_services'),
+      token: createUserToken(userId),
+      payload: {
+        request: { bookingId: '100', expectedVersion: '3', updates: [{ serviceId: '7', quantity: 4 }] },
+        credentials: { cookies: [{ name: 'session', value: 'secret' }] },
+      },
+    });
+
+    expect(result.outcome).toBe('completed');
+    expect(plugin.updateBookingServices).toHaveBeenCalledWith(expect.objectContaining({
+      payload: {
+        bookingId: '100',
+        expectedVersion: '3',
+        updates: [{ serviceId: '7', quantity: 4 }],
+        credentials: { cookies: [{ name: 'session', value: 'secret' }] },
+      },
+    }));
+  });
+
+  it('rejects a host decision smuggled into a write', async () => {
+    plugin.removeBookingServices = jest.fn();
+
+    const result = await doApiPost({
+      url: url('remove_booking_services'),
+      token: createUserToken(userId),
+      payload: { request: { bookingId: '100', expectedVersion: '3', serviceIds: [{ confirmed: true }] } },
+      expectStatusCode: 400,
+    });
+
+    expect(result.message).toBe('confirmed is not part of the generic booking contract');
+    expect(plugin.removeBookingServices).not.toHaveBeenCalled();
+  });
+
   it('rejects a field that is not part of the tool contract', async () => {
     plugin.listBookingReferenceData = jest.fn();
 
@@ -76,6 +115,32 @@ describe('booking tools route', () => {
 
     expect(result.message).toBe('naturalLanguage is not part of the generic booking contract');
     expect(plugin.listBookingReferenceData).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['list_booking_reference_data', { categories: 'consultants' }, 'categories is not valid for list_booking_reference_data'],
+    ['remove_booking_services', { bookingId: '100', serviceIds: ['7'] }, 'remove_booking_services needs expectedVersion'],
+    ['update_booking_services', { bookingId: '100', expectedVersion: '3', updates: [] }, 'updates is not valid for update_booking_services'],
+  ])('rejects a %s request that breaks the field types', async (tool, request, message) => {
+    const result = await doApiPost({
+      url: url(tool),
+      token: createUserToken(userId),
+      payload: { request },
+      expectStatusCode: 400,
+    });
+
+    expect(result.message).toBe(message);
+  });
+
+  it.each(['constructor', '__proto__', 'toString'])('treats the inherited name %s as an unknown tool', async tool => {
+    const result = await doApiPost({
+      url: url(tool),
+      token: createUserToken(userId),
+      payload: { request: {} },
+      expectStatusCode: 400,
+    });
+
+    expect(result.message).toBe(`Unknown booking tool: ${tool}`);
   });
 
   it('rejects an unknown tool', async () => {

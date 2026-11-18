@@ -2,14 +2,40 @@ const R = require('ramda');
 const { UserAppKey } = require('../models');
 const { createCredentialClient, redactCredentialError } = require('../lib/credential-request');
 
+// Field types of the generic contract. The plugin validates the content of each item.
+const isText = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 200;
+const isId = value => isText(value) || (Number.isInteger(value) && value > 0);
+const isList = (check, { allowEmpty = false } = {}) => value => Array.isArray(value)
+  && (allowEmpty || value.length > 0) && value.length <= 50 && value.every(check);
+const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const isLimit = value => Number.isInteger(value) && value > 0 && value <= 200;
+
 // Provider-neutral booking-edit tools. Each tool has a fixed generic request contract and maps
 // to one plugin method. The plugin owns provider mapping; callers never send provider payloads.
 const TOOLS = {
   list_booking_reference_data: {
     method: 'listBookingReferenceData',
-    fields: ['categories', 'query', 'limit'],
+    // An empty category list reads every table.
+    fields: { categories: isList(isText, { allowEmpty: true }), query: isText, limit: isLimit },
+  },
+  // Writes name the booking and the version the caller read; the plugin refuses a stale version.
+  update_booking_passengers: {
+    method: 'updateBookingPassengers',
+    fields: { bookingId: isId, expectedVersion: isText, actions: isList(isObject) },
+    required: ['bookingId', 'expectedVersion', 'actions'],
+  },
+  update_booking_services: {
+    method: 'updateBookingServices',
+    fields: { bookingId: isId, expectedVersion: isText, updates: isList(isObject) },
+    required: ['bookingId', 'expectedVersion', 'updates'],
+  },
+  remove_booking_services: {
+    method: 'removeBookingServices',
+    fields: { bookingId: isId, expectedVersion: isText, serviceIds: isList(isId) },
+    required: ['bookingId', 'expectedVersion', 'serviceIds'],
   },
 };
+const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 
 // Keys that would let a caller smuggle process state, provider payloads or a host decision
 // through the generic boundary.
@@ -31,15 +57,19 @@ const assertGeneric = value => {
 };
 
 const validRequest = (tool, request) => {
+  if (!own(TOOLS, tool)) throw badRequest(`Unknown booking tool: ${tool}`);
   const contract = TOOLS[tool];
-  if (!contract) throw badRequest(`Unknown booking tool: ${tool}`);
-  if (!request || typeof request !== 'object' || Array.isArray(request)) {
-    throw badRequest(`${tool} needs a request object`);
-  }
+  if (!isObject(request)) throw badRequest(`${tool} needs a request object`);
   Object.keys(request).forEach(key => {
-    if (!contract.fields.includes(key)) throw badRequest(`${key} is not part of the ${tool} contract`);
+    if (!own(contract.fields, key)) throw badRequest(`${key} is not part of the ${tool} contract`);
   });
   assertGeneric(request);
+  (contract.required || []).forEach(key => {
+    if (!own(request, key)) throw badRequest(`${tool} needs ${key}`);
+  });
+  Object.keys(request).forEach(key => {
+    if (!contract.fields[key](request[key])) throw badRequest(`${key} is not valid for ${tool}`);
+  });
   return contract;
 };
 
