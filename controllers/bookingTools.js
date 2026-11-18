@@ -1,10 +1,9 @@
-const assert = require('assert');
 const R = require('ramda');
 const { UserAppKey } = require('../models');
 const { createCredentialClient, redactCredentialError } = require('../lib/credential-request');
 
-// TC-1200: provider-neutral booking-edit tools. Each tool has a fixed generic request contract and
-// maps to one plugin method. The plugin owns provider mapping; callers never send provider payloads.
+// Provider-neutral booking-edit tools. Each tool has a fixed generic request contract and maps
+// to one plugin method. The plugin owns provider mapping; callers never send provider payloads.
 const TOOLS = {
   list_booking_reference_data: {
     method: 'listBookingReferenceData',
@@ -45,17 +44,21 @@ const validRequest = (tool, request) => {
 };
 
 const bookingTool = plugins => async (req, res, next) => {
-  const { appKey, userId, hint, tool } = req.params;
+  const {
+    appKey, userId, hint, tool,
+  } = req.params;
   const request = R.propOr({}, 'request', req.body);
   const credentials = R.prop('credentials', req.body);
   try {
     const contract = validRequest(tool, request);
     const app = plugins.find(({ name }) => name === appKey);
-    assert(app, `could not find the app ${appKey}`);
+    if (!app) return res.status(404).json({ message: `Booking system ${appKey} is not available` });
     if (typeof app[contract.method] !== 'function') {
       return res.status(501).json({ message: `${tool} is not supported by ${appKey}` });
     }
-    const integration = await UserAppKey.findOne({ where: { userId, integrationId: appKey, hint } });
+    const integration = await UserAppKey.findOne({
+      where: { userId, integrationId: appKey, hint },
+    });
     if (!integration) return res.status(404).json({ message: 'Integration not found' });
     const result = await app[contract.method]({
       axios: credentials ? createCredentialClient(app, req.requestId) : app.axios,

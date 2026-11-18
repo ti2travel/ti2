@@ -1,9 +1,9 @@
 /* globals beforeAll describe expect it jest */
+const testUtils = require('../../test/utils');
 
-// TC-1200: provider-neutral booking-edit tools. Ti2 validates the generic contract, forwards the
+// Provider-neutral booking-edit tools. Ti2 validates the generic contract, forwards the
 // consultant's session at the payload root and keeps both out of its request log.
 describe('booking tools route', () => {
-  const testUtils = require('../../test/utils');
   const appName = 'booking-tools-test';
   const hint = 'primary';
   let doApiPost;
@@ -100,6 +100,17 @@ describe('booking tools route', () => {
     });
 
     expect(result.message).toBe(`list_booking_reference_data is not supported by ${appName}`);
+  });
+
+  it('reports a booking system that is not installed', async () => {
+    const result = await doApiPost({
+      url: `/booking-tools/not-installed/${userId}/${hint}/list_booking_reference_data`,
+      token: createUserToken(userId),
+      payload: { request: {} },
+      expectStatusCode: 404,
+    });
+
+    expect(result.message).toBe('Booking system not-installed is not available');
   });
 
   it('refuses a user token for another company', async () => {

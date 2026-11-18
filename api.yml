@@ -1339,7 +1339,7 @@ paths:
         - bearerAuth: ['admin', 'user']
       tags:
         - bookings
-      summary: Run a provider-neutral booking-edit tool (TC-1200)
+      summary: Run a provider-neutral booking-edit tool
       description: >-
         The body carries the tool's generic `request` and, optionally, the consultant's booking-system
         session as `credentials`. Process state, extraction records and provider payloads are rejected.
