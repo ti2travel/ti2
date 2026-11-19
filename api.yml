@@ -1333,6 +1333,56 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JobStatus'
+  /booking-tools/{appKey}/{userId}/{hint}/{tool}:
+    post:
+      security:
+        - bearerAuth: ['admin', 'user']
+      tags:
+        - bookings
+      summary: Run a provider-neutral booking-edit tool
+      description: >-
+        The body carries the tool's generic `request` and, optionally, the consultant's booking-system
+        session as `credentials`. Process state, extraction records and provider payloads are rejected.
+      operationId: bookingTool
+      parameters:
+        - name: appKey
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: hint
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: tool
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                request:
+                  type: object
+                credentials:
+                  type: object
+      responses:
+        '200':
+          description: The tool result
+          content:
+            application/json:
+              schema:
+                type: object
   /invoices/tourplannx/{userId}/{hint}:
     post:
       security:
